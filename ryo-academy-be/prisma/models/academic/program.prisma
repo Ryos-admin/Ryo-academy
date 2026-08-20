@@ -1,0 +1,18 @@
+model Program {
+  id String @id @default(uuid())
+
+  name String
+
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+
+  isPrimary Boolean @default(true)
+
+  classes Class[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([academicYearId, name])
+  @@index([academicYearId])
+}

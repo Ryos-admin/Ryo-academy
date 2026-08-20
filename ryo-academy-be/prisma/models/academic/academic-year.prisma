@@ -1,0 +1,17 @@
+model AcademicYear {
+  id        String   @id @default(uuid())
+  name      String
+  startDate DateTime
+  endDate   DateTime
+
+  schoolCode String
+  school   School @relation(fields: [schoolCode], references: [schoolCode])
+
+  programs Program[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([schoolCode, name])
+  @@index([schoolCode])
+}

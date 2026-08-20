@@ -1,98 +1,99 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Ryo Academy Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+The backend API for Ryo Academy, built with [NestJS](https://nestjs.com/), TypeScript, PostgreSQL, and Prisma.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Prerequisites
 
-## Description
+- Node.js 20 or later
+- npm
+- A running PostgreSQL database
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Setup
 
-## Project setup
+1. Enter the backend directory and install the dependencies:
 
-```bash
-$ npm install
-```
+   ```bash
+   cd ryo-academy-be
+   npm install
+   ```
 
-## Compile and run the project
+2. Create your local environment file from the example:
 
-```bash
-# development
-$ npm run start
+   ```bash
+   cp .env.example .env
+   ```
 
-# watch mode
-$ npm run start:dev
+3. Update `.env` with your PostgreSQL connection string:
 
-# production mode
-$ npm run start:prod
-```
+   ```env
+   NODE_ENV=development
+   PORT=3000
+   API_PREFIX=api/v1
+   DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE?schema=public"
+   ```
 
-## Run tests
+   Replace `USER`, `PASSWORD`, `HOST`, and `DATABASE` with your database details. The `.env` file is ignored by Git and must not be committed.
 
-```bash
-# unit tests
-$ npm run test
+4. Generate the Prisma client and apply the committed migrations:
 
-# e2e tests
-$ npm run test:e2e
+   ```bash
+   npx prisma generate
+   npx prisma migrate deploy
+   ```
 
-# test coverage
-$ npm run test:cov
-```
+   For local schema changes during development, use `npx prisma migrate dev` instead of `prisma migrate deploy`.
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Running the API
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# Development with file watching
+npm run start:dev
+
+# Debug mode
+npm run start:debug
+
+# Production build and start
+npm run build
+npm run start:prod
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+The API listens on `http://localhost:3000` by default. The global API prefix defaults to `/api/v1`; set `API_PREFIX` in `.env` to change it.
 
-## Resources
+## Verify the setup
 
-Check out a few resources that may come in handy when working with NestJS:
+With the server running, request the health/example endpoint:
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+curl http://localhost:3000/api/v1
+```
 
-## Support
+The application connects to PostgreSQL on startup and logs `Database connected` when the connection succeeds.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Quality checks
 
-## Stay in touch
+```bash
+# Lint and auto-fix supported issues
+npm run lint
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+# Format source and test files
+npm run format
 
-## License
+# Unit tests
+npm test
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+# End-to-end tests
+npm run test:e2e
+
+# Test coverage
+npm run test:cov
+```
+
+## Useful Prisma commands
+
+```bash
+# Open Prisma Studio
+npx prisma studio
+
+# Check migration status
+npx prisma migrate status
+```

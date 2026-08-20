@@ -1,0 +1,16 @@
+model Class {
+  id String @id @default(uuid())
+
+  name String
+
+  programId String
+  program   Program @relation(fields: [programId], references: [id])
+
+  sections Section[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([programId, name])
+  @@index([programId])
+}
