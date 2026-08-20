@@ -1,6 +1,6 @@
-import { PartialType } from '@nestjs/mapped-types';
+import { PartialType, OmitType } from '@nestjs/mapped-types';
 import { CreateAcademicYearDto } from './create-academic-year.dto';
 
 export class UpdateAcademicYearDto extends PartialType(
-  CreateAcademicYearDto,
+  OmitType(CreateAcademicYearDto, ['schoolCode'] as const),
 ) {}
