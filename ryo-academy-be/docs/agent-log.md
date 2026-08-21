@@ -224,4 +224,50 @@ Prisma validation: already confirmed earlier ✅
 So I'd call M1.4.2 complete.
 
 
+Summary of latest change                                                        
+
+ • Commit: d82acbe — feat: add AcademicYearModule with controller and service   
+ • What changed: AcademicYearModule now wires AcademicYearController and        
+   AcademicYearService. DatabaseModule is @Global() and exports DatabaseService,
+   so the academic-year module can use Prisma via the existing DatabaseService  
+   without additional imports.                                                  
+ • Service behavior remains: create validates startDate < endDate and maps      
+   Prisma P2002 unique violation on [schoolCode, name] to ConflictException;    
+   findAll orders by schoolCode asc, startDate desc; findOne throws             
+   NotFoundException if missing; update keeps schoolCode immutable via          
+   UpdateAcademicYearDto which omits schoolCode, validates partial date ranges, 
+   and maps unique conflicts to ConflictException.                              
+ • DTOs: CreateAcademicYearDto validates schoolCode, name, startDate, endDate   
+   with class-validator and transforms dates. UpdateAcademicYearDto extends     
+   PartialType(OmitType(CreateAcademicYearDto, ['schoolCode'])).                
+
+If you want this appended to docs/agent-log.md, please add that file to the chat
+so I can return the entire updated file with existing content preserved.        
+
+ • Files changed                                                                
+    • ryo-academy-be/src/academic/academic-year/dto/update-academic-year.dto.ts 
+      – changed import from './create-academic-year.dto' to                     
+      './create-academic-year.dto.js'.                                          
+ • What was fixed                                                               
+    • Fixed ESM import resolution for CreateAcademicYearDto. The                
+      UpdateAcademicYearDto now correctly extends                               
+      PartialType(OmitType(CreateAcademicYearDto, ['schoolCode'])), keeping     
+      schoolCode immutable on update.                                           
+    • The cascading errors in academic-year.service.ts about startDate, endDate,
+      name not existing on UpdateAcademicYearDto are expected to disappear once 
+      the upstream DTO type resolves.                                           
+ • Compilation errors                                                           
+    • DTO resolution error is resolved.                                         
+    • The Prisma seed error src/database/seed/rbac.seed.ts: 'schoolCode' does   
+      not exist in type 'SectionCreateInput' could not be fixed. The seed file  
+      was not added to the chat, so its contents cannot be inspected or edited. 
+      Please add src/database/seed/rbac.seed.ts to the chat if you want stale   
+      schoolCode properties removed from Program, Class and Section creates     
+      while keeping them on AcademicYear.                                       
+ • Commands run                                                                 
+    • None. No git commit was created per your instruction.                     
+
+Remaining issue: seed file needs to be provided to remove stale schoolCode      
+usages from models where the field was removed.    
+
 

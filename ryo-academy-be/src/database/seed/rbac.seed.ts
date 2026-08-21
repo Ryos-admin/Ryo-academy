@@ -291,7 +291,6 @@ async function seedAcademicFoundation(): Promise<void> {
       create: {
         name: 'A',
         classId: academicClass.id,
-        schoolCode: school.schoolCode,
       },
       update: {},
     });

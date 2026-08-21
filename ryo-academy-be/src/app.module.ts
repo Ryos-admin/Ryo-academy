@@ -7,6 +7,7 @@ import { PasswordModule } from './security/password/password.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { ProtectedModule } from './protected/protected.module.js';
+import { AcademicYearModule } from './academic/academic-year/academic-year.module.js';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ProtectedModule } from './protected/protected.module.js';
     UsersModule,
     AuthModule,
     ProtectedModule,
+    AcademicYearModule
   ],
   controllers: [AppController],
   providers: [AppService],
