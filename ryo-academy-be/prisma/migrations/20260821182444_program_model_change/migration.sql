@@ -1,0 +1,7 @@
+-- CreateEnum
+CREATE TYPE "DayOfWeek" AS ENUM ('MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN');
+
+-- AlterTable
+ALTER TABLE "Program" ADD COLUMN     "daysOfWeek" "DayOfWeek"[],
+ADD COLUMN     "endTime" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "startTime" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

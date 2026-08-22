@@ -240,6 +240,9 @@ async function seedAcademicFoundation(): Promise<void> {
       name: 'Day Care Program',
       academicYearId: academicYear.id,
       isPrimary: true,
+      daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+      startTime: '08:00',
+      endTime: '17:00',
     },
     update: {
       isPrimary: true,
@@ -257,6 +260,9 @@ async function seedAcademicFoundation(): Promise<void> {
       name: 'Karate Program',
       academicYearId: academicYear.id,
       isPrimary: false,
+      daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+      startTime: '17:00',
+      endTime: '18:00',
     },
     update: {
       isPrimary: false,
