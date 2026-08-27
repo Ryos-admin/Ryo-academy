@@ -11,6 +11,9 @@ import { AcademicYearModule } from './academic/academic-year/academic-year.modul
 import { ProgramModule } from './academic/program/program.module.js';
 import { ClassModule } from './academic/class/class.module.js';
 import { SectionModule } from './academic/section/section.module.js';
+import { FeeStructureModule } from './admission/fee-structure/fee-structure.module.js';
+import { FeeComponentModule } from './admission/fee-component/fee-component.module.js';
+import { AdmissionModule } from './admission/admission-fee-log/admission.module.js';
 
 @Module({
   imports: [
@@ -26,6 +29,10 @@ import { SectionModule } from './academic/section/section.module.js';
     ProgramModule,
     ClassModule,
     SectionModule,
+    FeeStructureModule,
+    FeeComponentModule,
+    AdmissionModule,
+    
   ],
   controllers: [AppController],
   providers: [AppService],

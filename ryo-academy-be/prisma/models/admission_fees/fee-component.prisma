@@ -1,0 +1,18 @@
+model FeeComponent {
+    id String @id @default(uuid())
+    name String
+    description String?
+    amount Decimal
+    feeStructureId String
+    feeStructure FeeStructure @relation(fields: [feeStructureId], references: [id])
+    discountApplicable Boolean @default(false)
+    isMandatory Boolean @default(true)
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    isActive Boolean @default(true)
+
+    feePaymentDetails FeePaymentDetails[]
+
+    @@unique([feeStructureId, name])
+    @@index([feeStructureId])
+}

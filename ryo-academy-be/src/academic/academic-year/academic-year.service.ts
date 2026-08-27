@@ -12,7 +12,7 @@ export class AcademicYearService {
     try {
       return await this.databaseService.academicYear.create({
         data: {
-          schoolCode: dto.schoolCode,
+          schoolId: dto.schoolId,
           name: dto.name,
           startDate: dto.startDate,
           endDate: dto.endDate,
@@ -21,7 +21,7 @@ export class AcademicYearService {
     } catch (error) {
       if (error?.code === 'P2002') {
         throw new ConflictException(
-          `Academic year with name "${dto.name}" already exists for school "${dto.schoolCode}".`,
+          `Academic year with name "${dto.name}" already exists for school.`,
         );
       }
       throw error;
@@ -30,7 +30,7 @@ export class AcademicYearService {
 
   async findAll() {
     return this.databaseService.academicYear.findMany({
-      orderBy: [{ schoolCode: 'asc' }, { startDate: 'desc' }],
+      orderBy: [{ schoolId: 'asc' }, { startDate: 'desc' }],
     });
   }
 

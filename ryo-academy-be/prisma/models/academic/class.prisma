@@ -7,6 +7,8 @@ model Class {
   program   Program @relation(fields: [programId], references: [id])
 
   sections Section[]
+  admissions Admission[] 
+  feeStructures FeeStructure[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

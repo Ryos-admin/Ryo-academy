@@ -19,6 +19,8 @@ model Program {
   isPrimary Boolean @default(true)
 
   classes Class[]
+  admissions Admission[] 
+  feeStructures FeeStructure[]
 
   daysOfWeek DayOfWeek[] 
   startTime String 

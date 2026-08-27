@@ -212,8 +212,8 @@ async function seedAcademicFoundation(): Promise<void> {
 
   const academicYear = await prisma.academicYear.upsert({
     where: {
-      schoolCode_name: {
-        schoolCode: school.schoolCode,
+      schoolId_name: {
+        schoolId: school.id,
         name: '2026-27',
       },
     },
@@ -221,7 +221,7 @@ async function seedAcademicFoundation(): Promise<void> {
       name: '2026-27',
       startDate: new Date('2026-06-01'),
       endDate: new Date('2027-05-31'),
-      schoolCode: school.schoolCode,
+      schoolId: school.id,
     },
     update: {
       startDate: new Date('2026-06-01'),

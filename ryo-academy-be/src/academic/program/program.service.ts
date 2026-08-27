@@ -1,6 +1,6 @@
 import { DatabaseService } from "../../database/database.service.js";
 import { CreateProgramDto } from "./dto/create-program.dto.js";
-import { DayOfWeek } from "generated/prisma/client.js";
+import { DayOfWeek } from "../../../generated/prisma/client.js";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 
 @Injectable()

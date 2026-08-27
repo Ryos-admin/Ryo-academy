@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { CreateClassDto } from "./dto/create-class.dto.js";
 import { DatabaseService } from "../../database/database.service.js";
 import { UpdateClassDto } from "./dto/update-class.dto.js";
@@ -96,7 +96,7 @@ export class ClassService {
             });
         } catch (error) {
             if (error?.code === 'P2002') {
-                throw new NotFoundException(`Class with name "${dto.name}" already exists for program.`);
+                throw new ConflictException(`Class with name "${dto.name}" already exists for program.`);
             }
             throw error;
         }

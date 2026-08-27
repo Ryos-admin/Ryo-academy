@@ -6,4 +6,5 @@ model School {
   updatedAt DateTime @updatedAt
 
   academicYears AcademicYear[]
+  admission     Admission[]
 }

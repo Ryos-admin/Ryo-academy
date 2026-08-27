@@ -9,7 +9,7 @@ export class CreateAcademicYearDto {
   })
   @IsString()
   @IsNotEmpty()
-  schoolCode: string;
+  schoolId: string;
 
   @ApiProperty({
     description: 'Academic year name, e.g., 2027-28',

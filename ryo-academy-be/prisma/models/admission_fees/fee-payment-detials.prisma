@@ -1,0 +1,23 @@
+model FeePaymentDetails {
+    id String @id @default(uuid())
+    feePaymentHeaderId String
+    feePaymentHeader FeePaymentHeader @relation(fields: [feePaymentHeaderId], references: [id])
+    feeComponentId String
+    feeComponent FeeComponent @relation(fields: [feeComponentId], references: [id])
+
+    nameSnapshot String
+
+    originalAmount Decimal
+    discountApplicable Boolean
+    isMandatory Boolean
+    discountAmount Decimal
+    finalAmount Decimal
+    totalAmountToBePaid Decimal
+    amountPaid Decimal
+    paymentDate DateTime
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([feePaymentHeaderId, feeComponentId])
+    @@index([feePaymentHeaderId, feeComponentId])
+}

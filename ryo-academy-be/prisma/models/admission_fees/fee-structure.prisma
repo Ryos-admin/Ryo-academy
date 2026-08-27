@@ -1,0 +1,21 @@
+model FeeStructure {
+    id String @id @default(uuid())
+    name String
+    description String?
+    academicYearId String
+    academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+    programId String
+    program Program @relation(fields: [programId], references: [id])
+    classId String
+    class Class @relation(fields: [classId], references: [id])
+    totalAmount Decimal
+    isActive Boolean @default(true)
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    feeComponents FeeComponent[]
+    feePaymentHeaders FeePaymentHeader[]
+    
+    @@unique([academicYearId, programId, classId])
+    @@index([academicYearId, programId, classId])
+
+}

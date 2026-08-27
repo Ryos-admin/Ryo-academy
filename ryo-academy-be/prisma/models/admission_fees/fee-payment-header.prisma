@@ -1,0 +1,24 @@
+model FeePaymentHeader {
+  id String @id @default(uuid())
+  admissionId String
+  admission Admission @relation(fields: [admissionId], references: [id])
+  // studentId String
+  // student Student @relation(fields: [studentId], references: [id])
+  academicYearId String
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+  feeStructureId String
+  feeStructure FeeStructure @relation(fields: [feeStructureId], references: [id])
+  grossAmount Decimal
+  discountAmount Decimal
+  netAmount Decimal
+  totalPaidAmount Decimal
+  totalDueAmount Decimal
+  totalFeeAmount Decimal
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  feePaymentDetails FeePaymentDetails[]
+
+  @@unique([academicYearId, admissionId, feeStructureId])
+  @@index([academicYearId, admissionId, feeStructureId])
+}

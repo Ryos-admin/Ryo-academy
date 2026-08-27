@@ -4,14 +4,18 @@ model AcademicYear {
   startDate DateTime
   endDate   DateTime
 
-  schoolCode String
-  school   School @relation(fields: [schoolCode], references: [schoolCode])
+  schoolId   String?
+  school     School? @relation(fields: [schoolId], references: [id])
+  legacySchoolCode String? @map("schoolCode")
 
   programs Program[]
+  feeStructures FeeStructure[] 
+  admissions Admission[] 
+  feePaymentHeaders FeePaymentHeader[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([schoolCode, name])
-  @@index([schoolCode])
+  @@unique([schoolId, name])
+  @@index([schoolId])
 }

@@ -1,0 +1,16 @@
+model Student {
+    id String @id @default(uuid())
+    
+    studentName String
+    studentNumber String @unique
+    studentSequence Int
+    
+    admissionId String @unique
+    admission Admission @relation(fields: [admissionId], references: [id])
+
+
+    gender Gender
+    dateOfBirth DateTime
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
