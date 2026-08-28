@@ -1,15 +1,22 @@
-import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
-import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { ApiBadRequestResponse, ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { ProgramService } from "./program.service.js";
 import { CreateProgramDto } from "./dto/create-program.dto.js";
 import { UpdateProgramDto } from "./dto/update-program.dto.js";
+import { JwtAuthGuard } from "../../security/token/jwt-auth.guard.js";
+import { PermissionsGuard } from "../../auth/permissions.guard.js";
+import { RequirePermissions } from "../../auth/require-permissions.decorator.js";
+import { PERMISSIONS } from "../../auth/permissions/permission.constants.js";
 
 @ApiTags('Programs')
 @Controller('programs')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ProgramController {
     constructor(private readonly programService: ProgramService) {}
 
     @Get()
+    @RequirePermissions(PERMISSIONS.SHIFT_READ)
     @ApiOperation({ summary: 'List all programs / shifts' })
     @ApiOkResponse({ description: 'List of programs ordered by name asc, academicYear desc, and isPrimary desc' })
     async findAllPrograms() {
@@ -17,6 +24,7 @@ export class ProgramController {
     }
 
     @Post()
+    @RequirePermissions(PERMISSIONS.SHIFT_CREATE)
     @ApiOperation({ summary: 'Create a new program' })
     @ApiBody({ type: CreateProgramDto })
     @ApiCreatedResponse({ description: 'Program created successfully' })
@@ -27,6 +35,7 @@ export class ProgramController {
     }
 
     @Patch(':id')
+    @RequirePermissions(PERMISSIONS.SHIFT_UPDATE)
     @ApiOperation({ summary: 'Update an existing program' })
     @ApiBody({ type: UpdateProgramDto })
     @ApiOkResponse({ description: 'Program updated successfully' })
@@ -37,6 +46,7 @@ export class ProgramController {
     }
 
     @Get(':id')
+    @RequirePermissions(PERMISSIONS.SHIFT_READ)
     @ApiOperation({ summary: 'Get program by ID' })
     @ApiOkResponse({ description: 'Program found' })
     @ApiBadRequestResponse({ description: 'Program not found' })

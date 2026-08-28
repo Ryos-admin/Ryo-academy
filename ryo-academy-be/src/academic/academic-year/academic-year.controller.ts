@@ -38,7 +38,7 @@ export class AcademicYearController {
 
   @Post()
   @ApiOperation({ summary: 'Create a new academic year' })  
-  @RequirePermissions(PERMISSIONS.CLASS_CREATE)  
+  @RequirePermissions(PERMISSIONS.SHIFT_CREATE)  
   @ApiBody({ type: CreateAcademicYearDto })
   @ApiCreatedResponse({ description: 'Academic year created successfully' })
   @ApiBadRequestResponse({ description: 'Validation failed, e.g., startDate must be before endDate' })
@@ -51,7 +51,7 @@ export class AcademicYearController {
 
   @Get()
   @ApiOperation({ summary: 'List all academic years' })
-  @RequirePermissions(PERMISSIONS.CLASS_READ)
+  @RequirePermissions(PERMISSIONS.SHIFT_READ)
   @ApiOkResponse({ description: 'List of academic years ordered by schoolCode asc and startDate desc' })
   async findAll() {
     return this.academicYearService.findAll();
@@ -59,7 +59,7 @@ export class AcademicYearController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get academic year by ID' })
-  @RequirePermissions(PERMISSIONS.CLASS_READ)
+  @RequirePermissions(PERMISSIONS.SHIFT_READ)
   @ApiParam({ name: 'id', description: 'Academic year UUID', example: '3f8a1b2c-4d5e-6f7a-8b9c-0d1e2f3a4b5c' })
   @ApiOkResponse({ description: 'Academic year found' })
   @ApiNotFoundResponse({ description: 'Academic year not found' })
@@ -69,7 +69,7 @@ export class AcademicYearController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Partially update an academic year. schoolCode is immutable.' })
-  @RequirePermissions(PERMISSIONS.CLASS_UPDATE)
+  @RequirePermissions( PERMISSIONS.SHIFT_UPDATE )
   @ApiParam({ name: 'id', description: 'Academic year UUID', example: '3f8a1b2c-4d5e-6f7a-8b9c-0d1e2f3a4b5c' })
   @ApiBody({ type: UpdateAcademicYearDto })
   @ApiOkResponse({ description: 'Academic year updated successfully' })

@@ -1,15 +1,22 @@
-import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiBadRequestResponse, ApiBearerAuth, ApiBody, ApiConflictResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { AdmissionService } from "./admission.service.js";
-import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { CreateAdmissionDto } from "./dto/create-admission.dto.js";
 import { UpdateAdmissionDto } from "./dto/update-admission.dto.js";
+import { PermissionsGuard } from "../../auth/permissions.guard.js";
+import { JwtAuthGuard } from "../../security/token/jwt-auth.guard.js";
+import { RequirePermissions } from "../../auth/require-permissions.decorator.js";
+import { PERMISSIONS } from "../../auth/permissions/permission.constants.js";
 
 @ApiTags('Admission')
 @Controller('admission')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class AdmissionController {
     constructor(private readonly admissionService: AdmissionService) {}
 
     @Get()
+    @RequirePermissions(PERMISSIONS.ADMISSION_READ)
     @ApiOperation({ summary: 'List all admissions' })
     @ApiOkResponse({ description: 'List of admissions' })
     async findAllAdmissions() {
@@ -17,6 +24,7 @@ export class AdmissionController {
     }
 
     @Get(':id')
+    @RequirePermissions(PERMISSIONS.ADMISSION_READ)
     @ApiOperation({ summary: 'Get admission by ID' })
     @ApiOkResponse({ description: 'Admission found' })
     @ApiBadRequestResponse({ description: 'Admission not found' })
@@ -25,6 +33,7 @@ export class AdmissionController {
     }
 
     @Post()
+    @RequirePermissions(PERMISSIONS.ADMISSION_CREATE)
     @ApiOperation({ summary: 'Create a new admission' })
     @ApiBody({ type: CreateAdmissionDto })
     @ApiOkResponse({ description: 'Admission created successfully' })
@@ -35,6 +44,7 @@ export class AdmissionController {
     }
 
     @Patch(':id')
+    @RequirePermissions(PERMISSIONS.ADMISSION_UPDATE)
     @ApiOperation({ summary: 'Update an existing admission by ID' })
     @ApiBody({ type: UpdateAdmissionDto })
     @ApiOkResponse({ description: 'Admission updated successfully' })
@@ -46,6 +56,7 @@ export class AdmissionController {
 
 
     @Post(':id/confirmed')
+    @RequirePermissions(PERMISSIONS.ADMISSION_UPDATE)
     @ApiOperation({ summary: 'Update the status of an admission to confirmed' })
     @ApiOkResponse({ description: 'Admission status updated to confirmed successfully' })
     @ApiBadRequestResponse({ description: 'Admission not found or status update failed' })
@@ -55,6 +66,7 @@ export class AdmissionController {
     }
 
     @Post(':id/cancelled')
+    @RequirePermissions(PERMISSIONS.ADMISSION_UPDATE)
     @ApiOperation({ summary: 'Update the status of an admission to cancelled' })
     @ApiOkResponse({ description: 'Admission status updated to cancelled successfully' })
     @ApiBadRequestResponse({ description: 'Admission not found or status update failed' })

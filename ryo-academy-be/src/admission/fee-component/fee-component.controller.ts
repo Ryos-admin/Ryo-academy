@@ -1,15 +1,22 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from "@nestjs/common";
-import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from "@nestjs/common";
+import { ApiBadRequestResponse, ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { UpdateFeeComponentDto } from "./dto/update-fee-component.dto.js";
 import { CreateFeeComponentDto } from "./dto/create-fee-component.dto.js";
 import { FeeComponentService } from "./fee-component.service.js";
+import { PermissionsGuard } from "../../auth/permissions.guard.js";
+import { JwtAuthGuard } from "../../security/token/jwt-auth.guard.js";
+import { RequirePermissions } from "../../auth/require-permissions.decorator.js";
+import { PERMISSIONS } from "../../auth/permissions/permission.constants.js";
 
 @ApiTags('Fee Structure Child')
 @Controller('fee-structure-child')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class FeeComponentController {
     constructor(private readonly feeComponentService: FeeComponentService) {}
 
     @Post()
+    @RequirePermissions(PERMISSIONS.FEES_CREATE)
     @ApiOperation({ summary: 'Create a new fee component' })
     @ApiBody({type: CreateFeeComponentDto})
     @ApiCreatedResponse({ description: 'Fee component created successfully' })
@@ -20,6 +27,7 @@ export class FeeComponentController {
     }
 
     @Put(':id')
+    @RequirePermissions(PERMISSIONS.FEES_UPDATE)
     @ApiOperation({ summary: 'Update an existing fee component by ID' })
     @ApiBody({type: UpdateFeeComponentDto})
     @ApiOkResponse({ description: 'Fee component updated successfully' })
@@ -30,6 +38,7 @@ export class FeeComponentController {
     }
 
     @Delete(':id')
+    @RequirePermissions(PERMISSIONS.FEES_CREATE)
     @ApiOperation({ summary: 'Delete a fee component by ID' })
     @ApiOkResponse({ description: 'Fee component deleted successfully' })
     @ApiBadRequestResponse({ description: 'Fee component not found' })
@@ -38,6 +47,7 @@ export class FeeComponentController {
     }
 
     @Get()
+    @RequirePermissions(PERMISSIONS.FEES_READ)
     @ApiOperation({ summary: 'List all fee components' })
     @ApiOkResponse({ description: 'List of fee components ordered by name' })
     async findAllFeeComponents() {
@@ -45,6 +55,7 @@ export class FeeComponentController {
     }
 
     @Get(':id')
+    @RequirePermissions(PERMISSIONS.FEES_READ)
     @ApiOperation({ summary: 'Get fee component by ID' })
     @ApiOkResponse({ description: 'Fee component found' })
     @ApiBadRequestResponse({ description: 'Fee component not found' })
