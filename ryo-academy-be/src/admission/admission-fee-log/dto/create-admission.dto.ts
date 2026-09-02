@@ -351,3 +351,41 @@ export class CreateAdmissionDto {
     feePaymentHeaders!: CreateFeePaymentHeaderDto
     
 }
+
+export class CreateStudentDto {
+    @ApiProperty({
+        description: 'Admission number, e.g., "ADM-2023-001"',
+        example: 'ADM-2023-001',
+    })
+    @IsString()
+    @IsNotEmpty()
+    admissionId!: string;
+
+    @ApiProperty({
+        description: 'Admission number, e.g., "ADM-2023-001"',
+        example: 'ADM-2023-001',
+    })
+    studentNumber!: string;
+
+    @ApiProperty({
+        description: 'Name of the student for the admission',
+        example: 'John Doe',
+    })
+    @IsString()
+    @IsNotEmpty()
+    studentName!: string;
+
+    @ApiProperty({
+        description: 'Gender of the student',
+        example: 'Male',
+    })
+    gender: Gender;
+
+    @ApiProperty({
+        description: 'Date of birth of the student',
+        example: '2010-05-15',
+    })
+    @IsDate()
+    dateOfBirth: Date;
+
+}

@@ -3,11 +3,10 @@ model Student {
     
     studentName String
     studentNumber String @unique
-    studentSequence Int
+    studentSequence Int @default(autoincrement())
     
     admissionId String @unique
     admission Admission @relation(fields: [admissionId], references: [id])
-
 
     gender Gender
     dateOfBirth DateTime

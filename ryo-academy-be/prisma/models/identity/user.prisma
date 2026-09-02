@@ -1,6 +1,7 @@
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
+
   passwordHash String
   firstName    String
   lastName     String
@@ -9,6 +10,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   roles UserRole[]
+  
 
   @@index([isActive])
 }

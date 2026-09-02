@@ -148,6 +148,20 @@ export class AdmissionService {
                 admissionStatus: status as AdmissionStatus,
             }
         });
+
+        if (status === 'CONFIRMED') {
+            await this.databaseService.student.create({
+                data: {
+                    admissionId: admission.id,
+                    studentName: admission.studentName,
+                    studentNumber: admission.admissionSequence.toString(),
+                    studentSequence: admission.admissionSequence,
+                    dateOfBirth: admission.dateOfBirth,
+                    gender: admission.gender,
+
+                }
+            })
+        }
         return admission;
     }
 }
