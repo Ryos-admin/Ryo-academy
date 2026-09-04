@@ -14,6 +14,8 @@ import { SectionModule } from './academic/section/section.module.js';
 import { FeeStructureModule } from './admission/fee-structure/fee-structure.module.js';
 import { FeeComponentModule } from './admission/fee-component/fee-component.module.js';
 import { AdmissionModule } from './admission/admission-fee-log/admission.module.js';
+import { SubjectModule } from './academic/subject/subject.module.js';
+import { StaffModule } from './academic/staff/staff.module.js';
 
 @Module({
   imports: [
@@ -32,6 +34,8 @@ import { AdmissionModule } from './admission/admission-fee-log/admission.module.
     FeeStructureModule,
     FeeComponentModule,
     AdmissionModule,
+    SubjectModule,
+    StaffModule,
     
   ],
   controllers: [AppController],

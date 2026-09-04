@@ -1,6 +1,7 @@
 import { ApiBadRequestResponse, ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { ClassService } from "./class.service.js";
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { SubjectService } from "../subject/subject.service.js";
 import { CreateClassDto } from "./dto/create-class.dto.js";
 import { UpdateClassDto } from "./dto/update-class.dto.js";
 import { JwtAuthGuard } from "../../security/token/jwt-auth.guard.js";
@@ -13,7 +14,13 @@ import { PERMISSIONS } from "../../auth/permissions/permission.constants.js";
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ClassController {
-    constructor(private readonly classService: ClassService) {}
+    constructor(private readonly classService: ClassService, private readonly subjectService: SubjectService) {}
+
+    @Get(':classId/subjects')
+    @RequirePermissions(PERMISSIONS.SUBJECT_READ)
+    async findSubjects(@Param('classId') classId: string) {
+        return this.subjectService.findByClass(classId);
+    }
 
     @Get()
     @RequirePermissions(PERMISSIONS.CLASS_READ)

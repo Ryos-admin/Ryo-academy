@@ -11,6 +11,6 @@ model User {
 
   roles UserRole[]
   
-
+  staff Staff? @relation("StaffUser") 
   @@index([isActive])
 }

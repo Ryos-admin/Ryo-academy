@@ -1,0 +1,12 @@
+model Subjects {
+    id String @id @default(uuid())
+    name String
+    classId String
+    class Class @relation(fields: [classId], references: [id])
+    teachingAssignments TeachingAssignment[]
+    isDeleted Boolean @default(false)
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+}
+

@@ -1,0 +1,13 @@
+model TeachingAssignment {
+    id String @id @default(uuid())
+    staffId String
+    staff Staff @relation(fields: [staffId], references: [id])
+    subjectId String
+    subject Subjects @relation(fields: [subjectId], references: [id])
+    classId String
+    class Class @relation(fields: [classId], references: [id])
+    sectionId String
+    section Section @relation(fields: [sectionId], references: [id])
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}

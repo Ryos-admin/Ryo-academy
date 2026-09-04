@@ -11,6 +11,10 @@ export const PERMISSIONS = {
   CLASS_CREATE: 'class:create',
   CLASS_UPDATE: 'class:update',
 
+  SUBJECT_READ: 'subject:read',
+  SUBJECT_CREATE: 'subject:create',
+  SUBJECT_UPDATE: 'subject:update',
+
   ATTENDANCE_READ: 'attendance:read',
   ATTENDANCE_MARK: 'attendance:mark',
   ATTENDANCE_UPDATE: 'attendance:update',
