@@ -5,7 +5,9 @@ model Section {
 
   classId String
   class   Class @relation(fields: [classId], references: [id])
+  admissions Admission[]
   teachingAssignments TeachingAssignment[]
+  attendanceLogMasters AttendanceLogMaster[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

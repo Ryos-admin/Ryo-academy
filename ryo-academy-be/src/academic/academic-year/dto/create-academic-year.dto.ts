@@ -6,6 +6,7 @@ export class CreateAcademicYearDto {
   @ApiProperty({
     description: 'Unique code identifying the school',
     example: 'RYO',
+    type: String,
   })
   @IsString()
   @IsNotEmpty()
@@ -14,6 +15,7 @@ export class CreateAcademicYearDto {
   @ApiProperty({
     description: 'Academic year name, e.g., 2027-28',
     example: '2027-28',
+    type: String,
   })
   @IsString()
   @IsNotEmpty()

@@ -1,0 +1,24 @@
+enum DayType {
+    WORKING_DAY
+    WEEKEND
+    HOLIDAY
+    SPECIAL_WORKING_DAY
+}
+
+
+model AcademicCalendar {
+    id String @id @default(uuid())
+    academicYearId String
+    academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+    date DateTime
+    dayType DayType
+    title String
+    description String?
+    isWorkingDay Boolean
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    deletedAt DateTime?
+
+    @@unique([academicYearId, date])
+}
+

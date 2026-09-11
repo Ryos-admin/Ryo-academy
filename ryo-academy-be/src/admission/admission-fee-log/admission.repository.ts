@@ -12,18 +12,17 @@ export class AdmissionRepository {
     async findFeeStructurebyId(dto: CreateAdmissionDto) {
         
 
-        let feeStructure = await this.databaseService.feeStructure.findFirst({
+        const feeStructure = await this.databaseService.feeStructure.findFirst({
             where: { academicYearId: dto.academicYearId, programId: dto.programId, classId: dto.classId, isActive: true }
         })
 
-        let feeComponents = await this.databaseService.feeComponent.findMany({
-            where: { feeStructureId: feeStructure?.id, isActive: true }
+        const feeComponents = await this.databaseService.feeComponent.findMany({
+            where: { feeStructureId: feeStructure?.id, isActive: true },
+            orderBy: { name: 'asc' },
 
         });
 
-        return feeComponents && feeComponents.length > 0
-            ? { ...feeStructure, feeComponents: [feeComponents] }
-            : null;
+        return feeStructure ? { ...feeStructure, feeComponents } : null;
 
     }
 

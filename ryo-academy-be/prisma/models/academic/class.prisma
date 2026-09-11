@@ -12,6 +12,7 @@ model Class {
 
   subjects Subjects[]
   teachingAssignments TeachingAssignment[]
+  attendanceLogMasters AttendanceLogMaster[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

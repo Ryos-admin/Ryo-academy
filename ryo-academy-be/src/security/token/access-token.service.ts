@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
@@ -10,8 +10,8 @@ export class AccessTokenService {
   private readonly audience: string;
 
   constructor(
-    private readonly jwtService: JwtService,
-    configService: ConfigService,
+    @Inject(JwtService) private readonly jwtService: JwtService,
+    @Inject(ConfigService) configService: ConfigService,
   ) {
     this.secret = this.getRequiredValue(configService, 'JWT_ACCESS_SECRET');
 
@@ -20,7 +20,7 @@ export class AccessTokenService {
     }
 
     this.expiresIn = this.getExpiresIn(
-      this.getRequiredValue(configService, 'JWT_ACCESS_EXPIRES_IN'),
+      this.getRequiredValue(configService, 'JWT_ACCESS_EXPIRES_IN'), 
     );
     this.issuer = this.getRequiredValue(configService, 'JWT_ISSUER');
     this.audience = this.getRequiredValue(configService, 'JWT_AUDIENCE');

@@ -10,8 +10,8 @@ export class FeeComponentService {
     async create(dto: CreateFeeComponentDto) {
         try {
 
-            const feeStructure = await this.databaseService.feeStructure.findUnique({
-                where: { id: dto.feeStructureId },
+            const feeStructure = await this.databaseService.feeStructure.findFirst({
+                where: { id: dto.feeStructureId, isActive: true },
             });
 
             if (!feeStructure) {
@@ -35,8 +35,8 @@ export class FeeComponentService {
                     description: dto.description,
                     amount: +dto.amount,
                     feeStructureId: dto.feeStructureId,
-                    discountApplicable: dto.discountApplicable,
-                    isMandatory: dto.isMandatory,
+                    discountApplicable: dto.discountApplicable ?? false,
+                    isMandatory: dto.isMandatory ?? true,
                 },
             });
 
@@ -59,12 +59,16 @@ export class FeeComponentService {
                 throw new NotFoundException(`Fee component with name "${dto.name}" does not exists for fee structure.`);
             }
 
+            if (dto.amount !== undefined && dto.amount <= 0) {
+                throw new ConflictException('Fee component amount must be greater than zero.');
+            }
+
             return await this.databaseService.feeComponent.update({
                 where: { id },
                 data: {
                     ...(dto.name !== undefined && { name: dto.name }),
                     ...(dto.description !== undefined && { description: dto.description }),
-                    ...(dto.amount !== undefined && { amount: +dto.amount }),
+                    ...(dto.amount !== undefined && { amount: dto.amount }),
                     ...(dto.discountApplicable !== undefined && { discountApplicable: dto.discountApplicable }),
                     ...(dto.isMandatory !== undefined && { isMandatory: dto.isMandatory }),
                 },
@@ -89,8 +93,9 @@ export class FeeComponentService {
                 throw new NotFoundException(`Fee component with ID "${id}" does not exist.`);
             }
 
-            return await this.databaseService.feeComponent.delete({
+            return await this.databaseService.feeComponent.update({
                 where: { id },
+                data: { isActive: false },
             });
         }
         catch (error) {
@@ -100,7 +105,10 @@ export class FeeComponentService {
 
     async findAll() {
         try {
-            return await this.databaseService.feeComponent.findMany();
+            return await this.databaseService.feeComponent.findMany({
+                where: { isActive: true },
+                orderBy: { name: 'asc' },
+            });
         }
         catch (error) {
             throw error;

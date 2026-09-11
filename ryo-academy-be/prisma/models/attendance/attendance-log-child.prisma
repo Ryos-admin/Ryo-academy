@@ -1,0 +1,20 @@
+enum StudentAttendanceStatus {
+  PRESENT
+  ABSENT
+}
+
+model AttendanceLogChild {
+  id                 String                   @id @default(uuid())
+  attendanceMasterId String
+  studentId          String
+  status             StudentAttendanceStatus
+  remarks            String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  attendanceMaster AttendanceLogMaster @relation(fields: [attendanceMasterId], references: [id])
+  student          Student             @relation(fields: [studentId], references: [id])
+
+  @@unique([attendanceMasterId, studentId])
+  @@index([studentId])
+}

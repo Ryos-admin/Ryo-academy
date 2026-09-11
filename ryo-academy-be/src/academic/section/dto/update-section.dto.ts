@@ -5,6 +5,7 @@ export class UpdateSectionDto {
     @ApiProperty({
         description: 'Unique code identifying the Section',
         example: 'A',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()

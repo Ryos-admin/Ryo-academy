@@ -119,10 +119,23 @@ Request body:
 
 ```json
 {
-  "email": "admin@ryoacademy.com",
+  "email": "college.admin.test@example.com",
   "password": "DevTestPassword123!"
 }
 ```
+```json
+{
+  "email": "office.admin.test@example.com",
+  "password": "DevTestPassword123!"
+}
+```
+```json
+{
+  "email": "staff.test@example.com",
+  "password": "DevTestPassword123!"
+}
+```
+
 
 Response `200 OK`:
 

@@ -5,6 +5,7 @@ export class UpdateStaffDto {
     @ApiProperty({
         description: 'Unique code identifying the Staff',
         example: 'STAFF-001',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()  
@@ -13,6 +14,7 @@ export class UpdateStaffDto {
     @ApiProperty({
         description: 'First name of the Staff',
         example: 'John',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()  
@@ -21,6 +23,7 @@ export class UpdateStaffDto {
     @ApiProperty({
         description: 'Last name of the Staff',
         example: 'Doe',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()  
@@ -28,7 +31,8 @@ export class UpdateStaffDto {
 
     @ApiProperty({
         description: 'Email address of the Staff',
-        example: 'dfdf@jh.dd'
+        example: 'dfdf@jh.dd',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()  
@@ -38,6 +42,7 @@ export class UpdateStaffDto {
     @ApiProperty({
         description: 'Phone number of the Staff',
         example: '+1234567890',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()  
@@ -47,6 +52,7 @@ export class UpdateStaffDto {
     @ApiProperty({
         description: 'Date of birth of the Staff',
         example: '1990-01-01',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()  
@@ -58,6 +64,7 @@ export class UpdateTeachingAssignmentDto {
     @ApiProperty({
         description: 'ID of the subject',
         example: 'subject-id-456',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()  
@@ -66,6 +73,7 @@ export class UpdateTeachingAssignmentDto {
     @ApiProperty({
         description: 'ID of the Class',
         example: 'class-id-456',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()  
@@ -74,6 +82,7 @@ export class UpdateTeachingAssignmentDto {
     @ApiProperty({
         description: 'ID of the section assigned to teach',
         example: 'section-id-123',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()  
@@ -81,7 +90,7 @@ export class UpdateTeachingAssignmentDto {
 }
 
 export class UpdateStaffStatusDto {
-    @ApiProperty({ example: true })
+    @ApiProperty({ example: true, type: Boolean })
     @IsBoolean()
     status!: boolean;
 }

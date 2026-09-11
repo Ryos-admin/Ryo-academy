@@ -5,6 +5,7 @@ export class CreateClassDto {
     @ApiProperty({
         description: 'Unique code identifying the Class',
         example: 'Class-1A',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()   
@@ -13,6 +14,7 @@ export class CreateClassDto {
     @ApiProperty({
         description: 'ID of the program to which the class belongs',
         example: 'Day-Care(id)',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()

@@ -5,6 +5,7 @@ export class CreateStaffDto {
     @ApiProperty({
         description: 'Unique code identifying the Staff',
         example: 'Staff-1A',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()   
@@ -13,6 +14,7 @@ export class CreateStaffDto {
     @ApiProperty({
         description: 'First name of the Staff',
         example: 'John',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()   
@@ -21,6 +23,7 @@ export class CreateStaffDto {
     @ApiProperty({
         description: 'Last name of the Staff',
         example: 'Doe',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()   
@@ -28,7 +31,8 @@ export class CreateStaffDto {
 
     @ApiProperty({
         description: 'Email of the Staff',
-        example: 'dfjsd@sdfsd.df'
+        example: 'dfjsd@sdfsd.df',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()  
@@ -38,6 +42,7 @@ export class CreateStaffDto {
     @ApiProperty({
         description: 'Phone number of the Staff',
         example: '+1234567890',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()   
@@ -47,6 +52,7 @@ export class CreateStaffDto {
     @ApiProperty({
         description: 'Date of birth of the Staff',
         example: '1990-01-01',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()   

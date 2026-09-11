@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { ApiBadRequestResponse, ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { FeeStructureService } from "./fee-structure.service.js";
 import { FeeStructureDto } from "./dto/fee-structure.dto.js";
+import { UpdateFeeStructureDto } from "./dto/update-fee-structure.dto.js";
 import { PermissionsGuard } from "../../auth/permissions.guard.js";
 import { JwtAuthGuard } from "../../security/token/jwt-auth.guard.js";
 import { PERMISSIONS } from "../../auth/permissions/permission.constants.js";
@@ -43,8 +44,17 @@ export class FeeStructureController {
         return await this.feeStructureService.create(createFeeStructureDto);
     }
 
+    @Patch(':id')
+    @RequirePermissions(PERMISSIONS.FEES_UPDATE)
+    @ApiOperation({ summary: 'Update mutable fee structure fields' })
+    @ApiBody({ type: UpdateFeeStructureDto })
+    @ApiOkResponse({ description: 'Fee structure updated successfully' })
+    async updateFeeStructure(@Param('id') id: string, @Body() dto: UpdateFeeStructureDto) {
+        return await this.feeStructureService.update(id, dto);
+    }
+
     @Delete(':id')
-    @RequirePermissions(PERMISSIONS.FEES_CREATE)
+    @RequirePermissions(PERMISSIONS.FEES_UPDATE)
     @ApiOperation({ summary: 'Delete a fee structure by ID' })
     @ApiOkResponse({ description: 'Fee structure deleted successfully' })
     @ApiBadRequestResponse({ description: 'Fee structure not found' })

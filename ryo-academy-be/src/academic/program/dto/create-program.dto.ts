@@ -5,6 +5,7 @@ export class CreateProgramDto {
     @ApiProperty({
         description: 'Unique code identifying the Program/shift',
         example: 'Day-Care',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()
@@ -13,6 +14,7 @@ export class CreateProgramDto {
     @ApiProperty({
         description: 'ID of the academic year to which the program belongs',
         example: '2025-2026',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()
@@ -21,6 +23,7 @@ export class CreateProgramDto {
     @ApiProperty({
         description: 'Indicates if the program is primary',
         example: true,
+        type: Boolean,
     })
     @IsBoolean()
     @IsNotEmpty()
@@ -29,6 +32,7 @@ export class CreateProgramDto {
     @ApiProperty({
         description: 'Days of the week when the program is offered',
         example: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+        type: [String],
     })
     @IsArray()
     @IsNotEmpty()
@@ -37,6 +41,7 @@ export class CreateProgramDto {
     @ApiProperty({
         description: 'Start time of the program',
         example: '08:00',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()
@@ -45,6 +50,7 @@ export class CreateProgramDto {
     @ApiProperty({
         description: 'End time of the program',
         example: '17:00',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()

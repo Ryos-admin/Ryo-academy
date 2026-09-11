@@ -5,6 +5,7 @@ export class CreateSectionDto {
     @ApiProperty({
         description: 'Unique code identifying the Section',
         example: 'A1',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()
@@ -13,6 +14,7 @@ export class CreateSectionDto {
     @ApiProperty({
         description: 'ID of the Class to which the Section belongs',
         example: 'class-123',
+        type: String,
     })
     @IsString()
     @IsNotEmpty()

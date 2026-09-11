@@ -16,6 +16,9 @@ import { FeeComponentModule } from './admission/fee-component/fee-component.modu
 import { AdmissionModule } from './admission/admission-fee-log/admission.module.js';
 import { SubjectModule } from './academic/subject/subject.module.js';
 import { StaffModule } from './academic/staff/staff.module.js';
+import { AcademicCalendarModule } from './academic/academic-calendar/academic-calendar.module.js';
+import { AttendanceModule } from './attendance/attendance.module.js';
+import { StudentModule } from './student/student.module.js';
 
 @Module({
   imports: [
@@ -36,7 +39,9 @@ import { StaffModule } from './academic/staff/staff.module.js';
     AdmissionModule,
     SubjectModule,
     StaffModule,
-    
+    AcademicCalendarModule,
+    AttendanceModule,
+    StudentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -32,6 +32,8 @@ model Admission {
     program Program @relation(fields: [programId], references: [id])
     classId String
     class Class @relation(fields: [classId], references: [id])
+    sectionId String
+    section Section @relation(fields: [sectionId], references: [id])
 
     // STUDENT DETAILS
     studentName String

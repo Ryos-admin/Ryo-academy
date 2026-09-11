@@ -1,0 +1,27 @@
+enum AttendanceMasterStatus {
+  DRAFT
+  SUBMITTED
+}
+
+model AttendanceLogMaster {
+  id             String                @id @default(uuid())
+  academicYearId String
+  classId        String
+  sectionId      String
+  date           DateTime              @db.Date
+  takenBy        String
+  status         AttendanceMasterStatus
+  submittedAt    DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  deletedAt      DateTime?
+
+  academicYear AcademicYear          @relation(fields: [academicYearId], references: [id])
+  class        Class                 @relation(fields: [classId], references: [id])
+  section      Section               @relation(fields: [sectionId], references: [id])
+  staff        Staff                 @relation(fields: [takenBy], references: [id])
+  children     AttendanceLogChild[]
+
+  @@index([academicYearId, classId, sectionId, date])
+  @@index([classId, sectionId, date])
+}

@@ -38,7 +38,7 @@ export class FeeComponentController {
     }
 
     @Delete(':id')
-    @RequirePermissions(PERMISSIONS.FEES_CREATE)
+    @RequirePermissions(PERMISSIONS.FEES_UPDATE)
     @ApiOperation({ summary: 'Delete a fee component by ID' })
     @ApiOkResponse({ description: 'Fee component deleted successfully' })
     @ApiBadRequestResponse({ description: 'Fee component not found' })

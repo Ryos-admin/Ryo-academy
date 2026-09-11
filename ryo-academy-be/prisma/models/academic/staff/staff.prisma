@@ -11,6 +11,7 @@ model Staff {
     user User @relation("StaffUser", fields: [userId], references: [id])
 
     teachingAssignments TeachingAssignment[]
+    attendanceLogMasters AttendanceLogMaster[]
 
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt

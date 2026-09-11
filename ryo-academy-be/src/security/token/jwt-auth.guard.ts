@@ -30,8 +30,8 @@ export class JwtAuthGuard implements CanActivate {
     const issuer = this.configService.get<string>('JWT_ISSUER');
     const audience = this.configService.get<string>('JWT_AUDIENCE');
 
-    console.log(secret ,(secret ?? '').length ,issuer ,audience, 
-      !secret || secret.length !== 32 || !issuer );
+    // console.log(secret ,(secret ?? '').length ,issuer ,audience, 
+    //   !secret || secret.length !== 32 || !issuer );
     
 
     if (!secret || secret.length !== 32 || !issuer || !audience ) {

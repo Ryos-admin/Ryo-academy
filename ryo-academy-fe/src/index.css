@@ -431,7 +431,6 @@
   .hierarchy-banner { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: -4px 0 20px; padding: 13px 15px; border: 1px solid #e5d9bd; border-radius: 9px; background: #faf5e7; color: #725d32; font-size: 11px; }
   .hierarchy-node { padding: 5px 8px; border-radius: 5px; background: rgba(255,255,255,.66); font-weight: 700; }
   .hierarchy-emblem { width: 58px; height: 58px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; background: #e5eff1; color: #39758a; }
-  .attendance-form > .form-grid > .field:not(:last-child) { display: none; }
   .attendance-select-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 19px 20px; margin-top: -6px; }
   .attendance-list { margin-top: 24px; border: 1px solid hsl(var(--border)); border-radius: 8px; overflow: hidden; }
   .attendance-list-head, .attendance-row { display: grid; grid-template-columns: 1fr 1.2fr; align-items: center; gap: 16px; padding: 13px 15px; }
