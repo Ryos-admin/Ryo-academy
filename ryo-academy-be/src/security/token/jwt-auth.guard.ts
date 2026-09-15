@@ -30,10 +30,10 @@ export class JwtAuthGuard implements CanActivate {
     const issuer = this.configService.get<string>('JWT_ISSUER');
     const audience = this.configService.get<string>('JWT_AUDIENCE');
 
-    console.log(`secret length: ${(secret ?? '').length}, secret: ${!secret}, Issuer: ${issuer}${!issuer}, Audiance: ${audience}`);
+    // console.log(`secret length: ${(secret ?? '').length}, secret: ${!secret}, Issuer: ${!issuer}, Audiance: ${!audience}`);
 
 
-    if (!secret || secret.length !== 32 || !issuer || !audience) {
+    if (!secret || secret.length < 32 || !issuer || !audience) {
       throw new UnauthorizedException('Invalid JWT configuration');
     }
 
