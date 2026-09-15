@@ -459,6 +459,53 @@ Created the Subject feature from its previous mock/data-only state.
 - Typecheck unavailable.
 - Targeted `git diff --check` passed.
 
+# Milestone 9 — Frontend Page Structure Refactor
+
+Status: Build verified; typecheck unavailable in the checkout.
+
+## Objective
+
+Reduce the application entrypoint to provider and application composition responsibilities without changing route behavior, API adapters, query/mutation behavior, permissions, authentication, or real/mock migration boundaries.
+
+## Files Created or Relocated
+
+- `src/pages/app-pages.tsx` — existing route tree, shell, shared UI, and page implementations relocated from `src/App.tsx`.
+
+## App.tsx Changes
+
+- `src/App.tsx` now contains the React Query provider, tooltip provider, Wouter router, error boundary, toaster, and extracted application router composition.
+- The existing query client is shared with the extracted route module.
+
+## Extracted Structure
+
+- Dashboard, authentication screens, profile, navigation shell, academic setup, admissions, students, staff, teaching assignments, fees, attendance, and timetable implementations now live outside `App.tsx`.
+- Existing shared page helpers and form primitives moved with the page implementations to avoid behavior-changing prop or state rewrites.
+- No new custom hooks or API abstraction layer was introduced.
+
+## Preserved Behavior
+
+- Existing route paths, route parameters, redirects, fallback route, navigation behavior, permission checks, and session behavior were retained.
+- Existing real API integrations remain real, including authentication, academic setup, admissions, students, attendance, and fee adapter consumers.
+- Existing mock/deferred consumers remain mock-backed, including timetable and legacy mock-compatible paths.
+- No API adapter, backend, Prisma schema, migration, query key, mutation key, or permission constant was changed.
+
+## Architectural Decisions
+
+- This milestone uses a cohesive page module as the first extraction boundary because the original page implementations share local helpers and intentionally hybrid data sources.
+- Further domain-level splitting can be performed later as an independent, behavior-scoped refactor.
+
+## Verification
+
+- `npm run build` passed.
+- `npm run typecheck` could not run because `tsc` is not installed in the checkout.
+- `pnpm exec tsc -p tsconfig.json --noEmit` could not run for the same reason.
+- `git diff --check` passed.
+
+## Known Limitations
+
+- The extracted page module is still large and should be split by domain only with focused behavioral checks for each subsequent move.
+- Manual route and form smoke testing remains advisable because automated browser tests were not available for this refactor.
+
 ## Known Limitations
 
 - Frontend still uses compatibility permission constants because dedicated Subject constants are not available in the existing UI permission model.
@@ -3827,3 +3874,136 @@ This milestone completes the frontend integration layer for the remaining Fee St
 
 - The frontend codebase already imports the real hook layer for `useCreateFeeStructure`, `useUpdateFeeStructure`, `useDeactivateFeeStructure`, `useCreateFeeComponent`, `useUpdateFeeComponent`, and `useDeactivateFeeComponent` from `src/lib/fees-api.ts`.
 - This milestone follows the same route naming and permission surfaces already used by the real fee screen entries in `src/App.tsx` and preserves the pre-existing migration file structure without disturbing the historical entries above.
+
+# Milestone 16 — Domain Page Decomposition
+
+Status: Build verified; typecheck unavailable in the checkout.
+
+## Objective
+
+Decompose the intermediate `src/pages/app-pages.tsx` page monolith into domain-oriented page modules without changing routes, behavior, API usage, React Query behavior, permissions, authentication, or real/mock boundaries.
+
+## Files Created
+
+- `src/pages/academic-pages.tsx`
+- `src/pages/staff-pages.tsx`
+- `src/pages/admissions-students-pages.tsx`
+- `src/pages/fee-pages.tsx`
+- `src/pages/attendance-pages.tsx`
+- `src/pages/dashboard-page.tsx`
+- `src/pages/operations-pages.tsx`
+
+## Decomposition
+
+- Academic years, programs, classes, sections, subjects, academic calendar, and compatibility setup screens moved to `academic-pages.tsx`.
+- Staff and teaching assignments moved to `staff-pages.tsx`.
+- Admissions, students, and legacy basic-resource compatibility screens moved to `admissions-students-pages.tsx`.
+- Fee structures and fee components moved to `fee-pages.tsx`.
+- Mock and real attendance screens moved to `attendance-pages.tsx`.
+- Dashboard moved to `dashboard-page.tsx`.
+- Timetable and profile moved to `operations-pages.tsx`.
+- `app-pages.tsx` now retains application shell, authentication/session flow, route adapters, and route registration.
+
+## Preservation
+
+- Existing route paths and parameters remain present, including academic setup, admissions, students, staff, fees, attendance, timetable, profile, login, and fallback routes.
+- Existing API adapters, React Query calls, mutation calls, form schemas, permission checks, authentication handling, navigation, and mock/real data sources were moved without business-logic changes.
+- No backend, Prisma, API adapter, dependency, or state-management changes were introduced.
+
+## Architectural Decisions
+
+- Domain modules import the existing shared page helpers and API hooks rather than adding a second abstraction layer.
+- Compatibility components stayed with their owning domain so the hybrid migration behavior remains explicit.
+- Shared helper extraction was intentionally limited to existing page primitives needed to make the domain modules readable.
+
+## Verification
+
+- `npm run build` passed after each meaningful extraction batch and on the final state.
+- `npm run typecheck` could not run because `tsc` is not installed in the checkout.
+- `git diff --check` passed.
+
+## Known Limitations
+
+- The domain files retain the original compact JSX and local helper style; cosmetic formatting and deeper shared-component cleanup were intentionally deferred.
+- Manual route and form smoke testing is still recommended because browser-level tests were not available for this structural change.
+
+# Milestone 17 — Post-Refactor Static Cleanup
+
+Status: Build verified; typecheck unavailable in the checkout.
+
+## Scope
+
+- Removed stale all-domain imports copied into the extracted page modules.
+- Removed obsolete router-module helper imports and the unused `roles` constant.
+- Added `src/pages/page-primitives.tsx` for shared page UI/helpers used by the domain modules and application shell.
+- Removed the domain-to-router import cycle caused by importing primitives from `app-pages.tsx`.
+- Preserved existing page exports, route adapters, route paths, API calls, forms, permissions, authentication, and mock/real boundaries.
+
+## Static Verification
+
+- Confirmed domain modules no longer import `src/pages/app-pages.tsx`.
+- Confirmed page implementations are not duplicated by symbol search.
+- Confirmed route registrations remain in `app-pages.tsx` and resolve to extracted module exports through the successful build.
+- `npm run build` passed.
+- `npm run typecheck` was attempted but could not run because `tsc` is not installed.
+- No lint script exists in `package.json`; lint was not run.
+- No formatter/check script exists in `package.json`; no formatter was run.
+- `git diff --check` passed.
+
+## Known Limitations
+
+- Browser, end-to-end, login, route-flow, form-flow, and API workflow testing were explicitly not performed in this milestone.
+- Existing compact JSX formatting was not broadly rewritten because this task was limited to cleanup and static verification.
+
+# Milestone 18 — White-Page Regression Fix and Readability Cleanup
+
+Status: Build verified.
+
+## Phase 1 — Runtime/module correction
+
+- The application shell imported the generic Radix `Avatar` primitive from `src/components/ui/avatar.tsx` while passing the page-level helper props `{ user, size }` used by the existing shell markup.
+- The shell was corrected to import the existing page `Avatar` helper from `src/pages/page-primitives.tsx`.
+- Route paths, wrappers, permissions, session handling, API calls, and page behavior were not changed.
+- Static inspection found no additional duplicate route declarations or domain-to-router import cycles after this correction.
+
+## Phase 2 — Readability cleanup
+
+- Expanded shared page primitives in `src/pages/page-primitives.tsx` into vertically readable functions and JSX.
+- Expanded route parameter adapters in `src/pages/app-pages.tsx`.
+- Normalized indentation in `src/App.tsx`.
+- Behavior-heavy domain JSX was intentionally left compact where a mechanical rewrite would increase risk.
+
+## Verification
+
+- `npm run build` passed after the Phase 1 fix and after Phase 2 cleanup.
+- `npm run typecheck` is available as a script but cannot run because `tsc` is not installed.
+- No lint or formatter scripts are configured in `package.json`.
+- `git diff --check` passed.
+- No browser, route-flow, form-flow, login, or end-to-end testing was performed.
+
+## Known Limitations
+
+- Some domain page modules still contain compact JSX and callbacks; further formatting should be performed incrementally with focused validation.
+
+# Milestone 19 — Dashboard Navigation Link Runtime Fix
+
+Status: Build verified; typecheck unavailable in the checkout.
+
+## Root Cause
+
+`src/pages/dashboard-page.tsx` imported `Link` from `@radix-ui/react-navigation-menu`. That symbol is Radix `NavigationMenuPrimitive.Link`, which requires a `NavigationMenu` ancestor and caused the Dashboard to throw `FocusGroupItem must be used within NavigationMenu` during rendering.
+
+## Fix
+
+- Replaced the Dashboard import with `Link` from `wouter`, the existing application route-link primitive.
+- Preserved all Dashboard href values, layout, metrics, permissions, API calls, and navigation destinations.
+- No NavigationMenu hierarchy was added because the Dashboard links are ordinary route links, not Radix NavigationMenu items.
+
+## Verification
+
+- Inspected `src/components/ui/navigation-menu.tsx` and confirmed its `NavigationMenuLink` requires Radix NavigationMenu context.
+- Searched the frontend for direct `@radix-ui/react-navigation-menu` imports; no other invalid page usage was found.
+- `npm run build` passed.
+- `npm run typecheck` was attempted but could not run because `tsc` is not installed.
+- `git diff --check` passed.
+- No browser or end-to-end flow testing was performed.
