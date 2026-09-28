@@ -1,11 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsDate,
   IsEmail,
+  IsEnum,
   IsNotEmpty,
   IsNumber,
   IsObject,
+  IsOptional,
   IsPhoneNumber,
   IsPostalCode,
   IsString,
@@ -204,158 +207,191 @@ export class UpdateAdmissionDto {
     description: 'Admission number, e.g., "ADM-2023-001"',
     example: 'ADM-2023-001',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  admissionId!: string;
+  admissionId?: string;
 
   @ApiProperty({
     description: 'ID of the program for the admission',
     example: 'Day Care',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  programId!: string;
+  programId?: string;
 
   @ApiProperty({
     description: 'ID of the class for the admission',
     example: 'class-12th',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  classId!: string;
+  classId?: string;
 
   @ApiProperty({
     description: 'ID of the section for the admission',
     example: 'section-uuid',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  sectionId!: string;
+  sectionId?: string;
 
   @ApiProperty({
     description: 'Name of the student for the admission',
     example: 'John Doe',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  studentName!: string;
+  studentName?: string;
 
   @ApiProperty({
     description: 'Gender of the student',
-    example: 'Male',
+    example: 'MALE',
     enum: Gender,
     type: String,
+    required: false,
   })
-  gender: Gender;
+  @IsOptional()
+  @IsEnum(Gender)
+  gender?: Gender;
 
   @ApiProperty({
     description: 'Date of birth of the student',
     example: '2010-05-15',
     type: Date,
+    required: false,
   })
+  @IsOptional()
+  @Type(() => Date)
   @IsDate()
-  dateOfBirth: Date;
+  dateOfBirth?: Date;
 
   @ApiProperty({
     description: 'Name of the parent or guardian',
     example: 'Jane Doe',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  parentName: string;
+  parentName?: string;
 
   @ApiProperty({
     description: 'Relation of the parent or guardian to the student',
-    example: 'Mother',
+    example: 'MOTHER',
     enum: Relation,
     type: String,
+    required: false,
   })
-  parentRelation: Relation;
+  @IsOptional()
+  @IsEnum(Relation)
+  parentRelation?: Relation;
 
   @ApiProperty({
     description: 'Phone number of the parent or guardian',
     example: '+1-234-567-8901',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  parentPhone: string;
+  parentPhone?: string;
 
   @ApiProperty({
     description: 'Alternate phone number of the parent or guardian',
     example: '+1-234-567-8902',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  parentAlternatePhone: string;
+  parentAlternatePhone?: string;
 
   @ApiProperty({
     description: 'Email address of the parent or guardian',
     example: 'asdh@fdfh.df',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsEmail()
-  parentEmail: string;
+  parentEmail?: string;
 
   @ApiProperty({
     description: 'Address of the student or parent/guardian',
     example: '123 Main St, Springfield, IL, USA, 62704',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  addressLine1: string;
+  addressLine1?: string;
 
   @ApiProperty({
     description: 'Additional address information, if any',
     example: 'Apt 4B',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  addressLine2: string;
+  addressLine2?: string;
 
   @ApiProperty({
     description: 'City of residence',
     example: 'Springfield',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  city: string;
+  city?: string;
 
   @ApiProperty({
     description: 'State of residence',
     example: 'Illinois',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  state: string;
+  state?: string;
 
   @ApiProperty({
     description: 'Country of residence',
     example: 'USA',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  country: string;
+  country?: string;
 
   @ApiProperty({
     description: 'Postal code of the residence',
     example: '627034',
     type: String,
+    required: false,
   })
+  @IsOptional()
   @IsPostalCode('any')
-  postalCode: string;
+  postalCode?: string;
 
   @ApiProperty({
-    description: 'Array of Fee structure for admission record',
+    description: 'Fee payment header for the admission record',
     type: () => [UpdateFeePaymentHeaderDto],
+    required: false,
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsObject()
-  feePaymentHeaders!: UpdateFeePaymentHeaderDto;
+  feePaymentHeaders?: UpdateFeePaymentHeaderDto;
 }

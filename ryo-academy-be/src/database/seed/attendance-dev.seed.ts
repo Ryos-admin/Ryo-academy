@@ -91,6 +91,89 @@ async function upsertAssignment(staffId: string, subjectId: string, classId: str
   return existing ?? prisma.teachingAssignment.create({ data: { staffId, subjectId, classId, sectionId } });
 }
 
+/**
+ * Mirrors the fee snapshot that AdmissionService.create() writes for every real
+ * admission (admission.service.ts, the tx.feePaymentHeader.create / tx
+ * .feePaymentDetails.createMany pair).
+ *
+ * This fixture inserts CONFIRMED admissions directly through Prisma, bypassing
+ * that service, so without this step the seeded students end up in a state the
+ * production application can never produce: a confirmed admission with no fee
+ * snapshot. That makes GET /students/:id/fees return `fee: null` and makes every
+ * fee payment fail with "does not have an applicable fee snapshot".
+ *
+ * Idempotent: an existing snapshot is left untouched, so re-running the seed
+ * never produces a duplicate header.
+ */
+async function ensureFeeSnapshot(params: {
+  admissionId: string;
+  academicYearId: string;
+  programId: string;
+  classId: string;
+}) {
+  const existing = await prisma.feePaymentHeader.findFirst({
+    where: { admissionId: params.admissionId },
+  });
+  if (existing) return { feePaymentHeaderId: existing.id, created: false };
+
+  // Same lookup rules as AdmissionRepository.findFeeStructurebyId().
+  const feeStructure = await prisma.feeStructure.findFirst({
+    where: {
+      academicYearId: params.academicYearId,
+      programId: params.programId,
+      classId: params.classId,
+      isActive: true,
+    },
+  });
+  if (!feeStructure) {
+    throw new Error(
+      `No active fee structure for class "${params.classId}"; run the fee seed first.`,
+    );
+  }
+
+  const feeComponents = await prisma.feeComponent.findMany({
+    where: { feeStructureId: feeStructure.id, isActive: true },
+    orderBy: { name: 'asc' },
+  });
+  if (feeComponents.length === 0) {
+    throw new Error(
+      `Fee structure "${feeStructure.id}" has no active fee components; run the fee seed first.`,
+    );
+  }
+
+  const feePaymentHeader = await prisma.feePaymentHeader.create({
+    data: {
+      admissionId: params.admissionId,
+      academicYearId: params.academicYearId,
+      feeStructureId: feeStructure.id,
+      discountAmount: 0,
+      grossAmount: 0,
+      netAmount: 0,
+      totalPaidAmount: 0,
+      totalDueAmount: +feeStructure.totalAmount,
+      totalFeeAmount: +feeStructure.totalAmount,
+    },
+  });
+
+  await prisma.feePaymentDetails.createMany({
+    data: feeComponents.map((feeComponent) => ({
+      feePaymentHeaderId: feePaymentHeader.id,
+      feeComponentId: feeComponent.id,
+      nameSnapshot: feeComponent.name,
+      originalAmount: feeComponent.amount,
+      discountApplicable: feeComponent.discountApplicable,
+      isMandatory: feeComponent.isMandatory,
+      discountAmount: 0,
+      finalAmount: feeComponent.amount,
+      totalAmountToBePaid: feeComponent.amount,
+      amountPaid: 0,
+      paymentDate: new Date(),
+    })),
+  });
+
+  return { feePaymentHeaderId: feePaymentHeader.id, created: true };
+}
+
 async function upsertStudent(params: {
   schoolId: string;
   academicYearId: string;
@@ -102,36 +185,51 @@ async function upsertStudent(params: {
   studentNumber: string;
   studentName: string;
 }) {
-  const admission = await prisma.admission.upsert({
-    where: {
-      academicYearId_programId_classId: {
-        academicYearId: params.academicYearId,
-        programId: params.programId,
-        classId: params.classId,
-      },
-    },
-    create: {
-      admissionNumber: params.admissionNumber,
-      admissionSequence: 13,
-      admissionStatus: AdmissionStatus.CONFIRMED,
-      schoolId: params.schoolId,
-      academicYearId: params.academicYearId,
-      programId: params.programId,
-      classId: params.classId,
-      sectionId: params.sectionId,
-      createdById: params.createdById,
-      studentName: params.studentName,
-      gender: Gender.OTHER,
-      dateOfBirth: new Date('2018-01-01T00:00:00.000Z'),
-      confirmedAt: new Date(),
-    },
-    update: {
-      admissionStatus: AdmissionStatus.CONFIRMED,
-      sectionId: params.sectionId,
-      studentName: params.studentName,
-      confirmedAt: new Date(),
-    },
+  // Keyed on admissionNumber, which is @unique. The previous
+  // (academicYearId, programId, classId) compound key is no longer a uniqueness
+  // boundary: a class legitimately holds many students per academic year, so it
+  // can no longer be used to identify "the" admission for this fixture.
+  const existingAdmission = await prisma.admission.findFirst({
+    where: { admissionNumber: params.admissionNumber },
   });
+  const admission = existingAdmission
+    ? await prisma.admission.update({
+        where: { id: existingAdmission.id },
+        data: {
+          admissionStatus: AdmissionStatus.CONFIRMED,
+          sectionId: params.sectionId,
+          studentName: params.studentName,
+          confirmedAt: new Date(),
+        },
+      })
+    : await prisma.admission.create({
+        data: {
+          admissionNumber: params.admissionNumber,
+          admissionSequence: 13,
+          admissionStatus: AdmissionStatus.CONFIRMED,
+          schoolId: params.schoolId,
+          academicYearId: params.academicYearId,
+          programId: params.programId,
+          classId: params.classId,
+          sectionId: params.sectionId,
+          createdById: params.createdById,
+          studentName: params.studentName,
+          gender: Gender.OTHER,
+          dateOfBirth: new Date('2018-01-01T00:00:00.000Z'),
+          confirmedAt: new Date(),
+        },
+      });
+
+  // Keep the fixture consistent with the production admission lifecycle: every
+  // CONFIRMED admission produced by AdmissionService.create() carries a fee
+  // snapshot, so this one must too.
+  await ensureFeeSnapshot({
+    admissionId: admission.id,
+    academicYearId: params.academicYearId,
+    programId: params.programId,
+    classId: params.classId,
+  });
+
   return prisma.student.upsert({
     where: { admissionId: admission.id },
     create: {

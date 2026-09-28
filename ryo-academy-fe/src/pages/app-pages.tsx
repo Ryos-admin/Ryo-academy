@@ -1,5 +1,4 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import { QueryClient } from "@tanstack/react-query";
 import { Link, Route, Switch, useLocation, useParams } from "wouter";
 import {
   ArrowLeft,
@@ -21,16 +20,12 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/query-client";
 import { ApiError } from "@/lib/api-client";
-import { useCurrentUser, useLogin, useLogout } from "@/lib/auth-api";
+import { useCurrentUser, useLogin, useLogout, type CurrentUser } from "@/lib/auth-api";
 import { session } from "@/lib/session";
 import NotFound from "@/pages/not-found";
-import {
-  type Permission,
-  type Role,
-  type User,
-  hasPermission,
-} from "@/lib/mock-erp";
+import { type Permission, type Role, type User, hasPermission, initials, toPermissions } from "@/lib/mock-erp";
 import {
   AcademicCalendarDetail,
   AcademicCalendarForm,
@@ -47,13 +42,9 @@ import {
   SectionDetail,
   SectionForm,
   SectionList,
-  SetupDetail,
-  SetupForm,
-  SetupList,
   SubjectDetail,
   SubjectForm,
   SubjectList,
-  type SetupResource,
 } from "@/pages/academic-pages";
 import {
   StaffDetail,
@@ -64,18 +55,13 @@ import {
 } from "@/pages/staff-pages";
 import {
   FeeComponentForm,
-  FeeComponentsPage,
   FeeForm,
-  FeesPage,
   RealFeeComponentDetail,
   RealFeeComponentsPage,
   RealFeeDetail,
   RealFeesPage,
 } from "@/pages/fee-pages";
 import {
-  AttendanceDetail,
-  AttendanceMark,
-  AttendancePage,
   RealAttendanceDetail,
   RealAttendanceMark,
   RealAttendancePage,
@@ -93,22 +79,56 @@ import {
 } from "@/pages/admissions-students-pages";
 import { TimetablePage, Profile } from "@/pages/operations-pages";
 import { Dashboard } from "@/pages/dashboard-page";
-import {
-  AccessState,
-  AppButton,
-  Avatar,
-  Loading,
-} from "@/pages/page-primitives";
+import { AccessState, AppButton, Avatar, Loading } from "@/pages/page-primitives";
 
-export const queryClient = new QueryClient();
-const authUserToUiUser = (user: { userId: string }): User => ({
-  id: user.userId,
-  name: "Authenticated user",
-  email: "",
-  role: "Staff",
-  avatar: "AU",
-  title: "Backend-authenticated user",
-});
+export { queryClient };
+
+const KNOWN_ROLES = ["OFFICE_ADMIN", "COLLEGE_ADMIN", "STAFF"] as const;
+const isRole = (value: unknown): value is Role =>
+  typeof value === "string" && (KNOWN_ROLES as readonly string[]).includes(value);
+
+/**
+ * Maps the GET /protected/me payload onto the app's session user.
+ *
+ * `role` is presentation only — every authorisation decision reads
+ * `permissions`, which comes straight from the API. A null payload, a user with
+ * no roles, or an unrecognised role name yields a user with no permissions, so
+ * the UI fails closed instead of throwing.
+ */
+export const authUserToUiUser = (currentUser: CurrentUser | null): User => {
+  const user = currentUser?.user ?? null;
+  const name = user ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() : "";
+  const primaryRole = currentUser?.roles?.[0]?.name;
+  const role: Role = isRole(primaryRole) ? primaryRole : "STAFF";
+  return {
+    id: user?.id ?? "",
+    name,
+    email: user?.email ?? "",
+    role,
+    permissions: toPermissions(currentUser?.permissions),
+    avatar: initials(name),
+    title: name ? `${role} - ${name}` : role,
+  };
+};
+
+/**
+ * True when `location` is the nav target itself or a nested route beneath it.
+ * `/dashboard` is matched exactly, so it never appears "active" by prefix.
+ */
+export const matchesPath = (href: string, location: string) =>
+  location === href || (href !== "/dashboard" && location.startsWith(href));
+
+/**
+ * A nav entry is active when its own route matches, or when one of its child
+ * routes is the current area. The second case is what keeps the Fees section
+ * expanded on /fee-components, which is not a /fees sub-path.
+ */
+export const isNavItemActive = (
+  item: { href: string; children?: { href: string }[] },
+  location: string,
+) =>
+  matchesPath(item.href, location) ||
+  (item.children?.some((child) => matchesPath(child.href, location)) ?? false);
 
 type NavItem = {
   label: string;
@@ -125,7 +145,7 @@ const nav: NavItem[] = [
     href: "/academic-years",
     icon: GraduationCap,
     permission: "CLASS_READ",
-    roles: ["College Admin"],
+    roles: ["COLLEGE_ADMIN"],
     children: [
       {
         label: "Academic Years",
@@ -151,21 +171,21 @@ const nav: NavItem[] = [
     href: "/classes",
     icon: BookOpen,
     permission: "CLASS_READ",
-    roles: ["Office Admin", "Staff"],
+    roles: ["OFFICE_ADMIN", "STAFF"],
   },
   {
     label: "Programs & Shifts",
     href: "/academic-programs",
     icon: Clock3,
     permission: "SHIFT_READ",
-    roles: ["Office Admin", "Staff"],
+    roles: ["OFFICE_ADMIN", "STAFF"],
   },
   {
     label: "Academic Calendar",
     href: "/academic-calendar",
     icon: CalendarDays,
     permission: "SHIFT_READ",
-    roles: ["Office Admin"],
+    roles: ["OFFICE_ADMIN"],
   },
   {
     label: "Admissions",
@@ -227,24 +247,21 @@ function Shell({
   const [profileOpen, setProfileOpen] = useState(false);
   const visible = nav.filter(
     (item) =>
-      (!item.roles || item.roles.includes(session.role)) &&
-      (!item.permission || hasPermission(session.role, item.permission)),
+      (!item?.roles || item.roles.includes(session?.role)) &&
+      (!item?.permission || hasPermission(session, item.permission)),
   );
+
   const label =
     nav
       .flatMap((item) => [item, ...(item.children || [])])
-      .find(
-        (item) =>
-          location === item.href ||
-          (item.href !== "/dashboard" && location.startsWith(item.href)),
-      )?.label || "Profile";
+      .find((item) => matchesPath(item.href, location))?.label || "Profile";
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}>
+      <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""} overflow-y-auto`}>
         <div className="brand">
           <div className="brand-seal">N</div>
           <div>
-            <div className="brand-name">NALANDA</div>
+            <div className="brand-name">Bithaven Technologies</div>
             <div className="brand-sub">college office</div>
           </div>
           <button
@@ -264,9 +281,7 @@ function Shell({
         <nav className="side-nav">
           {visible.map((item) => {
             const Icon = item.icon;
-            const active =
-              location === item.href ||
-              (item.href !== "/dashboard" && location.startsWith(item.href));
+            const active = isNavItemActive(item, location);
             return (
               <div key={item.href}>
                 <Link
@@ -277,19 +292,23 @@ function Shell({
                 >
                   <Icon size={18} />
                   <span>{item.label}</span>
+                  {item.children && (
+                    <ChevronDown
+                      size={14}
+                      className={`side-link-chevron ${active ? "side-link-chevron-active" : ""} right-0 absolute`}
+                    />
+                  )}
                 </Link>
                 {active && item.children && (
                   <div className="sub-nav">
                     {item.children
-                      .filter((child) =>
-                        hasPermission(session.role, child.permission),
-                      )
+                      .filter((child) => hasPermission(session, child.permission))
                       .map((child) => (
                         <Link
                           key={child.href}
                           href={child.href}
                           onClick={() => setMobileOpen(false)}
-                          className={`sub-link ${location.startsWith(child.href) ? "sub-link-active" : ""}`}
+                          className={`sub-link ${matchesPath(child.href, location) ? "sub-link-active" : ""}`}
                         >
                           {child.label}
                         </Link>
@@ -310,11 +329,7 @@ function Shell({
             <UserRound size={18} />
             <span>My profile</span>
           </Link>
-          <button
-            className="side-link side-button"
-            onClick={onLogout}
-            data-testid="button-logout"
-          >
+          <button className="side-link side-button" onClick={onLogout} data-testid="button-logout">
             <LogOut size={18} />
             <span>Sign out</span>
           </button>
@@ -424,9 +439,7 @@ function AuthLayout({
           <h1>{title}</h1>
           <p className="auth-note">{note}</p>
           {children}
-          <div className="auth-foot">
-            Authenticated by the Ryo Academy backend
-          </div>
+          <div className="auth-foot">Authenticated by the Ryo Academy backend</div>
         </div>
       </div>
     </div>
@@ -456,10 +469,7 @@ function Login() {
     }
   };
   return (
-    <AuthLayout
-      title="Sign in to your office"
-      note="Use your Ryo Academy account to continue."
-    >
+    <AuthLayout title="Sign in to your office" note="Use your Ryo Academy account to continue.">
       <form onSubmit={submit} className="auth-form">
         <label>
           Email address
@@ -608,7 +618,7 @@ function Protected({
   permission?: Permission;
   children: ReactNode;
 }) {
-  return permission && !hasPermission(session.role, permission) ? (
+  return permission && !hasPermission(session, permission) ? (
     <AccessState role={session.role} />
   ) : (
     <>{children}</>
@@ -710,13 +720,7 @@ function TeachingAssignmentFormRoute({ session }: { session: User }) {
   return <TeachingAssignmentForm id={id} session={session} />;
 }
 
-function RoutedApp({
-  session,
-  onLogout,
-}: {
-  session: User;
-  onLogout: () => void;
-}) {
+function RoutedApp({ session, onLogout }: { session: User; onLogout: () => void }) {
   return (
     <Shell session={session} onLogout={onLogout}>
       <Switch>
@@ -724,16 +728,24 @@ function RoutedApp({
           <Dashboard session={session} />
         </Route>
         <Route path="/academic-years/new">
-          <AcademicYearForm />
+          <Protected session={session} permission="CLASS_CREATE">
+            <AcademicYearForm />
+          </Protected>
         </Route>
         <Route path="/academic-years/:id/edit">
-          <AcademicYearEditRoute />
+          <Protected session={session} permission="CLASS_UPDATE">
+            <AcademicYearEditRoute />
+          </Protected>
         </Route>
         <Route path="/academic-years/:id">
-          <AcademicYearDetailRoute />
+          <Protected session={session} permission="CLASS_READ">
+            <AcademicYearDetailRoute />
+          </Protected>
         </Route>
         <Route path="/academic-years">
-          <AcademicYearsList />
+          <Protected session={session} permission="CLASS_READ">
+            <AcademicYearsList />
+          </Protected>
         </Route>
         <Route path="/academic-calendar/new">
           <Protected session={session} permission="SHIFT_CREATE">
@@ -756,16 +768,24 @@ function RoutedApp({
           </Protected>
         </Route>
         <Route path="/academic-programs/new">
-          <ProgramForm />
+          <Protected session={session} permission="SHIFT_CREATE">
+            <ProgramForm />
+          </Protected>
         </Route>
         <Route path="/academic-programs/:id/edit">
-          <ProgramEditRoute />
+          <Protected session={session} permission="SHIFT_UPDATE">
+            <ProgramEditRoute />
+          </Protected>
         </Route>
         <Route path="/academic-programs/:id">
-          <ProgramDetailRoute />
+          <Protected session={session} permission="SHIFT_READ">
+            <ProgramDetailRoute />
+          </Protected>
         </Route>
         <Route path="/academic-programs">
-          <ProgramsList />
+          <Protected session={session} permission="SHIFT_READ">
+            <ProgramsList />
+          </Protected>
         </Route>
         <Route path="/classes/new">
           <Protected session={session} permission="CLASS_CREATE">
@@ -808,22 +828,22 @@ function RoutedApp({
           </Protected>
         </Route>
         <Route path="/subjects/new">
-          <Protected session={session} permission="CLASS_CREATE">
+          <Protected session={session} permission="SUBJECT_CREATE">
             <SubjectForm session={session} />
           </Protected>
         </Route>
         <Route path="/subjects/:id/edit">
-          <Protected session={session} permission="CLASS_UPDATE">
+          <Protected session={session} permission="SUBJECT_UPDATE">
             <SubjectForm session={session} />
           </Protected>
         </Route>
         <Route path="/subjects/:id">
-          <Protected session={session} permission="CLASS_READ">
+          <Protected session={session} permission="SUBJECT_READ">
             <SubjectDetailRoute session={session} />
           </Protected>
         </Route>
         <Route path="/subjects">
-          <Protected session={session} permission="CLASS_READ">
+          <Protected session={session} permission="SUBJECT_READ">
             <SubjectList session={session} />
           </Protected>
         </Route>
@@ -983,10 +1003,8 @@ export function Router() {
   const token = session.hasSession();
   const currentUser = useCurrentUser();
   const logout = useLogout();
-  if (token && currentUser.isLoading)
-    return <Loading label="Restoring session" />;
-  if (token && currentUser.isError)
-    return <SessionError error={currentUser.error} />;
+  if (token && currentUser.isLoading) return <Loading label="Restoring session" />;
+  if (token && currentUser.isError) return <SessionError error={currentUser.error} />;
   if (!token || !currentUser.data)
     return (
       <Switch>

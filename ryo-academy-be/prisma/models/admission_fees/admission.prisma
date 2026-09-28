@@ -74,6 +74,12 @@ model Admission {
 
     student Student?
     
-    @@unique([academicYearId, programId, classId])
+    // An admission is one student's placement. A class legitimately holds many
+    // students (and many admissions) per academic year, so there is no uniqueness
+    // on (academicYearId, programId, classId) here.
+    // The real boundaries are:
+    //   - admissionNumber  -> unique per admission (@unique above)
+    //   - Student.admissionId -> unique, so a student maps to one admission
+    // The index below is kept because it backs the per-class lookups.
     @@index([academicYearId, programId, classId])
 }

@@ -109,7 +109,9 @@ export class AttendanceService {
   }
 
   async findAll(userId: string, query: QueryAttendanceDto) {
-    const staff = await this.staffForUser(userId);
+    // An ATTENDANCE_READ holder with no staff profile is an administrator and
+    // reads school-wide; a staff member is narrowed to their own assignments.
+    const staff = await this.readerStaffForUser(userId);
     const where: Prisma.AttendanceLogMasterWhereInput = {
       deletedAt: null,
       ...(query.academicYearId && { academicYearId: query.academicYearId }),
@@ -139,18 +141,19 @@ export class AttendanceService {
     });
   }
   async findOne(userId: string, id: string) {
-    const staff = await this.staffForUser(userId);
+    const staff = await this.readerStaffForUser(userId);
     const record = await this.db.attendanceLogMaster.findFirst({
       where: { id, deletedAt: null },
       include: { children: true },
     });
     if (!record) throw new NotFoundException('Attendance not found');
-    await this.authorizeRead(
-      staff.id,
-      record.academicYearId,
-      record.classId,
-      record.sectionId,
-    );
+    if (staff)
+      await this.authorizeRead(
+        staff.id,
+        record.academicYearId,
+        record.classId,
+        record.sectionId,
+      );
     return record;
   }
   findMy(userId: string, query: QueryAttendanceDto) {
@@ -268,6 +271,21 @@ export class AttendanceService {
     if (!staff || !staff.status)
       throw new ForbiddenException('Active staff profile required');
     return staff;
+  }
+  /**
+   * Resolves the staff profile for a read.
+   *
+   * Returns null when the user has no staff profile at all: a holder of
+   * ATTENDANCE_READ in that position is an administrator rather than a
+   * teacher, and reads school-wide. A staff row that exists but is not active is
+   * still rejected, so a deactivated staff member cannot fall through to the
+   * wider administrator view.
+   */
+  private async readerStaffForUser(userId: string) {
+    const staff = await this.db.staff.findUnique({ where: { userId } });
+    if (staff && !staff.status)
+      throw new ForbiddenException('Active staff profile required');
+    return staff ?? null;
   }
   private async authorizeRead(
     staffId: string,

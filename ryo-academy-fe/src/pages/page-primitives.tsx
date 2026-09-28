@@ -4,13 +4,31 @@ import { ChevronDown, ClipboardList, Search, ShieldCheck } from "lucide-react";
 import { type Role, formatINR, initials } from "@/lib/mock-erp";
 
 export const money = (value: number) => formatINR(value);
-export const date = (value?: string) => {
-    if (!value) return "—";
-    return new Intl.DateTimeFormat("en-IN", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-    }).format(new Date(`${value}T00:00:00`));
+
+/**
+ * Formats a server date for display.
+ *
+ * The API returns Prisma `DateTime` columns as full ISO strings
+ * ("2028-05-31T00:00:00.000Z"), while some values are already date-only
+ * ("2028-05-31"). Only the calendar date is shown, so both are truncated to
+ * their leading date before parsing — that keeps the result stable regardless
+ * of the browser's timezone, instead of shifting the day.
+ *
+ * Returns "—" for missing or unparseable input rather than letting
+ * Intl.DateTimeFormat throw a RangeError mid-render.
+ */
+const DATE_ONLY = /^(\d{4}-\d{2}-\d{2})/;
+export const date = (value?: string | null) => {
+  if (!value) return "—";
+  const match = DATE_ONLY.exec(value);
+  if (!match) return "—";
+  const parsed = new Date(`${match[1]}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(parsed);
 };
 export const titleCase = (value: string) =>
     value.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());

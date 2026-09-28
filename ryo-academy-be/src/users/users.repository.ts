@@ -1,6 +1,6 @@
-import { ConflictException, Injectable } from '@nestjs/common';
-import { Prisma } from '../../generated/prisma/client.js';
-import { DatabaseService } from '../database/database.service.js';
+import { ConflictException, Injectable } from "@nestjs/common";
+import { Prisma } from "../../generated/prisma/client.js";
+import { DatabaseService } from "../database/database.service.js";
 
 @Injectable()
 export class UsersRepository {
@@ -50,12 +50,7 @@ export class UsersRepository {
     });
   }
 
-  async create(data: {
-    email: string;
-    passwordHash: string;
-    firstName: string;
-    lastName: string;
-  }) {
+  async create(data: { email: string; passwordHash: string; firstName: string; lastName: string }) {
     try {
       return await this.databaseService.user.create({
         data,
@@ -70,13 +65,8 @@ export class UsersRepository {
         },
       });
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          'Unable to register with the provided email.',
-        );
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException("Unable to register with the provided email.");
       }
 
       throw error;

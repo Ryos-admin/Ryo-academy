@@ -14,14 +14,30 @@ export interface LoginResponse {
   expiresIn: number;
 }
 
-// The backend currently returns only the JWT subject from /auth/me.
+/**
+ * Shape returned by GET /protected/me (see ProtectedService.getUserById).
+ * `roles` is a real array of the user's roles, and `permissions` is the
+ * flattened, de-duplicated list of effective permissions across all of them,
+ * already normalised to the frontend naming convention ("subject:read" ->
+ * "SUBJECT_READ").
+ *
+ * The endpoint returns `null` for unknown or inactive users.
+ */
 export interface CurrentUser {
-  userId: string;
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+  } | null;
+  roles: { id: string; name: string }[];
+  permissions: string[];
 }
 
 export const authApi = {
   login: (request: LoginRequest) => apiClient.post<LoginResponse>("/auth/login", request),
   getCurrentUser: (token: string) => apiClient.get<CurrentUser>("/auth/me", { token }),
+  getAuthorizedUser: (token: string) => apiClient.get<CurrentUser | null>("/protected/me", { token }),
 };
 
 export const currentUserQueryKey = ["auth", "me"] as const;
@@ -32,11 +48,11 @@ export function useAccessToken() {
 
 export function useCurrentUser() {
   const token = useAccessToken();
-  return useQuery({
+  return useQuery<CurrentUser | null>({
     queryKey: currentUserQueryKey,
     queryFn: async () => {
       try {
-        return await authApi.getCurrentUser(token!);
+        return await authApi.getAuthorizedUser(token!);
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
           session.clear();
@@ -63,7 +79,10 @@ export function useLogin() {
 export function useLogout() {
   const queryClient = useQueryClient();
   return () => {
+    // Drop every cached server response first, so the next person to sign in on
+    // this tab cannot read the previous user's data from memory. Session state
+    // (the token) is cleared immediately after.
+    queryClient.clear();
     session.clear();
-    queryClient.removeQueries({ queryKey: currentUserQueryKey });
   };
 }

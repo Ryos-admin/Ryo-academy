@@ -4,3 +4,24 @@ export interface AuthenticatedUser {
    */
   userId: string;
 }
+
+export interface AuthorizedUser {
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+  };
+  roles: [
+    {
+      id: string;
+      name: string;
+    },
+  ];
+  permissions: object;
+  staff: {
+    id: string;
+    staffCode: string;
+    status: boolean;
+  };
+}

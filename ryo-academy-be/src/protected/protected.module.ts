@@ -1,9 +1,11 @@
-import { Module } from '@nestjs/common';
-import { ProtectedController } from './protected.controller.js';
-import { JwtModule } from '@nestjs/jwt';
-import { AccessTokenModule } from '../security/token/access-token.module.js';
-import { AuthorizationService } from '../auth/authorization.service.js';
-import { PermissionsGuard } from '../auth/permissions.guard.js';
+import { Module } from "@nestjs/common";
+import { ProtectedController } from "./protected.controller.js";
+import { JwtModule } from "@nestjs/jwt";
+import { AccessTokenModule } from "../security/token/access-token.module.js";
+import { AuthorizationService } from "../auth/authorization.service.js";
+import { PermissionsGuard } from "../auth/permissions.guard.js";
+import { ProtectedService } from "./protected.service.js";
+import { UsersRepository } from "../users/users.repository.js";
 
 /**
  * Module exposing a minimal protected endpoint.
@@ -14,6 +16,6 @@ import { PermissionsGuard } from '../auth/permissions.guard.js';
 @Module({
   imports: [JwtModule.register({}), AccessTokenModule],
   controllers: [ProtectedController],
-  providers: [AuthorizationService, PermissionsGuard],
+  providers: [AuthorizationService, PermissionsGuard, ProtectedService, UsersRepository],
 })
 export class ProtectedModule {}

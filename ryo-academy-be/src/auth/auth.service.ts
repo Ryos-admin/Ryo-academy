@@ -1,13 +1,9 @@
-import {
-  ConflictException,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
-import { PasswordService } from '../security/password/password.service.js';
-import { AccessTokenService } from '../security/token/access-token.service.js';
-import { UsersService } from '../users/users.service.js';
-import { RegisterDto } from './dto/register.dto.js';
-import { LoginDto } from './dto/login.dto.js';
+import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { PasswordService } from "../security/password/password.service.js";
+import { AccessTokenService } from "../security/token/access-token.service.js";
+import { UsersService } from "../users/users.service.js";
+import { RegisterDto } from "./dto/register.dto.js";
+import { LoginDto } from "./dto/login.dto.js";
 
 @Injectable()
 export class AuthService {
@@ -22,9 +18,7 @@ export class AuthService {
     const existingUser = await this.usersService.findByEmail(normalizedEmail);
 
     if (existingUser) {
-      throw new ConflictException(
-        'Unable to register with the provided email.',
-      );
+      throw new ConflictException("Unable to register with the provided email.");
     }
 
     const passwordHash = await this.passwordService.hash(password);
@@ -47,20 +41,16 @@ export class AuthService {
 
   async login({ email, password }: LoginDto) {
     const normalizedEmail = email.trim().toLowerCase();
-    const user =
-      await this.usersService.findByEmailForAuthentication(normalizedEmail);
+    const user = await this.usersService.findByEmailForAuthentication(normalizedEmail);
 
     if (!user || !user.isActive) {
-      throw new UnauthorizedException('Invalid email or password.');
+      throw new UnauthorizedException("Invalid email or password.");
     }
 
-    const passwordMatches = await this.passwordService.verify(
-      user.passwordHash,
-      password,
-    );
+    const passwordMatches = await this.passwordService.verify(user.passwordHash, password);
 
     if (!passwordMatches) {
-      throw new UnauthorizedException('Invalid email or password.');
+      throw new UnauthorizedException("Invalid email or password.");
     }
 
     return this.accessTokenService.sign(user.id);

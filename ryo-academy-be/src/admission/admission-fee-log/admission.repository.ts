@@ -37,12 +37,15 @@ export class AdmissionRepository {
             select: { id: true, name: true, schoolId: true }
         })
 
-        const program = await this.databaseService.program.findFirstOrThrow({
+        // Resolve without throwing: a missing or mis-parented reference must fall
+        // through to the controlled check below rather than escaping as a Prisma
+        // P2025 (HTTP 500). The guard is the intended failure path.
+        const program = await this.databaseService.program.findFirst({
             where: { id: programId, academicYearId: academicYearId },
             select: { id: true, name: true },
         });
 
-        const classEntity = await this.databaseService.class.findFirstOrThrow({
+        const classEntity = await this.databaseService.class.findFirst({
             where: { id: classId, programId: programId },
             select: { id: true, name: true },
         });

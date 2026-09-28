@@ -1,31 +1,63 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-export type Role = "Office Admin" | "College Admin" | "Staff";
-export type Permission =
-  | "ADMISSION_READ" | "ADMISSION_CREATE" | "ADMISSION_UPDATE"
-  | "FEES_READ" | "FEES_CREATE" | "FEES_UPDATE"
-  | "CLASS_READ" | "CLASS_CREATE" | "CLASS_UPDATE"
-  | "ATTENDANCE_READ" | "ATTENDANCE_MARK" | "ATTENDANCE_UPDATE"
-  | "STAFF_READ" | "STAFF_CREATE" | "STAFF_UPDATE"
-  | "STUDENT_READ" | "STUDENT_CREATE" | "STUDENT_UPDATE"
-  | "SHIFT_READ" | "SHIFT_CREATE" | "SHIFT_UPDATE"
-  | "TIMETABLE_READ";
-export const ALL_PERMISSIONS: Permission[] = [
-  "ADMISSION_READ", "ADMISSION_CREATE", "ADMISSION_UPDATE", "FEES_READ", "FEES_CREATE", "FEES_UPDATE",
-  "CLASS_READ", "CLASS_CREATE", "CLASS_UPDATE", "ATTENDANCE_READ", "ATTENDANCE_MARK", "ATTENDANCE_UPDATE",
-  "STAFF_READ", "STAFF_CREATE", "STAFF_UPDATE", "STUDENT_READ", "STUDENT_CREATE", "STUDENT_UPDATE",
-  "SHIFT_READ", "SHIFT_CREATE", "SHIFT_UPDATE", "TIMETABLE_READ",
-];
-export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  "College Admin": ALL_PERMISSIONS,
-  "Office Admin": ["ADMISSION_READ", "ADMISSION_CREATE", "ADMISSION_UPDATE", "FEES_READ", "FEES_CREATE", "FEES_UPDATE", "CLASS_READ", "CLASS_CREATE", "CLASS_UPDATE", "STUDENT_READ", "STUDENT_CREATE", "STUDENT_UPDATE", "STAFF_READ", "SHIFT_READ", "SHIFT_CREATE", "SHIFT_UPDATE", "TIMETABLE_READ"],
-  Staff: ["STUDENT_READ", "CLASS_READ", "ATTENDANCE_READ", "ATTENDANCE_MARK", "ATTENDANCE_UPDATE", "TIMETABLE_READ", "SHIFT_READ"],
+export type Role = "OFFICE_ADMIN" | "COLLEGE_ADMIN" | "STAFF";
+
+/**
+ * Permission names mirror the backend RBAC constants
+ * (ryo-academy-be/src/auth/permissions/permission.constants.ts). The backend
+ * derives them from seeded "resource:action" names by uppercasing and replacing
+ * ":" with "_", so "subject:read" is delivered as "SUBJECT_READ".
+ *
+ * The effective list for a signed-in user comes from GET /protected/me. This
+ * module deliberately does NOT keep a role -> permission matrix, so the UI can
+ * never disagree with what the API actually authorises.
+ */
+export const PERMISSIONS = [
+  "ADMISSION_READ", "ADMISSION_CREATE", "ADMISSION_UPDATE",
+  "FEES_READ", "FEES_CREATE", "FEES_UPDATE",
+  "CLASS_READ", "CLASS_CREATE", "CLASS_UPDATE",
+  "SUBJECT_READ", "SUBJECT_CREATE", "SUBJECT_UPDATE",
+  "ATTENDANCE_READ", "ATTENDANCE_MARK", "ATTENDANCE_UPDATE",
+  "STAFF_READ", "STAFF_CREATE", "STAFF_UPDATE",
+  "STUDENT_READ", "STUDENT_CREATE", "STUDENT_UPDATE",
+  "SHIFT_READ", "SHIFT_CREATE", "SHIFT_UPDATE",
+  "TIMETABLE_READ",
+] as const;
+
+export type Permission = (typeof PERMISSIONS)[number];
+
+const isPermission = (value: unknown): value is Permission =>
+  typeof value === "string" && (PERMISSIONS as readonly string[]).includes(value);
+
+/**
+ * Narrows the raw permission strings from the API to the known set. Unknown
+ * names are dropped, which fails closed: a permission this build does not know
+ * about simply is not used to unlock UI.
+ */
+export const toPermissions = (values: readonly unknown[] | null | undefined): Permission[] =>
+  Array.isArray(values) ? values.filter(isPermission) : [];
+
+export type User = {
+  id: string;
+  name: string;
+  email: string;
+  /** Display only. Authorisation is driven by `permissions`. */
+  role: Role;
+  /** Effective permissions, supplied by GET /protected/me. */
+  permissions: Permission[];
+  avatar: string;
+  title: string;
 };
-export const hasPermission = (role: Role, permission: Permission) => ROLE_PERMISSIONS[role].includes(permission);
-export const hasAnyPermission = (role: Role, permissions: Permission[]) => permissions.some((permission) => hasPermission(role, permission));
-export const hasAllPermissions = (role: Role, permissions: Permission[]) => permissions.every((permission) => hasPermission(role, permission));
-export type User = { id: string; name: string; email: string; role: Role; avatar: string; title: string };
+
+export const hasPermission = (user: User | null | undefined, permission: Permission): boolean =>
+  Boolean(user?.permissions?.includes(permission));
+
+export const hasAnyPermission = (user: User | null | undefined, permissions: Permission[]): boolean =>
+  permissions.some((permission) => hasPermission(user, permission));
+
+export const hasAllPermissions = (user: User | null | undefined, permissions: Permission[]): boolean =>
+  permissions.every((permission) => hasPermission(user, permission));
 export type Student = { id: string; admissionNumber: string; name: string; email: string; phone: string; className: string; section: string; dateOfBirth: string; gender: string; guardianName: string; guardianPhone: string; status: "Active" | "Inactive"; admissionId: string; feeStatus: "Paid" | "Partial" | "Pending" };
 export type Admission = { id: string; applicationNumber: string; applicantName: string; email: string; phone: string; appliedClass: string; appliedOn: string; status: "Pending" | "Confirmed" | "Cancelled"; source: string; notes: string; parentName?: string; parentPhone?: string; address?: string; academicQualification?: string; convertedStudentId?: string };
 export type Staff = { id: string; employeeNumber: string; name: string; email: string; phone: string; department: string; designation: string; joinedOn: string; status: "Active" | "On Leave" | "Inactive"; systemRole?: Role };
@@ -46,9 +78,9 @@ export type DB = { users: User[]; students: Student[]; admissions: Admission[]; 
 
 const seed: DB = {
   users: [
-    { id: "u1", name: "Ananya Rao", email: "ananya.rao@nalanda.edu.in", role: "Office Admin", avatar: "AR", title: "Registrar & Office Admin" },
-    { id: "u2", name: "Vikram Menon", email: "vikram.menon@nalanda.edu.in", role: "College Admin", avatar: "VM", title: "Dean of Academics" },
-    { id: "u3", name: "Meera Iyer", email: "meera.iyer@nalanda.edu.in", role: "Staff", avatar: "MI", title: "Assistant Professor, Science" },
+    { id: "u1", name: "Ananya Rao", email: "ananya.rao@nalanda.edu.in", role: "OFFICE_ADMIN", permissions: [], avatar: "AR", title: "Registrar & Office Admin" },
+    { id: "u2", name: "Vikram Menon", email: "vikram.menon@nalanda.edu.in", role: "COLLEGE_ADMIN", permissions: [], avatar: "VM", title: "Dean of Academics" },
+    { id: "u3", name: "Meera Iyer", email: "meera.iyer@nalanda.edu.in", role: "STAFF", permissions: [], avatar: "MI", title: "Assistant Professor, Science" },
   ],
   students: [
     { id: "s1", admissionNumber: "NAC-24-0187", name: "Aarav Sharma", email: "aarav.sharma@gmail.com", phone: "+91 98765 41208", className: "B.Sc. Computer Science", section: "A", dateOfBirth: "2005-08-14", gender: "Male", guardianName: "Rakesh Sharma", guardianPhone: "+91 98450 11209", status: "Active", admissionId: "ad4", feeStatus: "Partial" },
@@ -67,8 +99,8 @@ const seed: DB = {
     { id: "ad7", applicationNumber: "APP-25-0071", applicantName: "Arjun Pillai", email: "arjun.pillai@gmail.com", phone: "+91 90356 22410", appliedClass: "B.Sc. Computer Science", appliedOn: "2025-05-06", status: "Pending", source: "Website", notes: "Application fee paid.", parentName: "Suresh Pillai", parentPhone: "+91 90356 22411", address: "5, Whitefield Main Road, Bengaluru", academicQualification: "CBSE — 88%" },
   ],
   staff: [
-    { id: "t1", employeeNumber: "NAC-F-018", name: "Meera Iyer", email: "meera.iyer@nalanda.edu.in", phone: "+91 98452 11980", department: "Science", designation: "Assistant Professor", joinedOn: "2019-07-01", status: "Active", systemRole: "Staff" },
-    { id: "t2", employeeNumber: "NAC-F-007", name: "Vikram Menon", email: "vikram.menon@nalanda.edu.in", phone: "+91 98200 34190", department: "Administration", designation: "Dean of Academics", joinedOn: "2015-06-15", status: "Active", systemRole: "College Admin" },
+    { id: "t1", employeeNumber: "NAC-F-018", name: "Meera Iyer", email: "meera.iyer@nalanda.edu.in", phone: "+91 98452 11980", department: "Science", designation: "Assistant Professor", joinedOn: "2019-07-01", status: "Active", systemRole: "STAFF" },
+    { id: "t2", employeeNumber: "NAC-F-007", name: "Vikram Menon", email: "vikram.menon@nalanda.edu.in", phone: "+91 98200 34190", department: "Administration", designation: "Dean of Academics", joinedOn: "2015-06-15", status: "Active", systemRole: "COLLEGE_ADMIN" },
     { id: "t3", employeeNumber: "NAC-F-024", name: "Sanjay Deshpande", email: "sanjay.d@nalanda.edu.in", phone: "+91 98811 45007", department: "Commerce", designation: "Associate Professor", joinedOn: "2018-08-20", status: "On Leave" },
     { id: "t4", employeeNumber: "NAC-F-031", name: "Asha Thomas", email: "asha.t@nalanda.edu.in", phone: "+91 99162 88014", department: "Humanities", designation: "Lecturer", joinedOn: "2022-01-10", status: "Active" },
   ],

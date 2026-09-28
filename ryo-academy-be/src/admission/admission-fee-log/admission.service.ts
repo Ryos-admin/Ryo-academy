@@ -21,7 +21,7 @@ export class AdmissionService {
   }
 
   async findById(id: string) {
-    return this.databaseService.admission.findUnique({
+    const admission = await this.databaseService.admission.findUnique({
       where: { id },
       include: {
         student: {
@@ -33,6 +33,12 @@ export class AdmissionService {
         },
       },
     });
+
+    if (!admission) {
+      throw new NotFoundException(`Admission with id "${id}" not found`);
+    }
+
+    return admission;
   }
 
   async create(dto: CreateAdmissionDto) {
@@ -131,52 +137,79 @@ export class AdmissionService {
     });
     if (!existingAdmission)
       throw new BadRequestException(`Admission with id "${id}" not found`);
+
+    const classIdChanged =
+      dto.classId !== undefined && existingAdmission.classId !== dto.classId;
+    const sectionIdChanged =
+      dto.sectionId !== undefined &&
+      existingAdmission.sectionId !== dto.sectionId;
+
     if (
       existingAdmission.admissionStatus === 'CONFIRMED' &&
-      (existingAdmission.classId !== dto.classId ||
-        existingAdmission.sectionId !== dto.sectionId)
+      (classIdChanged || sectionIdChanged)
     ) {
       throw new BadRequestException(
         'Class or section cannot be changed after admission confirmation',
       );
     }
-    await this.validateSection(dto.classId, dto.sectionId);
+
+    // The section still has to belong to the class it is finally paired with,
+    // which for a partial update is the stored class when none is supplied.
+    if (dto.classId !== undefined || dto.sectionId !== undefined) {
+      await this.validateSection(
+        dto.classId ?? existingAdmission.classId,
+        dto.sectionId ?? existingAdmission.sectionId,
+      );
+    }
+
+    const admissionUpdate = {
+      ...(dto.studentName !== undefined && { studentName: dto.studentName }),
+      ...(dto.programId !== undefined && { programId: dto.programId }),
+      ...(dto.classId !== undefined && { classId: dto.classId }),
+      ...(dto.sectionId !== undefined && { sectionId: dto.sectionId }),
+      ...(dto.gender !== undefined && { gender: dto.gender }),
+      ...(dto.dateOfBirth !== undefined && { dateOfBirth: dto.dateOfBirth }),
+      ...(dto.parentName !== undefined && { parentName: dto.parentName }),
+      ...(dto.parentRelation !== undefined && {
+        parentRelation: dto.parentRelation,
+      }),
+      ...(dto.parentPhone !== undefined && { parentPhone: dto.parentPhone }),
+      ...(dto.parentAlternatePhone !== undefined && {
+        parentAlternatePhone: dto.parentAlternatePhone,
+      }),
+      ...(dto.parentEmail !== undefined && { parentEmail: dto.parentEmail }),
+      ...(dto.addressLine1 !== undefined && {
+        addressLine1: dto.addressLine1,
+      }),
+      ...(dto.addressLine2 !== undefined && {
+        addressLine2: dto.addressLine2,
+      }),
+      ...(dto.city !== undefined && { city: dto.city }),
+      ...(dto.state !== undefined && { state: dto.state }),
+      ...(dto.country !== undefined && { country: dto.country }),
+      ...(dto.postalCode !== undefined && { pincode: dto.postalCode }),
+    };
+
+    if (Object.keys(admissionUpdate).length === 0 && !dto.feePaymentHeaders) {
+      throw new BadRequestException(
+        'No updatable admission fields were provided.',
+      );
+    }
+
+    const admission =
+      Object.keys(admissionUpdate).length > 0
+        ? await this.databaseService.admission.update({
+            where: { id },
+            data: admissionUpdate,
+          })
+        : existingAdmission;
+
+    if (!dto.feePaymentHeaders) return admission;
 
     const existingFeeData =
       await this.admissionRepository.getFeePaymentByAdmissionId(
-        dto.admissionId,
+        dto.admissionId ?? id,
       );
-
-    const admission = await this.databaseService.admission.update({
-      where: { id },
-      data: {
-        ...(dto.studentName !== undefined && { studentName: dto.studentName }),
-        ...(dto.programId !== undefined && { programId: dto.programId }),
-        ...(dto.classId !== undefined && { classId: dto.classId }),
-        ...(dto.sectionId !== undefined && { sectionId: dto.sectionId }),
-        ...(dto.gender !== undefined && { gender: dto.gender }),
-        ...(dto.dateOfBirth !== undefined && { dateOfBirth: dto.dateOfBirth }),
-        ...(dto.parentName !== undefined && { parentName: dto.parentName }),
-        ...(dto.parentRelation !== undefined && {
-          parentRelation: dto.parentRelation,
-        }),
-        ...(dto.parentPhone !== undefined && { parentPhone: dto.parentPhone }),
-        ...(dto.parentAlternatePhone !== undefined && {
-          parentAlternatePhone: dto.parentAlternatePhone,
-        }),
-        ...(dto.parentEmail !== undefined && { parentEmail: dto.parentEmail }),
-        ...(dto.addressLine1 !== undefined && {
-          addressLine1: dto.addressLine1,
-        }),
-        ...(dto.addressLine2 !== undefined && {
-          addressLine2: dto.addressLine2,
-        }),
-        ...(dto.city !== undefined && { city: dto.city }),
-        ...(dto.state !== undefined && { state: dto.state }),
-        ...(dto.country !== undefined && { country: dto.country }),
-        ...(dto.postalCode !== undefined && { pincode: dto.postalCode }),
-      },
-    });
 
     const feeStructureId =
       (existingFeeData as { feeStructureId?: string } | null | undefined)

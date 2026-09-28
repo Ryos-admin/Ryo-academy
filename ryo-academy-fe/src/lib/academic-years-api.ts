@@ -27,8 +27,12 @@ export interface UpdateAcademicYearRequest {
 
 export const academicYearsQueryKey = ["academicYears"] as const;
 
-export function dateOnly(value: string) {
-  return value.slice(0, 10);
+/**
+ * Trims a server timestamp down to its calendar date. Unlike `new Date(v)` this
+ * never constructs a Date, so a missing or malformed value cannot throw.
+ */
+export function dateOnly(value?: string | null) {
+  return value ? value.slice(0, 10) : "";
 }
 
 function authOptions() {
