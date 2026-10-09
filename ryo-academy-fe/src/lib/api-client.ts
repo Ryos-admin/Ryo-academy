@@ -1,5 +1,7 @@
 export type HttpMethod = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
+import { requestLoader } from "./request-loader";
+
 export type ApiErrorMessage = string | string[];
 
 export interface ApiErrorBody {
@@ -68,6 +70,8 @@ async function parseResponse(response: Response): Promise<unknown> {
 }
 
 async function request<T>(method: HttpMethod, path: string, options: ApiRequestOptions = {}) {
+  requestLoader.start();
+  try {
   const { token, body, headers: requestHeaders, ...requestInit } = options;
   const headers = new Headers(requestHeaders);
   headers.set("Accept", "application/json");
@@ -92,6 +96,9 @@ async function request<T>(method: HttpMethod, path: string, options: ApiRequestO
   }
 
   return payload as T;
+  } finally {
+    requestLoader.finish();
+  }
 }
 
 export const apiClient = {

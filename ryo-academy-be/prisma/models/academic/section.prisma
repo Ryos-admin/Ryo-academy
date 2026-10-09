@@ -11,6 +11,7 @@ model Section {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  isActive Boolean @default(true)
 
   @@unique([classId, name])
   @@index([classId])

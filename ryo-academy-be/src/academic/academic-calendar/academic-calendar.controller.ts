@@ -15,6 +15,7 @@ import { CreateAcademicCalendarDto } from './dto/create-academic-calendar.dto.js
 import { QueryAcademicCalendarDto } from './dto/query-academic-calendar.dto.js';
 import { UpdateAcademicCalendarDto } from './dto/update-academic-calendar.dto.js';
 import { SeedAcademicCalendarDto } from './dto/seed-academic-calendar.dto.js';
+import { BulkUpdateAcademicCalendarDto } from './dto/bulk-update-academic-calendar.dto.js';
 import { JwtAuthGuard } from '../../security/token/jwt-auth.guard.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { RequirePermissions } from '../../auth/require-permissions.decorator.js';
@@ -39,6 +40,12 @@ export class AcademicCalendarController {
   @RequirePermissions(PERMISSIONS.SHIFT_CREATE)
   seed(@Body() dto: SeedAcademicCalendarDto) {
     return this.academicCalendarService.seed(dto);
+  }
+
+  @Post('bulk')
+  @RequirePermissions(PERMISSIONS.SHIFT_UPDATE)
+  bulkUpdate(@Body() dto: BulkUpdateAcademicCalendarDto) {
+    return this.academicCalendarService.bulkUpdate(dto);
   }
 
   @Get()

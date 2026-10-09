@@ -100,10 +100,13 @@ export const authUserToUiUser = (currentUser: CurrentUser | null): User => {
   const name = user ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() : "";
   const primaryRole = currentUser?.roles?.[0]?.name;
   const role: Role = isRole(primaryRole) ? primaryRole : "STAFF";
+  // console.log(name.split(" ")[0]);
+  
   return {
     id: user?.id ?? "",
     name,
     email: user?.email ?? "",
+    schoolId: user?.schoolId ?? "",
     role,
     permissions: toPermissions(currentUser?.permissions),
     avatar: initials(name),
@@ -677,7 +680,7 @@ function ParamAttendanceDetail({ session }: { session: User }) {
 }
 function AcademicYearEditRoute() {
   const { id } = useParams();
-  return <AcademicYearForm id={id} />;
+  return <AcademicYearForm id={id}  schoolId={session?.schoolId} />;
 }
 function AcademicYearDetailRoute() {
   const { id } = useParams();
@@ -725,16 +728,17 @@ function RoutedApp({ session, onLogout }: { session: User; onLogout: () => void 
     <Shell session={session} onLogout={onLogout}>
       <Switch>
         <Route path="/dashboard">
+            {JSON.stringify(session?.schoolId)}
           <Dashboard session={session} />
         </Route>
         <Route path="/academic-years/new">
           <Protected session={session} permission="CLASS_CREATE">
-            <AcademicYearForm />
+            <AcademicYearForm id={null} schoolId={session?.schoolId || undefined} />
           </Protected>
         </Route>
         <Route path="/academic-years/:id/edit">
           <Protected session={session} permission="CLASS_UPDATE">
-            <AcademicYearEditRoute />
+            <AcademicYearEditRoute  schoolId={session?.schoolId}  />
           </Protected>
         </Route>
         <Route path="/academic-years/:id">

@@ -8,6 +8,7 @@ export interface ProtectedUserProfile {
     email: string;
     firstName: string;
     lastName: string;
+    schoolId: string | null;
   };
   roles: { id: string; name: string }[];
   permissions: string[];
@@ -28,6 +29,8 @@ export class ProtectedService {
       return null;
     }
 
+    console.log(userDetails);
+
     const userRoles = await this.databaseService.userRole.findMany({
       where: { userId },
       select: { role: { select: { id: true, name: true } } },
@@ -35,9 +38,7 @@ export class ProtectedService {
 
     const roles = userRoles
       .map((row) => row?.role)
-      .filter((role): role is { id: string; name: string } =>
-        Boolean(role?.id && role?.name),
-      );
+      .filter((role): role is { id: string; name: string } => Boolean(role?.id && role?.name));
 
     const permissionGroups = await Promise.all(
       roles.map((role) =>
@@ -55,7 +56,7 @@ export class ProtectedService {
           .flat()
           .map((row) => row?.permission?.name)
           .filter((name): name is string => Boolean(name))
-          .map((name) => name.toUpperCase().replace(/:/g, '_')),
+          .map((name) => name.toUpperCase().replace(/:/g, "_")),
       ),
     ];
 
@@ -70,6 +71,7 @@ export class ProtectedService {
         email: userDetails.email,
         firstName: userDetails.firstName,
         lastName: userDetails.lastName,
+        schoolId: userDetails.schoolId,
       },
       roles,
       permissions,

@@ -26,6 +26,7 @@ export class StudentService {
 
   async findAll() {
     return this.databaseService.student.findMany({
+      where: { isActive: true },
       include: studentRelations,
       orderBy: [{ studentName: 'asc' }, { studentNumber: 'asc' }],
     });
@@ -33,7 +34,7 @@ export class StudentService {
 
   async findById(id: string) {
     const student = await this.databaseService.student.findUnique({
-      where: { id },
+      where: { id, isActive: true },
       include: studentRelations,
     });
 
@@ -46,7 +47,7 @@ export class StudentService {
 
   async getStudentFees(studentId: string) {
     const student = await this.databaseService.student.findUnique({
-      where: { id: studentId },
+      where: { id: studentId, isActive: true },
       include: {
         admission: {
           include: {

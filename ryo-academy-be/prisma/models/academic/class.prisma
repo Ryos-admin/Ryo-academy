@@ -16,6 +16,7 @@ model Class {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  isActive Boolean @default(true)
 
   @@unique([programId, name])
   @@index([programId])

@@ -7,6 +7,8 @@ model FeePaymentDetails {
 
     nameSnapshot String
 
+    isActive Boolean @default(true)
+
     originalAmount Decimal
     discountApplicable Boolean
     isMandatory Boolean

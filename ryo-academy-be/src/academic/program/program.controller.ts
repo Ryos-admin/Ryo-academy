@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { ApiBadRequestResponse, ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { ProgramService } from "./program.service.js";
 import { CreateProgramDto } from "./dto/create-program.dto.js";
@@ -52,5 +52,11 @@ export class ProgramController {
     @ApiBadRequestResponse({ description: 'Program not found' })
     async findProgramById(@Param('id') id: string) {
         return await this.programService.findPrgmById(id);
+    }
+
+    @Delete(':id')
+    @RequirePermissions(PERMISSIONS.SHIFT_UPDATE)
+    async remove(@Param('id') id: string) {
+        return this.programService.remove(id);
     }
 }

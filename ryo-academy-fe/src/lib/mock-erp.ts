@@ -42,6 +42,7 @@ export type User = {
   id: string;
   name: string;
   email: string;
+  schoolId: string | null;
   /** Display only. Authorisation is driven by `permissions`. */
   role: Role;
   /** Effective permissions, supplied by GET /protected/me. */

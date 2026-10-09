@@ -15,6 +15,7 @@ model AttendanceLogMaster {
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
   deletedAt      DateTime?
+  isActive       Boolean               @default(true)
 
   academicYear AcademicYear          @relation(fields: [academicYearId], references: [id])
   class        Class                 @relation(fields: [classId], references: [id])

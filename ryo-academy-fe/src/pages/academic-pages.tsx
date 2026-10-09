@@ -1,17 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Controller, useForm, type FieldValues, type Path, type UseFormReturn } from "react-hook-form";
+import {
+  Controller,
+  useForm,
+  type FieldValues,
+  type Path,
+  type UseFormReturn,
+} from "react-hook-form";
 import { Link, useLocation } from "wouter";
 import {
   ArrowLeft,
   ArrowRight,
   CalendarDays,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   GraduationCap,
   Plus,
   Settings2,
+  Trash2,
   X,
 } from "lucide-react";
 import {
@@ -26,6 +35,7 @@ import {
   dateOnly,
   useAcademicYear,
   useAcademicYears,
+  useDeleteAcademicYear,
   useSaveAcademicYear,
   type AcademicYear,
   type CreateAcademicYearRequest,
@@ -35,7 +45,9 @@ import {
   useAcademicCalendar,
   useAcademicCalendarRecord,
   useDeleteAcademicCalendar,
+  useBulkUpdateAcademicCalendar,
   useSaveAcademicCalendar,
+  type AcademicCalendarRecord,
   type CreateAcademicCalendarRequest,
   type DayType,
   type UpdateAcademicCalendarRequest,
@@ -50,12 +62,14 @@ import {
   type WeekdayCode,
   useProgram,
   usePrograms,
+  useDeleteProgram,
   useSaveProgram,
 } from "@/lib/programs-api";
 import {
   classErrorMessage,
   useClass,
   useClasses,
+  useDeleteClass,
   useSaveClass,
   type ClassCreateRequest,
   type ClassUpdateRequest,
@@ -65,6 +79,7 @@ import {
   useSaveSection,
   useSections,
   useSectionsByClass,
+  useDeleteSection,
   type SectionCreateRequest,
   type SectionUpdateRequest,
 } from "@/lib/sections-api";
@@ -131,18 +146,8 @@ const setupMeta: Record<
     update: "CLASS_UPDATE",
   },
 };
-const weekdayCodeSchema = z.enum([
-  "MON",
-  "TUE",
-  "WED",
-  "THU",
-  "FRI",
-  "SAT",
-  "SUN",
-]);
-const daysOfWeekSchema = z
-  .array(weekdayCodeSchema)
-  .min(1, "Add at least one day");
+const weekdayCodeSchema = z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]);
+const daysOfWeekSchema = z.array(weekdayCodeSchema).min(1, "Add at least one day");
 const weekdayOptions: string[][] = [
   ["MON", "Monday"],
   ["TUE", "Tuesday"],
@@ -200,8 +205,21 @@ const academicYearSchema = z
 
 export function AcademicYearsList() {
   const query = useAcademicYears();
+  const remove = useDeleteAcademicYear();
   const [search, setSearch] = useState("");
   const [, setLocation] = useLocation();
+  const deleteYear = (id: string) => {
+    if (!window.confirm("Deactivate this academic year? It will be hidden from active lists."))
+      return;
+    remove.mutate(id, {
+      onSuccess: () => toast({ title: "Academic year deactivated" }),
+      onError: (error) =>
+        toast({
+          title: "Could not deactivate academic year",
+          description: academicYearErrorMessage(error, "Please try again."),
+        }),
+    });
+  };
   if (query.isLoading)
     return (
       <>
@@ -267,8 +285,7 @@ export function AcademicYearsList() {
                 </tr>
               </thead>
               <tbody>
-                {
-                rows.map((row) => (
+                {rows.map((row) => (
                   <tr key={row.id}>
                     <td>
                       <Link href={`/academic-years/${row.id}`} className="table-link">
@@ -286,6 +303,16 @@ export function AcademicYearsList() {
                       >
                         <Settings2 size={15} />
                       </Link>
+                      <button
+                        type="button"
+                        className="icon-button ml-3"
+                        title="Deactivate academic year"
+                        aria-label="Deactivate academic year"
+                        onClick={() => deleteYear(row.id)}
+                        disabled={remove.isPending}
+                      >
+                        <Trash2 color="red" size={15} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -294,9 +321,7 @@ export function AcademicYearsList() {
           </div>
           <div className="table-foot">
             <span>{rows.length} records</span>
-            <span className="table-foot-note">
-              No delete action is available for academic setup records
-            </span>
+            <span className="table-foot-note">Deactivate removes records from active lists</span>
           </div>
         </div>
       )}
@@ -304,15 +329,16 @@ export function AcademicYearsList() {
   );
 }
 
-export function AcademicYearForm({ id }: { id?: string }) {
+export function AcademicYearForm({ id, schoolId }: { id?: string | null; schoolId?: string }) {
   const editing = Boolean(id);
   const query = useAcademicYear(id);
   const save = useSaveAcademicYear(id);
   const [, setLocation] = useLocation();
+
   const form = useForm<z.infer<typeof academicYearSchema>>({
     resolver: zodResolver(academicYearSchema),
     defaultValues: {
-      schoolId: "NAC-BLR",
+      schoolId: schoolId || "",
       name: "2026–27",
       startDate: "2026-06-01",
       endDate: "2027-05-31",
@@ -376,7 +402,7 @@ export function AcademicYearForm({ id }: { id?: string }) {
         )}
       >
         <div className="form-grid">
-          <Field form={form} name="schoolId" label="School ID" disabled={editing} />
+          {/* <Field form={form} name="schoolId" label="School ID" disabled={editing} /> */}
           {editing && <p className="field-help">School ID cannot be changed after creation.</p>}
           <Field form={form} name="name" label="Academic year name" />
           <Field form={form} name="startDate" label="Start date" type="date" />
@@ -502,20 +528,89 @@ const calendarDateValue = (value?: string) => (value ? value.slice(0, 10) : "");
 const dayTypeFromLabel = (value: string): DayType | undefined =>
   dayTypeOptions.find(([, label]) => label === value)?.[0];
 
+function toCalendarDate(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function InteractiveCalendar({ records, academicYearId, canEdit }: { records: AcademicCalendarRecord[]; academicYearId: string; canEdit: boolean }) {
+  const bulkSave = useBulkUpdateAcademicCalendar();
+  const [mode, setMode] = useState<"single" | "bulk">("single");
+  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [selected, setSelected] = useState<string[]>([]);
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const [bulkType, setBulkType] = useState<DayType>("WORKING_DAY");
+  const recordMap = useMemo(() => new Map(records.map((record) => [calendarDateValue(record.date), record])), [records]);
+  const cells = useMemo(() => {
+    const first = new Date(month.getFullYear(), month.getMonth(), 1);
+    const start = new Date(first);
+    start.setDate(1 - first.getDay());
+    return Array.from({ length: 42 }, (_, index) => {
+      const day = new Date(start);
+      day.setDate(start.getDate() + index);
+      return day;
+    });
+  }, [month]);
+  const updateSelected = () => {
+    if (!academicYearId || selected.length === 0) return;
+    const isWorkingDay = bulkType === "WORKING_DAY" || bulkType === "SPECIAL_WORKING_DAY";
+    bulkSave.mutate({ academicYearId, dates: selected, dayType: bulkType, title: dayTypeLabels[bulkType], isWorkingDay, description: "" }, { onSuccess: () => setSelected([]) });
+  };
+  const selectDate = (dateValue: string, event: MouseEvent<HTMLButtonElement>) => {
+    if (mode === "single") {
+      setSelected([dateValue]);
+      setAnchor(dateValue);
+      return;
+    }
+    if (event.shiftKey && anchor) {
+      const start = cells.findIndex((day) => toCalendarDate(day) === anchor);
+      const end = cells.findIndex((day) => toCalendarDate(day) === dateValue);
+      if (start >= 0 && end >= 0) {
+        const [from, to] = start < end ? [start, end] : [end, start];
+        setSelected(cells.slice(from, to + 1).map(toCalendarDate));
+        return;
+      }
+    }
+    setAnchor(dateValue);
+    setSelected((current) => current.includes(dateValue) ? current.filter((value) => value !== dateValue) : [...current, dateValue]);
+  };
+  return (
+    <section className="panel mb-6 overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-5 py-4">
+        <div><div className="eyebrow">Academic Calendar</div><h2 className="text-xl font-semibold">{month.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</h2><p className="text-sm text-muted-foreground">Edit one date or select a range and update multiple dates.</p></div>
+        <div className="flex items-center gap-2"><AppButton variant="ghost" aria-label="Previous month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft size={16} /></AppButton><AppButton variant="ghost" aria-label="Next month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight size={16} /></AppButton></div>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/20 px-5 py-3">
+        <button type="button" onClick={() => { setMode("single"); setSelected([]); }} className={`rounded-lg border px-4 py-2 text-sm font-semibold ${mode === "single" ? "border-primary bg-primary/10 text-primary" : "border-border bg-card"}`}>Single Edit<span className="ml-2 block text-xs font-normal text-muted-foreground">Click one date</span></button>
+        <button type="button" onClick={() => { setMode("bulk"); setSelected([]); }} className={`rounded-lg border px-4 py-2 text-sm font-semibold ${mode === "bulk" ? "border-primary bg-primary/10 text-primary" : "border-border bg-card"}`}>Bulk Edit<span className="ml-2 block text-xs font-normal text-muted-foreground">Select dates or shift-click a range</span></button>
+        <label className="field"><span>Selected dates</span><strong>{selected.length}</strong></label>
+        <label className="field"><span>Set type</span><select value={bulkType} onChange={(event) => setBulkType(event.target.value as DayType)}><option value="WORKING_DAY">Working day</option><option value="WEEKEND">Weekend</option><option value="HOLIDAY">Holiday</option><option value="SPECIAL_WORKING_DAY">Special working day</option></select></label>
+        <AppButton disabled={!canEdit || selected.length === 0 || bulkSave.isPending} onClick={updateSelected}>{bulkSave.isPending ? "Saving…" : "Apply to selected"}</AppButton>
+        <AppButton variant="ghost" disabled={selected.length === 0} onClick={() => setSelected([])}>Clear</AppButton>
+      </div>
+      <div className="grid grid-cols-7 gap-px bg-border p-px">
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => <div key={label} className="bg-muted/50 px-3 py-2 text-center text-xs font-semibold text-muted-foreground">{label}</div>)}
+        {cells.map((day) => {
+          const dateValue = toCalendarDate(day);
+          const record = recordMap.get(dateValue);
+          const isCurrentMonth = day.getMonth() === month.getMonth();
+          const isSelected = selected.includes(dateValue);
+          const tone = record?.isWorkingDay ? "bg-emerald-50" : record ? "bg-rose-50" : "bg-card";
+          return <button key={dateValue} type="button" disabled={!canEdit || !isCurrentMonth} onClick={(event) => selectDate(dateValue, event)} className={`min-h-20 p-3 text-left transition ${tone} ${!isCurrentMonth ? "opacity-40" : "hover:bg-blue-50"} ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}><strong className={record && !record.isWorkingDay ? "text-red-600" : ""}>{day.getDate()}</strong><span className="mt-2 block truncate text-xs text-muted-foreground">{record?.title || "No record"}</span></button>;
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function AcademicCalendarList({ session }: { session: User }) {
   const years = useAcademicYears();
   const [academicYearId, setAcademicYearId] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [dayType, setDayType] = useState("All");
-  const [working, setWorking] = useState("All");
   const [, setLocation] = useLocation();
+  useEffect(() => {
+    if (!academicYearId && years.data?.[0]?.id) setAcademicYearId(years.data[0].id);
+  }, [academicYearId, years.data]);
   const query = useAcademicCalendar({
     academicYearId: academicYearId || undefined,
-    from: from || undefined,
-    to: to || undefined,
-    dayType: dayTypeFromLabel(dayType),
-    isWorkingDay: working === "All" ? undefined : working === "Working",
   });
   if (query.isLoading || years.isLoading)
     return (
@@ -564,44 +659,8 @@ export function AcademicCalendarList({ session }: { session: User }) {
           )
         }
       />
-      <div className="list-toolbar">
-        <label className="field">
-          <span>Academic year</span>
-          <select
-            value={academicYearId}
-            onChange={(event) => setAcademicYearId(event.target.value)}
-          >
-            <option value="">All academic years</option>
-            {(years.data || []).map((year) => (
-              <option key={year.id} value={year.id}>
-                {year.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="toolbar-right">
-          <label className="field">
-            <span>From</span>
-            <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>To</span>
-            <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
-          </label>
-          <SelectBox
-            value={dayType}
-            onChange={setDayType}
-            label="Type"
-            options={calendarFilterSchema.dayType.slice(1)}
-          />
-          <SelectBox
-            value={working}
-            onChange={setWorking}
-            label="Working"
-            options={calendarFilterSchema.working.slice(1)}
-          />
-        </div>
-      </div>
+      <div className="list-toolbar"><label className="field"><span>Academic year</span><select value={academicYearId} onChange={(event) => setAcademicYearId(event.target.value)}>{(years.data || []).map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}</select></label></div>
+      {academicYearId && <InteractiveCalendar records={rows} academicYearId={academicYearId} canEdit={hasPermission(session, "SHIFT_UPDATE")} />}
       {rows.length === 0 ? (
         <Empty
           title="No calendar records found"
@@ -946,9 +1005,22 @@ const programSchema = z
 
 export function ProgramsList() {
   const query = usePrograms();
+  const remove = useDeleteProgram();
   const years = useAcademicYears();
   const [search, setSearch] = useState("");
   const [, setLocation] = useLocation();
+  const deleteProgram = (id: string) => {
+    if (!window.confirm("Deactivate this program / shift? It will be hidden from active lists."))
+      return;
+    remove.mutate(id, {
+      onSuccess: () => toast({ title: "Program deactivated" }),
+      onError: (error) =>
+        toast({
+          title: "Could not deactivate program",
+          description: programErrorMessage(error, "Please try again."),
+        }),
+    });
+  };
   if (query.isLoading || years.isLoading)
     return (
       <>
@@ -1051,6 +1123,16 @@ export function ProgramsList() {
                       >
                         <Settings2 size={15} />
                       </Link>
+                      <button
+                        type="button"
+                        className="icon-button ml-3 text-red-800"
+                        title="Deactivate program"
+                        aria-label="Deactivate program"
+                        onClick={() => deleteProgram(row.id)}
+                        disabled={remove.isPending}
+                      >
+                        <Trash2 color="red" size={15} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -1059,9 +1141,7 @@ export function ProgramsList() {
           </div>
           <div className="table-foot">
             <span>{rows.length} records</span>
-            <span className="table-foot-note">
-              No delete action is available for academic setup records
-            </span>
+            <span className="table-foot-note">Deactivate removes records from active lists</span>
           </div>
         </div>
       )}
@@ -1320,9 +1400,21 @@ const classSchema = z.object({
 
 export function ClassList({ session }: { session: User }) {
   const query = useClasses();
+  const remove = useDeleteClass();
   const programs = usePrograms();
   const sections = useSections();
   const [search, setSearch] = useState("");
+  const deleteClass = (id: string) => {
+    if (!window.confirm("Deactivate this class? It will be hidden from active lists.")) return;
+    remove.mutate(id, {
+      onSuccess: () => toast({ title: "Class deactivated" }),
+      onError: (error) =>
+        toast({
+          title: "Could not deactivate class",
+          description: classErrorMessage(error, "Please try again."),
+        }),
+    });
+  };
   if (query.isLoading)
     return (
       <>
@@ -1428,13 +1520,25 @@ export function ClassList({ session }: { session: User }) {
                     </td>
                     <td className="row-actions">
                       {hasPermission(session, "CLASS_UPDATE") && (
-                        <Link
-                          href={`/classes/${row.id}/edit`}
-                          className="icon-button"
-                          title="Edit record"
-                        >
-                          <Settings2 size={15} />
-                        </Link>
+                        <>
+                          <Link
+                            href={`/classes/${row.id}/edit`}
+                            className="icon-button"
+                            title="Edit record"
+                          >
+                            <Settings2 size={15} />
+                          </Link>
+                          <button
+                            type="button"
+                            className="icon-button ml-3"
+                            title="Deactivate class"
+                            aria-label="Deactivate class"
+                            onClick={() => deleteClass(row.id)}
+                            disabled={remove.isPending}
+                          >
+                            <Trash2 color="red" size={15} />
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>
@@ -1444,9 +1548,7 @@ export function ClassList({ session }: { session: User }) {
           </div>
           <div className="table-foot">
             <span>{rows.length} records</span>
-            <span className="table-foot-note">
-              No delete action is available for academic setup records
-            </span>
+            <span className="table-foot-note">Deactivate removes records from active lists</span>
           </div>
         </div>
       )}
@@ -1662,8 +1764,20 @@ const sectionSchema = z.object({
 
 export function SectionList({ session }: { session: User }) {
   const query = useSections();
+  const remove = useDeleteSection();
   const classes = useClasses();
   const [search, setSearch] = useState("");
+  const deleteSection = (id: string) => {
+    if (!window.confirm("Deactivate this section? It will be hidden from active lists.")) return;
+    remove.mutate(id, {
+      onSuccess: () => toast({ title: "Section deactivated" }),
+      onError: (error) =>
+        toast({
+          title: "Could not deactivate section",
+          description: sectionErrorMessage(error, "Please try again."),
+        }),
+    });
+  };
   if (query.isLoading || classes.isLoading)
     return (
       <>
@@ -1766,13 +1880,25 @@ export function SectionList({ session }: { session: User }) {
                     </td>
                     <td className="row-actions">
                       {hasPermission(session, "CLASS_UPDATE") && (
-                        <Link
-                          href={`/sections/${row.id}/edit`}
-                          className="icon-button"
-                          title="Edit section"
-                        >
-                          <Settings2 size={15} />
-                        </Link>
+                        <>
+                          <Link
+                            href={`/sections/${row.id}/edit`}
+                            className="icon-button"
+                            title="Edit section"
+                          >
+                            <Settings2 size={15} />
+                          </Link>
+                          <button
+                            type="button"
+                            className="icon-button ml-3"
+                            title="Deactivate section"
+                            aria-label="Deactivate section"
+                            onClick={() => deleteSection(row.id)}
+                            disabled={remove.isPending}
+                          >
+                            <Trash2 color="red" size={15} />
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>
@@ -1782,9 +1908,7 @@ export function SectionList({ session }: { session: User }) {
           </div>
           <div className="table-foot">
             <span>{rows.length} records</span>
-            <span className="table-foot-note">
-              No delete action is available for academic setup records
-            </span>
+            <span className="table-foot-note">Deactivate removes records from active lists</span>
           </div>
         </div>
       )}
@@ -2431,9 +2555,7 @@ export function MultiSelectField<TFieldValues extends FieldValues = FieldValues>
         control={form.control}
         name={name}
         render={({ field }) => {
-          const selected = Array.isArray(field.value)
-            ? (field.value as string[])
-            : [];
+          const selected = Array.isArray(field.value) ? (field.value as string[]) : [];
           const labels = options
             .filter(([value]) => selected.includes(value))
             .map(([, text]) => text);
@@ -2484,9 +2606,7 @@ export function MultiSelectField<TFieldValues extends FieldValues = FieldValues>
         }}
       />
       {form.formState.errors[name] && (
-        <span className="field-error">
-          {String(form.formState.errors[name]?.message)}
-        </span>
+        <span className="field-error">{String(form.formState.errors[name]?.message)}</span>
       )}
     </div>
   );

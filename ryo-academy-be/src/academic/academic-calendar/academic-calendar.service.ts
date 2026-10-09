@@ -12,6 +12,7 @@ import {
   SeedAcademicCalendarDto,
   WeekdayDto,
 } from './dto/seed-academic-calendar.dto.js';
+import { BulkUpdateAcademicCalendarDto } from './dto/bulk-update-academic-calendar.dto.js';
 import { DayType } from '../../../generated/prisma/enums.js';
 
 @Injectable()
@@ -87,6 +88,32 @@ export class AcademicCalendarService {
     });
   }
 
+  async bulkUpdate(dto: BulkUpdateAcademicCalendarDto) {
+    const academicYear = await this.findAcademicYear(dto.academicYearId);
+    const dates = dto.dates.map((value) => this.toDate(value, 'dates'));
+    dates.forEach((date) => this.validateDateInAcademicYear(date, academicYear.startDate, academicYear.endDate));
+
+    return this.databaseService.$transaction(async (tx) => {
+      let updated = 0;
+      let created = 0;
+      for (const date of dates) {
+        const existing = await tx.academicCalendar.findFirst({
+          where: { academicYearId: dto.academicYearId, date, isActive: true },
+          select: { id: true },
+        });
+        const data = { dayType: dto.dayType, title: dto.title, description: dto.description, isWorkingDay: dto.isWorkingDay };
+        if (existing) {
+          await tx.academicCalendar.update({ where: { id: existing.id }, data });
+          updated += 1;
+        } else {
+          await tx.academicCalendar.create({ data: { academicYearId: dto.academicYearId, date, ...data } });
+          created += 1;
+        }
+      }
+      return { academicYearId: dto.academicYearId, created, updated };
+    });
+  }
+
   async findAll(query: QueryAcademicCalendarDto) {
     if (query.from && query.to && query.from > query.to) {
       throw new BadRequestException('from must be before or equal to to');
@@ -95,6 +122,7 @@ export class AcademicCalendarService {
     return this.databaseService.academicCalendar.findMany({
       where: {
         deletedAt: null,
+        isActive: true,
         ...(query.academicYearId && { academicYearId: query.academicYearId }),
         ...(query.dayType && { dayType: query.dayType }),
         ...(query.isWorkingDay !== undefined && {
@@ -113,7 +141,7 @@ export class AcademicCalendarService {
 
   async findOne(id: string) {
     const record = await this.databaseService.academicCalendar.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, deletedAt: null, isActive: true },
     });
     if (!record)
       throw new NotFoundException(
@@ -164,7 +192,7 @@ export class AcademicCalendarService {
     await this.findOne(id);
     return this.databaseService.academicCalendar.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: { deletedAt: new Date(), isActive: false },
     });
   }
 

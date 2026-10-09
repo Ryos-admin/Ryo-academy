@@ -17,6 +17,7 @@ model AcademicCalendar {
     isWorkingDay Boolean
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
+    isActive Boolean @default(true)
     deletedAt DateTime?
 
     @@unique([academicYearId, date])

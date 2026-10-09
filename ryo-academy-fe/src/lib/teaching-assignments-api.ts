@@ -3,7 +3,7 @@ import { ApiError, apiClient } from "./api-client";
 import { session } from "./session";
 
 export interface TeachingAssignmentRelation { id: string; name?: string; firstName?: string; lastName?: string; staffCode?: string; }
-export interface TeachingAssignmentResponse { id: string; staffId: string; subjectId: string; classId: string; sectionId: string; staff?: TeachingAssignmentRelation; subject?: TeachingAssignmentRelation; class?: TeachingAssignmentRelation; section?: TeachingAssignmentRelation; createdAt: string; updatedAt: string }
+export interface TeachingAssignmentResponse { id: string; staffId: string; subjectId: string; classId: string; sectionId: string; isActive?: boolean; staff?: TeachingAssignmentRelation; subject?: TeachingAssignmentRelation; class?: TeachingAssignmentRelation; section?: TeachingAssignmentRelation; createdAt: string; updatedAt: string }
 export interface TeachingAssignmentCreateRequest { staffId: string; subjectId: string; classId: string; sectionId: string }
 export interface TeachingAssignmentUpdateRequest { subjectId?: string; classId?: string; sectionId?: string }
 export const teachingAssignmentsQueryKey = ["teachingAssignments"] as const;

@@ -15,6 +15,7 @@ export interface AcademicCalendarRecord {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
+  isActive?: boolean;
 }
 
 export interface AcademicCalendarQuery {
@@ -40,6 +41,14 @@ export interface UpdateAcademicCalendarRequest {
   title?: string;
   description?: string;
   isWorkingDay?: boolean;
+}
+export interface BulkUpdateAcademicCalendarRequest {
+  academicYearId: string;
+  dates: string[];
+  dayType: DayType;
+  title: string;
+  description?: string;
+  isWorkingDay: boolean;
 }
 
 export const academicCalendarQueryKey = ["academicCalendar"] as const;
@@ -67,6 +76,7 @@ export const academicCalendarApi = {
   createAcademicCalendar: (payload: CreateAcademicCalendarRequest) => apiClient.post<AcademicCalendarRecord>("/academic-calendar", payload, authOptions()),
   updateAcademicCalendar: (id: string, payload: UpdateAcademicCalendarRequest) => apiClient.patch<AcademicCalendarRecord>(`/academic-calendar/${id}`, payload, authOptions()),
   deleteAcademicCalendar: (id: string) => apiClient.delete<AcademicCalendarRecord>(`/academic-calendar/${id}`, authOptions()),
+  bulkUpdateAcademicCalendar: (payload: BulkUpdateAcademicCalendarRequest) => apiClient.post<{ academicYearId: string; created: number; updated: number }>("/academic-calendar/bulk", payload, authOptions()),
 };
 
 export function useAcademicCalendar(query?: AcademicCalendarQuery) {
@@ -75,6 +85,11 @@ export function useAcademicCalendar(query?: AcademicCalendarQuery) {
     queryFn: () => academicCalendarApi.listAcademicCalendar(query),
     retry: false,
   });
+}
+
+export function useBulkUpdateAcademicCalendar() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: academicCalendarApi.bulkUpdateAcademicCalendar, onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: academicCalendarQueryKey }); } });
 }
 
 export function useAcademicCalendarRecord(id?: string) {

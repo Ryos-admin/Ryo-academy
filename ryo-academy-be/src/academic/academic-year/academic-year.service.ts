@@ -1,8 +1,14 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { DatabaseService } from '../../database/database.service.js';
-import { CreateAcademicYearDto } from './dto/create-academic-year.dto.js';
-import { UpdateAcademicYearDto } from './dto/update-academic-year.dto.js';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from "@nestjs/common";
+import { DatabaseService } from "../../database/database.service.js";
+import { CreateAcademicYearDto } from "./dto/create-academic-year.dto.js";
+import { UpdateAcademicYearDto } from "./dto/update-academic-year.dto.js";
 
+var schoolDtls: string = "";
 @Injectable()
 export class AcademicYearService {
   constructor(private readonly databaseService: DatabaseService) {}
@@ -19,7 +25,7 @@ export class AcademicYearService {
         },
       });
     } catch (error) {
-      if (error?.code === 'P2002') {
+      if (error?.code === "P2002") {
         throw new ConflictException(
           `Academic year with name "${dto.name}" already exists for school.`,
         );
@@ -29,18 +35,38 @@ export class AcademicYearService {
   }
 
   async findAll() {
-    return this.databaseService.academicYear.findMany({
-      orderBy: [{ schoolId: 'asc' }, { startDate: 'desc' }],
+    const academicYrs = await this.databaseService.academicYear.findMany({
+      where: { isActive: true },
+      include: {
+        school: {
+          select: {
+            name: true,
+            schoolCode: true,
+          },
+        },
+      },
+      orderBy: [{ schoolId: "asc" }, { startDate: "desc" }],
     });
+
+    schoolDtls = `${academicYrs[0]?.school ? `${academicYrs[0]?.school.name} (${academicYrs[0]?.school.schoolCode})` : ""}`;
+
+    return academicYrs.map((academicYear) => ({
+      id: academicYear.id,
+      schoolId: schoolDtls,
+      name: academicYear.name,
+      startDate: academicYear.startDate,
+      endDate: academicYear.endDate,
+    }));
   }
 
   async findOne(id: string) {
     const academicYear = await this.databaseService.academicYear.findUnique({
-      where: { id },
+      where: { id, isActive: true },
     });
     if (!academicYear) {
       throw new NotFoundException(`Academic year with id "${id}" not found`);
     }
+    Object.assign(academicYear, { schoolId: schoolDtls });
     return academicYear;
   }
 
@@ -65,18 +91,21 @@ export class AcademicYearService {
         },
       });
     } catch (error) {
-      if (error?.code === 'P2002') {
-        throw new ConflictException(
-          `Academic year name already exists for this school.`,
-        );
+      if (error?.code === "P2002") {
+        throw new ConflictException(`Academic year name already exists for this school.`);
       }
       throw error;
     }
   }
 
+  async remove(id: string) {
+    await this.findOne(id);
+    return this.databaseService.academicYear.update({ where: { id }, data:{ isActive: false } });
+  }
+
   private validateDateRange(startDate: Date, endDate: Date) {
     if (startDate >= endDate) {
-      throw new BadRequestException('startDate must be before endDate');
+      throw new BadRequestException("startDate must be before endDate");
     }
   }
 }

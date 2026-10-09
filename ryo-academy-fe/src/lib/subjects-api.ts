@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiClient } from "./api-client";
 import { session } from "./session";
 
-export interface SubjectResponse { id: string; name: string; classId: string; isDeleted: boolean; createdAt: string; updatedAt: string }
+export interface SubjectResponse { id: string; name: string; classId: string; isActive: boolean; createdAt: string; updatedAt: string }
 export interface SubjectCreateRequest { classId: string; name: string }
 export interface SubjectUpdateRequest { name: string }
 export const subjectsQueryKey = ["subjects"] as const;

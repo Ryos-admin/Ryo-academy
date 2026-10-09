@@ -10,7 +10,7 @@ export class ProgramService {
     async createPrgm(dto: CreateProgramDto) {
         try {
             const academicYearId = await this.databaseService.academicYear.findUnique({
-                where: { id: dto.academicYear },
+                where: { id: dto.academicYear, isActive: true },
                 select: { id: true, name: true },
             });
 
@@ -47,6 +47,7 @@ export class ProgramService {
     async findAllPrgms() {
         try {
         return this.databaseService.program.findMany({
+            where: { isActive: true },
             orderBy: [{ name: 'asc' }, { academicYearId: 'desc' }, { isPrimary: 'desc' }],
         });
         }
@@ -58,7 +59,7 @@ export class ProgramService {
     async fingPrgmByName(name: string) {
         try {
             const program = await this.databaseService.program.findMany({
-                where: { name },
+                where: { name, isActive: true },
             });
             if (!program || program.length === 0) {
                 throw new NotFoundException(`Program with name "${name}" not found`);
@@ -72,7 +73,7 @@ export class ProgramService {
     async findPrgmById(id: string) {
         try {
             const program = await this.databaseService.program.findUnique({
-                where: { id },
+                where: { id, isActive: true },
             });
             if (!program) {
                 throw new NotFoundException(`Program with id "${id}" not found`);
@@ -113,6 +114,11 @@ export class ProgramService {
             }
             throw error;    
         }
+    }
+
+    async remove(id: string) {
+        await this.findPrgmById(id);
+        return this.databaseService.program.update({ where: { id }, data: { isActive: false } });
     }
 
     

@@ -11,6 +11,7 @@ model AttendanceLogChild {
   remarks            String?
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
+  isActive          Boolean                  @default(true)
 
   attendanceMaster AttendanceLogMaster @relation(fields: [attendanceMasterId], references: [id])
   student          Student             @relation(fields: [studentId], references: [id])

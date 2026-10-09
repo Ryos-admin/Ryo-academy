@@ -16,6 +16,7 @@ model FeePaymentHeader {
   totalFeeAmount Decimal
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  isActive Boolean @default(true)
   
   feePaymentDetails FeePaymentDetails[]
 

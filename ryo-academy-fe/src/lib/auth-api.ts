@@ -29,6 +29,7 @@ export interface CurrentUser {
     email: string;
     firstName: string;
     lastName: string;
+    schoolId: string | null;
   } | null;
   roles: { id: string; name: string }[];
   permissions: string[];

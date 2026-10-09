@@ -8,6 +8,7 @@ export interface AcademicYear {
   name: string;
   startDate: string;
   endDate: string;
+  isActive?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -45,6 +46,7 @@ export const academicYearsApi = {
   get: (id: string) => apiClient.get<AcademicYear>(`/academic-years/${id}`, authOptions()),
   create: (payload: CreateAcademicYearRequest) => apiClient.post<AcademicYear>("/academic-years", payload, authOptions()),
   update: (id: string, payload: UpdateAcademicYearRequest) => apiClient.patch<AcademicYear>(`/academic-years/${id}`, payload, authOptions()),
+  remove: (id: string) => apiClient.delete<AcademicYear>(`/academic-years/${id}`, authOptions()),
 };
 
 export function useAcademicYears() {
@@ -53,6 +55,11 @@ export function useAcademicYears() {
     queryFn: academicYearsApi.list,
     retry: false,
   });
+}
+
+export function useDeleteAcademicYear() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: academicYearsApi.remove, onSuccess: async (_deleted, id) => { queryClient.removeQueries({ queryKey: [...academicYearsQueryKey, id] }); await queryClient.invalidateQueries({ queryKey: academicYearsQueryKey }); } });
 }
 
 export function useAcademicYear(id?: string) {

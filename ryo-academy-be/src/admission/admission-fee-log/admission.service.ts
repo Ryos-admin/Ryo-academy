@@ -17,12 +17,12 @@ export class AdmissionService {
   ) {}
 
   async findAll() {
-    return this.databaseService.admission.findMany();
+    return this.databaseService.admission.findMany({ where: { isActive: true } });
   }
 
   async findById(id: string) {
     const admission = await this.databaseService.admission.findUnique({
-      where: { id },
+      where: { id, isActive: true },
       include: {
         student: {
           select: {
@@ -133,7 +133,7 @@ export class AdmissionService {
 
   async updateById(id: string, dto: UpdateAdmissionDto) {
     const existingAdmission = await this.databaseService.admission.findUnique({
-      where: { id },
+      where: { id, isActive: true },
     });
     if (!existingAdmission)
       throw new BadRequestException(`Admission with id "${id}" not found`);

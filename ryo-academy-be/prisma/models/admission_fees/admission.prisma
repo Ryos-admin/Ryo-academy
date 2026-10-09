@@ -59,6 +59,8 @@ model Admission {
     discountPercentage Decimal @default(0)
     discountReason String?
 
+    isActive Boolean @default(true)
+
     // CONFIRMATION DETAILS
     studentId String?
     createdById String

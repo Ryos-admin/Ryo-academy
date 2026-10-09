@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -81,5 +82,11 @@ export class AcademicYearController {
     @Body() updateAcademicYearDto: UpdateAcademicYearDto,
   ) {
     return this.academicYearService.update(id, updateAcademicYearDto);
+  }
+
+  @Delete(':id')
+  @RequirePermissions(PERMISSIONS.SHIFT_UPDATE)
+  async remove(@Param('id') id: string) {
+    return this.academicYearService.remove(id);
   }
 }

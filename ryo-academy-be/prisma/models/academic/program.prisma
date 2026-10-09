@@ -28,6 +28,7 @@ model Program {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  isActive Boolean @default(true)
 
   @@unique([academicYearId, name])
   @@index([academicYearId])

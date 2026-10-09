@@ -143,7 +143,7 @@ export class AttendanceService {
   async findOne(userId: string, id: string) {
     const staff = await this.readerStaffForUser(userId);
     const record = await this.db.attendanceLogMaster.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, deletedAt: null, isActive: true },
       include: { children: true },
     });
     if (!record) throw new NotFoundException('Attendance not found');
@@ -263,7 +263,7 @@ export class AttendanceService {
       );
     return this.db.attendanceLogMaster.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: { deletedAt: new Date(), isActive: false },
     });
   }
   private async staffForUser(userId: string) {

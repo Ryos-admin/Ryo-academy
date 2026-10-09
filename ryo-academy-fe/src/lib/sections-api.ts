@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiClient } from "./api-client";
 import { session } from "./session";
 
-export interface SectionResponse { id: string; name: string; classId: string; createdAt?: string; updatedAt?: string }
+export interface SectionResponse { id: string; name: string; classId: string; isActive?: boolean; createdAt?: string; updatedAt?: string }
 export interface SectionCreateRequest { name: string; classId: string }
 export interface SectionUpdateRequest { name: string }
 export const sectionsQueryKey = ["sections"] as const;
@@ -12,6 +12,7 @@ export const sectionsApi = {
   listByClass: (classId: string) => apiClient.get<SectionResponse[]>(`/sections/${classId}`, authOptions()),
   create: (payload: SectionCreateRequest) => apiClient.post<SectionResponse | undefined>("/sections", payload, authOptions()),
   update: (id: string, payload: SectionUpdateRequest) => apiClient.patch<SectionResponse>(`/sections/${id}`, payload, authOptions()),
+  remove: (id: string) => apiClient.delete<SectionResponse>(`/sections/${id}`, authOptions()),
 };
 export function useSections() { return useQuery({ queryKey: sectionsQueryKey, queryFn: sectionsApi.list, retry: false }); }
 export function useSectionsByClass(classId?: string) { return useQuery({ queryKey: [...sectionsQueryKey, classId], queryFn: () => sectionsApi.listByClass(classId!), enabled: Boolean(classId), retry: false }); }
@@ -19,6 +20,7 @@ export function useSaveSection(id?: string) {
   const queryClient = useQueryClient();
   return useMutation({ mutationFn: (payload: SectionCreateRequest | SectionUpdateRequest) => id ? sectionsApi.update(id, payload as SectionUpdateRequest) : sectionsApi.create(payload as SectionCreateRequest), onSuccess: async (saved) => { if (saved?.id) queryClient.setQueryData([...sectionsQueryKey, saved.id], saved); await queryClient.invalidateQueries({ queryKey: sectionsQueryKey }); } });
 }
+export function useDeleteSection() { const queryClient = useQueryClient(); return useMutation({ mutationFn: sectionsApi.remove, onSuccess: async (_deleted, id) => { queryClient.removeQueries({ queryKey: [...sectionsQueryKey, id] }); await queryClient.invalidateQueries({ queryKey: sectionsQueryKey }); } }); }
 export function sectionErrorMessage(error: unknown, fallback: string) {
   if (!(error instanceof ApiError)) return fallback;
   if (error.status === 401) return "Your session has expired. Please sign in again.";

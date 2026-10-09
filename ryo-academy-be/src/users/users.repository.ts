@@ -46,6 +46,7 @@ export class UsersRepository {
         isActive: true,
         createdAt: true,
         updatedAt: true,
+        schoolId: true,
       },
     });
   }

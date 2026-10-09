@@ -16,11 +16,11 @@ export class SubjectService {
   async findByClass(classId: string) {
     const classExists = await this.db.class.findUnique({ where: { id: classId }, select: { id: true } });
     if (!classExists) throw new NotFoundException(`Class with id "${classId}" not found`);
-    return this.db.subjects.findMany({ where: { classId, isDeleted: false }, orderBy: { name: 'asc' } });
+    return this.db.subjects.findMany({ where: { classId, isActive: true }, orderBy: { name: 'asc' } });
   }
 
   async findOne(id: string) {
-    const subject = await this.db.subjects.findFirst({ where: { id, isDeleted: false } });
+    const subject = await this.db.subjects.findFirst({ where: { id, isActive: true } });
     if (!subject) throw new NotFoundException(`Subject with id "${id}" not found`);
     return subject;
   }
@@ -33,8 +33,8 @@ export class SubjectService {
   async remove(id: string) {
     await this.findOne(id);
     return this.db.$transaction(async (tx) => {
-      await tx.teachingAssignment.deleteMany({ where: { subjectId: id } });
-      return tx.subjects.update({ where: { id }, data: { isDeleted: true } });
+      await tx.teachingAssignment.updateMany({ where: { subjectId: id, isActive: true }, data: { isActive: false } });
+      return tx.subjects.update({ where: { id }, data: { isActive: false } });
     });
   }
 }

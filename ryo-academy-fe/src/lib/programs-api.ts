@@ -13,6 +13,7 @@ export interface ProgramResponse {
   daysOfWeek: WeekdayCode[];
   startTime: string;
   endTime: string;
+  isActive?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -75,10 +76,16 @@ export const programsApi = {
   get: (id: string) => apiClient.get<ProgramResponse>(`/programs/${id}`, authOptions()),
   create: (payload: ProgramRequest) => apiClient.post<ProgramResponse>("/programs", payload, authOptions()),
   update: (id: string, payload: ProgramUpdateRequest) => apiClient.patch<ProgramResponse>(`/programs/${id}`, payload, authOptions()),
+  remove: (id: string) => apiClient.delete<ProgramResponse>(`/programs/${id}`, authOptions()),
 };
 
 export function usePrograms() {
   return useQuery({ queryKey: programsQueryKey, queryFn: programsApi.list, retry: false });
+}
+
+export function useDeleteProgram() {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: programsApi.remove, onSuccess: async (_deleted, id) => { queryClient.removeQueries({ queryKey: [...programsQueryKey, id] }); await queryClient.invalidateQueries({ queryKey: programsQueryKey }); } });
 }
 
 export function useProgram(id?: string) {
