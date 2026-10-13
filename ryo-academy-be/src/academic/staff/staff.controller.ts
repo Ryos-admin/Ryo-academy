@@ -18,7 +18,7 @@ export class StaffController {
   @Get(':id') @RequirePermissions(PERMISSIONS.STAFF_READ) findOne(@Param('id') id: string) { return this.service.findStaffById(id); }
   @Post() @RequirePermissions(PERMISSIONS.STAFF_CREATE) create(@Body() dto: CreateStaffDto) { return this.service.createStaff(dto); }
   @Patch(':id') @RequirePermissions(PERMISSIONS.STAFF_UPDATE) update(@Param('id') id: string, @Body() dto: UpdateStaffDto) { return this.service.updateStaff(id, dto); }
-  @Patch(':id/status') @RequirePermissions(PERMISSIONS.STAFF_UPDATE) updateStatus(@Param('id') id: string, @Body() dto: UpdateStaffStatusDto) { return this.service.updateStatus(id, dto.status); }
+  @Patch(':id/status') @RequirePermissions(PERMISSIONS.STAFF_UPDATE) updateStatus(@Param('id') id: string, @Body() dto: UpdateStaffStatusDto, @Req() req: any) { return this.service.updateStatus(id, dto.status, req.user.userId); }
   @Post('assignments') @RequirePermissions(PERMISSIONS.STAFF_UPDATE) assign(@Body() dto: createTeachingAssignmentDto) { return this.service.createAssignment(dto); }
   @Patch('assignments/:id') @RequirePermissions(PERMISSIONS.STAFF_UPDATE) updateAssignment(@Param('id') id: string, @Body() dto: UpdateTeachingAssignmentDto) { return this.service.updateAssignment(id, dto); }
   @Delete('assignments/:id') @RequirePermissions(PERMISSIONS.STAFF_UPDATE) deleteAssignment(@Param('id') id: string) { return this.service.deleteAssignment(id); }

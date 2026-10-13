@@ -1,5 +1,98 @@
 # Ryo Academy Frontend ↔ Backend Migration Changelog
 
+# 2026-10-09 — Product audit baseline
+
+Status: Initial audit pass completed; stabilization verification recorded.
+
+## Verified scope
+
+- Frontend route and API adapter inventory completed.
+- Frontend production build passed.
+- Frontend tests passed: 10 files, 115 tests.
+- Backend API/controller and guard inventory completed.
+- Backend tests passed: 11 suites, 65 tests.
+- `POST /auth/login` confirmed public in the backend controller.
+
+## Findings
+
+- Admissions, operations, dashboard, and some fee/attendance surfaces still intentionally use `mock-erp.ts`; they are not equivalent to fully real backend workflows.
+- Backend documentation had stale authentication guidance and was corrected.
+- Full live HTTP/database verification remains pending because the backend runtime was not reachable during the initial startup check.
+
+# 2026-10-09 — Product audit continuation, Part 2
+
+- Rechecked the current migration boundaries and preserved the intentional hybrid state.
+- Retained live HTTP evidence from the backend: public login validation, invalid credentials, missing-token, and invalid-token behavior were exercised without printing secrets.
+- No frontend implementation changes were made in this continuation.
+- Browser journeys, authenticated role matrix, two-school isolation, and database-backed CRUD remain unverified and are not represented as completed here.
+
+# 2026-10-09 — Final QA continuation
+
+- Reconfirmed the current real/mock boundary from the route and adapter source.
+- No frontend server was available on ports 5173 or 4173 during the environment check; browser QA is therefore recorded as blocked, not passed.
+- No frontend source change was made during this continuation.
+
+# 2026-10-09 — QA environment handoff
+
+- Backend QA prerequisites were documented, including the effective API prefix and the requirement for an environment-owner-supplied isolated database.
+- Browser and authenticated frontend/backend journeys remain prepared but not executed until stable runtime ports and safe test fixtures are available.
+
+# 2026-10-09 — Soft-deletion dependency inventory
+
+- Backend dependency and lifecycle inventory was documented before frontend changes.
+- No frontend deletion UI changes were made because the backend cascade contract is blocked by current schema gaps.
+- Confirmation-dialog and affected-dependent messaging remain pending the approved backend endpoint/transaction contract.
+
+# 2026-10-09 — V0 soft-deletion backend implementation
+
+- Backend-only lifecycle logic was prepared for academic-year cascades, staff/user deactivation, assignment unassignment, and subject dependency deletion.
+- No React, route, dialog, or API-consumer changes were made in this task.
+- Future frontend work must add explicit academic-year cascade confirmation and blocked-active-enrollment messaging after the backend contract is approved for runtime use.
+- Database migration and runtime verification remain blocked by the unverified remote database environment.
+
+# 2026-10-09 — Soft-delete security regression hardening
+
+- Backend operational query filtering and staff/subject regression coverage were hardened.
+- No frontend changes were required or made.
+- Frontend confirmation UX, tenant runtime testing, and database-backed deletion verification remain deferred until the backend contract and isolated QA environment are available.
+
+# 2026-10-10 — Trusted school-context enforcement
+
+- Backend destructive operations now derive school scope from the authenticated JWT user context rather than client-supplied school values.
+- No frontend changes were required or made.
+- Runtime tenant isolation remains blocked pending an isolated QA database and authorized fixtures.
+
+# 2026-10-10 — Deletion actor attribution
+
+- Backend soft-deletion operations now record the authenticated deletion actor through `deletedById`.
+- No frontend changes were made; confirmation UI remains deferred to the frontend soft-delete task.
+- Migration application and database-backed verification remain blocked pending an isolated QA database.
+
+# 2026-10-10 — Isolated local QA database preparation
+
+- A disposable local PostgreSQL option was prepared and verified for backend QA; the temporary instance was stopped after identity verification.
+- No frontend changes were made and no migrations, seeds, or database writes were run.
+- Frontend/browser verification remains pending backend migration and fixture setup against the isolated database.
+
+# 2026-10-10 — Soft-delete migration verified locally
+
+- The backend soft-delete/deletion-actor migration was generated and applied only to disposable local PostgreSQL on port 55432.
+- Schema catalog verification passed for deletion columns, foreign keys, nullable assignment staff references, and indexes.
+- No frontend changes were made; browser verification and domain fixtures remain pending.
+- Neon was not contacted and no remote data was modified.
+
+# 2026-10-10 — Final soft-delete completion audit
+
+- Reverified the backend migration and schema on disposable local PostgreSQL only.
+- No frontend changes were made.
+- Browser verification and domain workflow fixtures were not run; they remain separate follow-up work.
+- No Neon connection or remote data modification occurred.
+
+# 2026-10-10 — Final database verification attempt
+
+- Local schema/migration verification remained successful.
+- The controlled domain-fixture harness was blocked before database access by its inline TypeScript module format; no frontend/browser verification was claimed.
+
 # V0 Consolidation & Coherence Pass
 
 Status: Verified in the frontend route surface and migration file notes.
@@ -4007,3 +4100,83 @@ Status: Build verified; typecheck unavailable in the checkout.
 - `npm run typecheck` was attempted but could not run because `tsc` is not installed.
 - `git diff --check` passed.
 - No browser or end-to-end flow testing was performed.
+
+# 2026-10-10 — Soft-delete database verification completed locally
+
+- Backend-only continuation; no frontend source changes were made.
+- The corrected async fixture harness passed against disposable local PostgreSQL and verified actor attribution, lifecycle cascades, preserved student history, staff unassignment, subject dependencies, repeated deletion, cross-school rejection, and transaction rollback.
+- Backend regression, Prisma validation/generation, build, and diff checks passed. Frontend/browser verification remains outside this backend milestone.
+- Neon was not contacted and no remote data was modified.
+
+# 2026-10-10 — Financial Log Master V0 schema and integration audit
+
+- Completed a documentation-only audit of the current fee-payment flow, financial schema, permissions, backend services/controllers, frontend fee/payment adapters/pages, and migration state.
+- Verified that fee payments allocate across `FeePaymentDetails` and update `FeePaymentHeader` inside one Prisma transaction, with overpayment rejection; no FinancialLog or Expense model/workflow currently exists.
+- Documented the proposed FinancialLog/Expense schema, source uniqueness strategy, expense reversal design, trusted school/actor requirements, permission plan, minimal backend/frontend sequence, and unresolved idempotency/type decisions in `ryo-academy-be/docs/finance-log-master-v0-audit.md`.
+- No frontend or backend runtime implementation, migration, seed, database connection, or database write was performed.
+
+# 2026-10-10 — Financial Log Master V0 schema migration
+
+- Backend schema-only milestone completed; no frontend source changes were made.
+- Added the approved FinancialLog and Expense Prisma models, enums, explicit school/user relations, indexes, source uniqueness, and soft-delete actor metadata.
+- Generated and applied migration `20261009192643_add_financial_log_master_v0` only to disposable local PostgreSQL; validation, generation, migration status, catalog checks, and backend build passed.
+- Fee-payment posting, expense endpoints/reversal behavior, reporting APIs, and frontend UI remain deferred. Neon was not contacted.
+
+# 2026-10-10 — Financial Log fee-payment integration
+
+- Backend-only milestone; no frontend source changes were made.
+- Fee payments now create one transactional FinancialLog income entry from a FeePayment source event, use trusted JWT actor/school context, and accept an optional UUID `idempotencyKey` for safe retries.
+- Real local PostgreSQL verification passed for ledger posting, duplicate prevention, changed-key intent rejection, cross-school rejection, and overpayment rejection.
+- Concurrent same-key local PostgreSQL verification passed with one payment event and one ledger entry.
+- Focused PostgreSQL rollback verification passed using a test-only FinancialLog failure seam; payment event, ledger row, header/detail changes, and balances were unchanged, and a later payment succeeded.
+- Frontend payment requests do not yet send an idempotency key; callers may adopt the optional field in a later frontend milestone. Expense/reporting work remains deferred. Neon was not contacted.
+
+# 2026-10-10 — Financial Log cash expense lifecycle
+
+- Backend-only milestone; no frontend source changes were made.
+- Added authenticated cash expense creation and soft deletion with transactional original/reversal ledger entries, trusted school scope, and new expense permissions.
+- Real local PostgreSQL verification passed for creation, rollback, cross-school rejection, reversal, repeated deletion, and reversal rollback.
+- Expense UI and Financial Log reporting remain deferred. Neon was not contacted.
+## 2026-10-10 — Financial Log reporting V0
+
+- Added backend `GET /financial-logs` with JWT plus `fees:read`, trusted school scoping, date/flow/source filters, pagination, stable ordering, and income/expense/net summaries.
+- Added frontend `/financial-log` for Office Admin and College Admin users. It is read-only and includes filters, summary cards, pagination, loading, empty, and error states.
+- Verified the isolated PostgreSQL reporting integration, backend tests/build, frontend tests/build, and diff checks. No schema migration was required and Neon was not contacted.
+- Deferred live HTTP role-matrix and browser verification. Existing unrelated frontend typecheck errors remain documented in the backend changelog.
+
+## 2026-10-11 — Consolidated soft-delete and Finance V0 verification attempt
+
+- No frontend source changes were required.
+- Backend database-backed rerun was blocked before fixture access by sandbox IPC/localhost PostgreSQL permissions; no fresh browser or HTTP/JWT result is claimed.
+- Historical local integration results remain preserved in backend QA and finance documentation. Neon was not contacted.
+
+## 2026-10-11 — HTTP/JWT authorization QA attempt
+
+- No frontend source changes were required.
+- Backend route and permission wiring was statically inspected; live HTTP and browser verification remain blocked by the unavailable isolated PostgreSQL-backed runtime.
+- No security defect was reproduced and Neon was not contacted.
+
+## 2026-10-11 — HTTP/JWT runtime unblocked and verified
+
+- No frontend source changes were required.
+- The backend QA runtime was safely unblocked using the disposable local PostgreSQL procedure. A narrow JWT guard dependency defect was fixed and real HTTP checks passed for token rejection, finance role authorization, and school isolation.
+- `HTTP_JWT_QA_PASS` was recorded from the compiled backend runtime. Test data and services were cleaned up; Neon was not contacted.
+
+## 2026-10-12 — Playwright M1 Phase 1 browser verification
+
+- The integrated frontend's two unauthenticated Chromium tests passed with `pnpm exec playwright test e2e/login-and-redirect.spec.ts --project=chromium`.
+- Verified login-page rendering, required-field validation, and redirection of unauthenticated `/financial-log` access to `/login`.
+- Real authentication, JWT behavior, API authorization, and database isolation remain unverified.
+
+## 2026-10-12 — Playwright M1 Phase 2 authentication test implementation
+
+- Added credential-driven browser coverage for real login, invalid login, session restoration, permission-dependent `/financial-log` access, and client-side handling of a controlled `GET /protected/me` 401 response.
+- Authenticated test artifacts are disabled; credentials, tokens, headers, cookies, and response payloads are not logged or persisted.
+- `git diff --check` passed. Frontend TypeScript verification failed on existing application errors in `src/lib/mock-erp.ts`, `src/pages/academic-pages.tsx`, and `src/pages/app-pages.tsx`.
+- Authenticated browser tests were not executed; backend/API connectivity, JWT behavior, authorization, and database isolation remain unverified.
+
+## 2026-10-12 — Playwright M1 Phase 2 test corrections
+
+- Separated valid and invalid credential validation, restricted the synthetic 401 handler to the configured local `GET /protected/me` endpoint with guaranteed cleanup, and rejected the known financial-log API error state while preserving permission denial as a valid outcome.
+- `git diff --check` passed. The configured TypeScript check still reports only the existing errors in `src/lib/mock-erp.ts`, `src/pages/academic-pages.tsx`, and `src/pages/app-pages.tsx`; no Phase 2 spec error was reported.
+- Browser tests were not executed; real authentication, session restoration, API authorization, and database isolation remain unverified.

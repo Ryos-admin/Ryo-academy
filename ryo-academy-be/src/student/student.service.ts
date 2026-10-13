@@ -1,8 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '../../generated/prisma/client.js';
 import { DatabaseService } from '../database/database.service.js';
 import { CreateStudentFeePaymentDto } from './dto/create-student-fee-payment.dto.js';
@@ -26,7 +29,7 @@ export class StudentService {
 
   async findAll() {
     return this.databaseService.student.findMany({
-      where: { isActive: true },
+      where: { isActive: true, deletedAt: null },
       include: studentRelations,
       orderBy: [{ studentName: 'asc' }, { studentNumber: 'asc' }],
     });
@@ -47,7 +50,7 @@ export class StudentService {
 
   async getStudentFees(studentId: string) {
     const student = await this.databaseService.student.findUnique({
-      where: { id: studentId, isActive: true },
+      where: { id: studentId, isActive: true, deletedAt: null },
       include: {
         admission: {
           include: {
@@ -135,6 +138,7 @@ export class StudentService {
   async recordStudentFeePayment(
     studentId: string,
     dto: CreateStudentFeePaymentDto,
+    actorUserId: string,
   ) {
     const amount = new Prisma.Decimal(dto.amount.toString());
 
@@ -150,7 +154,18 @@ export class StudentService {
       throw new BadRequestException('Payment date must be a valid ISO date string.');
     }
 
-    return this.databaseService.$transaction(async (tx) => {
+    const idempotencyKey = dto.idempotencyKey ?? randomUUID();
+
+    try {
+      return await this.databaseService.$transaction(async (tx) => {
+      const actor = await tx.user.findUnique({
+        where: { id: actorUserId },
+        select: { schoolId: true },
+      });
+      if (!actor?.schoolId) {
+        throw new ForbiddenException('A school-scoped user is required');
+      }
+
       const student = await tx.student.findUnique({
         where: { id: studentId },
         include: {
@@ -177,6 +192,10 @@ export class StudentService {
         throw new BadRequestException(
           `Student with id "${studentId}" does not have an admission record`,
         );
+      }
+
+      if (student.admission.schoolId !== actor.schoolId) {
+        throw new NotFoundException(`Student with id "${studentId}" not found`);
       }
 
       if (student.admission.admissionStatus === 'CANCELLED') {
@@ -212,6 +231,19 @@ export class StudentService {
           'Payment amount exceeds the outstanding balance for this admission.',
         );
       }
+
+      const payment = await tx.feePayment.create({
+        data: {
+          idempotencyKey,
+          schoolId: actor.schoolId,
+          userId: actorUserId,
+          studentId: student.id,
+          admissionId: student.admission.id,
+          feePaymentHeaderId: feeHeader.id,
+          amount,
+          paymentDate,
+        },
+      });
 
       let remaining = amount;
       const zero = new Prisma.Decimal(0);
@@ -261,8 +293,41 @@ export class StudentService {
         },
       });
 
+      await this.createFinancialLog(tx, {
+        data: {
+          schoolId: actor.schoolId,
+          userId: actorUserId,
+          type: 'FEE_PAYMENT',
+          flowType: 'INCOME',
+          amount,
+          occurredAt: paymentDate,
+          description: `Fee payment for admission ${student.admission.admissionNumber}`,
+          sourceType: 'FEE_PAYMENT',
+          sourceId: payment.id,
+        },
+      });
+
       return this.getStudentFees(studentId);
-    });
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002' && dto.idempotencyKey) {
+        const existing = await this.databaseService.feePayment.findUnique({
+          where: { idempotencyKey: dto.idempotencyKey },
+          select: { studentId: true, amount: true },
+        });
+        if (existing) {
+          if (existing.studentId !== studentId || existing.amount.toString() !== amount.toString()) {
+            throw new ConflictException('The idempotency key was already used for a different payment.');
+          }
+          return this.getStudentFees(studentId);
+        }
+      }
+      throw error;
+    }
+  }
+
+  protected createFinancialLog(tx: any, data: any) {
+    return tx.financialLog.create(data);
   }
 
   private toNumber(value: Prisma.Decimal | number | string): number {

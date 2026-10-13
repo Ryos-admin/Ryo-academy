@@ -10,8 +10,8 @@ import { Request } from 'express';
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
+    private readonly jwtService: JwtService = new JwtService(),
+    private readonly configService: ConfigService = new ConfigService(),
   ) { }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

@@ -4,6 +4,7 @@ import { SubjectService } from './subject.service.js';
 import { AccessTokenModule } from '../../security/token/access-token.module.js';
 import { AuthorizationService } from '../../auth/authorization.service.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
+import { JwtAuthGuard } from '../../security/token/jwt-auth.guard.js';
 
-@Module({ imports: [AccessTokenModule], controllers: [SubjectController], providers: [SubjectService, AuthorizationService, PermissionsGuard] })
+@Module({ imports: [AccessTokenModule], controllers: [SubjectController], providers: [SubjectService, AuthorizationService, PermissionsGuard, JwtAuthGuard] })
 export class SubjectModule {}

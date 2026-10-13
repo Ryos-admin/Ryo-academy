@@ -32,7 +32,7 @@ The API uses JWT authentication. Invalid or missing credentials normally return:
 
 ### Important current behavior
 
-`AuthController` has a class-level `JwtAuthGuard`. Therefore, in the current implementation, `POST /auth/register` and `POST /auth/login` are also guarded and may require an existing bearer token. Remove the class-level guard or apply it only to `GET /auth/me` if registration and login are intended to be public.
+`POST /auth/register` and `POST /auth/login` are public routes. `GET /auth/me` requires a bearer token. Domain controllers require a bearer token and permission checks.
 
 ## Common error responses
 
@@ -796,3 +796,29 @@ timetable:read
 ```
 
 Only the `/protected/students*` demonstration routes currently enforce permissions in their controllers. The academic, admission, and fee controllers currently do not declare JWT or permission guards.
+### POST `/expenses`
+
+Creates and immediately posts a cash expense. Requires `expense:create` and derives `schoolId` and `userId` from the authenticated JWT user.
+
+```json
+{
+  "category": "SUPPLIES",
+  "amount": 1250,
+  "occurredAt": "2026-10-10",
+  "description": "Classroom supplies"
+}
+```
+
+The expense and its `FinancialLog` row (`flowType: EXPENSE`) are created in one transaction.
+
+### DELETE `/expenses/:id`
+
+Soft-deletes an expense and creates one compensating `FinancialLog` row with `type: EXPENSE_REVERSAL`, `flowType: INCOME`, the original amount, and the same `sourceId` as the expense. Requires `expense:delete`. The original expense and original log remain preserved; repeated deletion returns a conflict and does not create another reversal.
+
+## Financial Log reporting
+
+### GET `/financial-logs`
+
+Read-only, school-scoped ledger reporting for users with `fees:read`. The school is resolved from the authenticated user, never from query input. Optional query parameters are `from`, `to` (ISO date strings), `flowType` (`INCOME` or `EXPENSE`), `sourceType`, `page` (default `1`) and `pageSize` (default `25`, maximum `100`). Results use stable descending `occurredAt`, `createdAt`, and `id` ordering.
+
+The response contains the paginated `data` rows, `total`, `totalPages`, and `summary` values for `income`, `expenses`, and `net` (`income - expenses`). Amounts are returned as decimal strings. Expense reversals are income entries and are included once as their own ledger rows. There are no ledger mutation endpoints in this reporting surface.

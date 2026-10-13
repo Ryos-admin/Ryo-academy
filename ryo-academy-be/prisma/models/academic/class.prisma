@@ -17,7 +17,12 @@ model Class {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   isActive Boolean @default(true)
+  deletedAt DateTime?
+  deletedById String?
+  deletedBy User? @relation("ClassDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
 
   @@unique([programId, name])
   @@index([programId])
+  @@index([isActive, deletedAt])
+  @@index([deletedById])
 }

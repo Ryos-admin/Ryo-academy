@@ -1,0 +1,38 @@
+enum FinancialLogType {
+  FEE_PAYMENT
+  EXPENSE
+  EXPENSE_REVERSAL
+}
+
+enum FinancialFlowType {
+  INCOME
+  EXPENSE
+}
+
+enum FinancialSourceType {
+  FEE_PAYMENT
+  EXPENSE
+}
+
+model FinancialLog {
+  id          String             @id @default(uuid())
+  schoolId    String
+  userId      String
+  type        FinancialLogType
+  flowType    FinancialFlowType
+  amount      Decimal
+  occurredAt  DateTime
+  description String?
+  sourceType  FinancialSourceType
+  sourceId    String
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id])
+  user   User   @relation("FinancialLogUser", fields: [userId], references: [id])
+
+  @@unique([sourceType, sourceId, type])
+  @@index([schoolId, occurredAt])
+  @@index([schoolId, flowType, occurredAt])
+  @@index([sourceType, sourceId])
+}

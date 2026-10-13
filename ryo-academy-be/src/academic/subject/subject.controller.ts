@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SubjectService } from './subject.service.js';
 import { CreateSubjectDto } from './dto/create-subject.dto.js';
@@ -29,5 +29,5 @@ export class SubjectController {
 
   @Delete(':id')
   @RequirePermissions(PERMISSIONS.SUBJECT_UPDATE)
-  remove(@Param('id') id: string) { return this.service.remove(id); }
+  remove(@Param('id') id: string, @Req() req: any) { return this.service.remove(id, req.user.userId); }
 }

@@ -29,7 +29,12 @@ model Program {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   isActive Boolean @default(true)
+  deletedAt DateTime?
+  deletedById String?
+  deletedBy User? @relation("ProgramDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
 
   @@unique([academicYearId, name])
   @@index([academicYearId])
+  @@index([isActive, deletedAt])
+  @@index([deletedById])
 }

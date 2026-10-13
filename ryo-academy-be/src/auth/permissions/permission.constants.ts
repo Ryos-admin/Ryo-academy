@@ -6,6 +6,8 @@ export const PERMISSIONS = {
   FEES_READ: 'fees:read',
   FEES_CREATE: 'fees:create',
   FEES_UPDATE: 'fees:update',
+  EXPENSE_CREATE: 'expense:create',
+  EXPENSE_DELETE: 'expense:delete',
 
   CLASS_READ: 'class:read',
   CLASS_CREATE: 'class:create',

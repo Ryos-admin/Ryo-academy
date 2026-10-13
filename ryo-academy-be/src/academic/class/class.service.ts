@@ -10,7 +10,7 @@ export class ClassService {
     async createClass(dto: CreateClassDto) {
         try {
             const program = await this.databaseService.program.findUnique({
-                where: { id: dto.programId, isActive: true },
+                where: { id: dto.programId, isActive: true, deletedAt: null },
                 select: { id: true, name: true },
             });
 
@@ -56,7 +56,7 @@ export class ClassService {
     async findAllClasses() {
         try {
             return await this.databaseService.class.findMany({
-                where: { isActive: true },
+                where: { isActive: true, deletedAt: null },
                 orderBy: [{ name: 'asc' }],
             });
         } catch (error) {
@@ -67,7 +67,7 @@ export class ClassService {
     async findClassById(id: string) {
         try {
             const classData = await this.databaseService.class.findUnique({
-                where: { id, isActive: true },
+                where: { id, isActive: true, deletedAt: null },
             });
 
             if (!classData) {
@@ -82,7 +82,7 @@ export class ClassService {
     async updateClassById(id: string, dto: UpdateClassDto) {
         try {
             const classData = await this.databaseService.class.findUnique({
-                where: { id, isActive: true },
+                where: { id, isActive: true, deletedAt: null },
             });
 
             if (!classData) {
@@ -105,7 +105,7 @@ export class ClassService {
 
     async remove(id: string) {
         await this.findClassById(id);
-        return this.databaseService.class.update({ where: { id }, data: { isActive: false } });
+        return this.databaseService.class.update({ where: { id }, data: { isActive: false, deletedAt: new Date() } });
     }
 
 

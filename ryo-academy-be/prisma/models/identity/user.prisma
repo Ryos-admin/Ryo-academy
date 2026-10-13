@@ -6,6 +6,9 @@ model User {
   firstName    String
   lastName     String
   isActive     Boolean  @default(true)
+  deletedAt    DateTime?
+  deletedById   String?
+  deletedBy     User? @relation("UserDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   schoolId     String?
@@ -14,5 +17,19 @@ model User {
   roles UserRole[]
   
   staff Staff? @relation("StaffUser") 
+  deletedAcademicYears AcademicYear[] @relation("AcademicYearDeletedBy")
+  deletedPrograms Program[] @relation("ProgramDeletedBy")
+  deletedClasses Class[] @relation("ClassDeletedBy")
+  deletedSections Section[] @relation("SectionDeletedBy")
+  deletedSubjects Subjects[] @relation("SubjectDeletedBy")
+  deletedStaff Staff[] @relation("StaffDeletedBy")
+  deletedTeachingAssignments TeachingAssignment[] @relation("TeachingAssignmentDeletedBy")
+  deletedAcademicCalendars AcademicCalendar[] @relation("AcademicCalendarDeletedBy")
+  deletedUsers User[] @relation("UserDeletedBy")
+  financialLogs FinancialLog[] @relation("FinancialLogUser")
+  createdExpenses Expense[] @relation("ExpenseCreatedBy")
+  deletedExpenses Expense[] @relation("ExpenseDeletedBy")
+  feePayments FeePayment[] @relation("FeePaymentActor")
   @@index([isActive])
+  @@index([deletedById])
 }

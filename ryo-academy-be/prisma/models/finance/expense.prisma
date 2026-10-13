@@ -1,0 +1,32 @@
+enum ExpenseCategory {
+  SALARY
+  UTILITIES
+  SUPPLIES
+  MAINTENANCE
+  TRANSPORT
+  RENT
+  OTHER
+}
+
+model Expense {
+  id          String          @id @default(uuid())
+  schoolId    String
+  userId      String
+  category    ExpenseCategory
+  amount      Decimal
+  occurredAt  DateTime
+  description String?
+  isActive    Boolean         @default(true)
+  deletedAt   DateTime?
+  deletedById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  school    School @relation(fields: [schoolId], references: [id])
+  user      User   @relation("ExpenseCreatedBy", fields: [userId], references: [id])
+  deletedBy User?  @relation("ExpenseDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  @@index([schoolId, occurredAt])
+  @@index([schoolId, isActive, deletedAt])
+  @@index([deletedById])
+}

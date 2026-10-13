@@ -29,8 +29,6 @@ export class ProtectedService {
       return null;
     }
 
-    console.log(userDetails);
-
     const userRoles = await this.databaseService.userRole.findMany({
       where: { userId },
       select: { role: { select: { id: true, name: true } } },

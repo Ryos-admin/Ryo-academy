@@ -1,7 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsNotEmpty, IsNumber, IsOptional, IsPositive } from 'class-validator';
+import { IsDateString, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsUUID } from 'class-validator';
 
 export class CreateStudentFeePaymentDto {
+  @ApiPropertyOptional({
+    description: 'Stable key used to safely retry the same payment request.',
+    format: 'uuid',
+  })
+  @IsOptional()
+  @IsUUID()
+  idempotencyKey?: string;
+
   @ApiProperty({
     description: 'Payment amount to record against the student admission fee snapshot.',
     example: 2500,

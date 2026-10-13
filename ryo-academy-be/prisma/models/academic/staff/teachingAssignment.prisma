@@ -1,7 +1,7 @@
 model TeachingAssignment {
     id String @id @default(uuid())
-    staffId String
-    staff Staff @relation(fields: [staffId], references: [id])
+    staffId String?
+    staff Staff? @relation(fields: [staffId], references: [id])
     subjectId String
     subject Subjects @relation(fields: [subjectId], references: [id])
     classId String
@@ -11,4 +11,8 @@ model TeachingAssignment {
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
     isActive Boolean @default(true)
+    deletedAt DateTime?
+    deletedById String?
+    deletedBy User? @relation("TeachingAssignmentDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+    @@index([deletedById])
 }

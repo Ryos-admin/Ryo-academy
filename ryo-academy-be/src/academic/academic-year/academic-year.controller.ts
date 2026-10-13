@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -86,7 +87,7 @@ export class AcademicYearController {
 
   @Delete(':id')
   @RequirePermissions(PERMISSIONS.SHIFT_UPDATE)
-  async remove(@Param('id') id: string) {
-    return this.academicYearService.remove(id);
+  async remove(@Param('id') id: string, @Req() req: any) {
+    return this.academicYearService.remove(id, req.user.userId);
   }
 }

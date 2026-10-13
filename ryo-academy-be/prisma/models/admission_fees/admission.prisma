@@ -60,6 +60,7 @@ model Admission {
     discountReason String?
 
     isActive Boolean @default(true)
+    deletedAt DateTime?
 
     // CONFIRMATION DETAILS
     studentId String?
@@ -73,6 +74,7 @@ model Admission {
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
     feePaymentHeaders FeePaymentHeader[]
+    feePayments FeePayment[]
 
     student Student?
     

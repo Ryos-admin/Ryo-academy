@@ -19,7 +19,10 @@ model AcademicCalendar {
     updatedAt DateTime @updatedAt
     isActive Boolean @default(true)
     deletedAt DateTime?
+    deletedById String?
+    deletedBy User? @relation("AcademicCalendarDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+    @@index([deletedById])
 
     @@unique([academicYearId, date])
 }
-

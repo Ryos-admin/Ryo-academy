@@ -10,7 +10,7 @@ export class SectionService {
     async findAllSections() {
         try {
             return this.databaseService.section.findMany({
-                where: { isActive: true },
+                where: { isActive: true, deletedAt: null },
                 orderBy: [{ name: 'asc' }],
             });
         }
@@ -22,7 +22,7 @@ export class SectionService {
     async findSectionByClassId(classId: string) {
         try {
             const sections = await this.databaseService.section.findMany({
-                where: { classId, isActive: true },
+                where: { classId, isActive: true, deletedAt: null },
             });
             if (!sections || sections.length === 0) {
                 throw new NotFoundException(`No sections found for class with id "${classId}"`);
@@ -37,7 +37,7 @@ export class SectionService {
     async createSectionByClassId(dto: CreateSectionDto) {
         try {
             const classExists = await this.databaseService.class.findUnique({
-                where: { id: dto.classId, isActive: true },
+                where: { id: dto.classId, isActive: true, deletedAt: null },
                 select: { id: true },
             });
 
@@ -46,7 +46,7 @@ export class SectionService {
             }
 
             const sectionExists = await this.databaseService.section.findFirst({
-                where: { name: dto.name, classId: dto.classId, isActive: true },
+                where: { name: dto.name, classId: dto.classId, isActive: true, deletedAt: null },
             });
 
             if (sectionExists) {
@@ -68,7 +68,7 @@ export class SectionService {
     async updateSectionById(id: string, dto: UpdateSectionDto) {
         try {
             const sectionExists = await this.databaseService.section.findUnique({
-                where: { id, isActive: true },
+                where: { id, isActive: true, deletedAt: null },
             });
 
             if (!sectionExists) {
@@ -77,7 +77,7 @@ export class SectionService {
 
             if (dto.name) {
                 const duplicateSection = await this.databaseService.section.findFirst({
-                    where: { name: dto.name, classId: sectionExists.classId, isActive: true },
+                    where: { name: dto.name, classId: sectionExists.classId, isActive: true, deletedAt: null },
                 });
 
                 if (duplicateSection && duplicateSection.id !== id) {
@@ -96,9 +96,9 @@ export class SectionService {
     }
 
     async remove(id: string) {
-        const section = await this.databaseService.section.findFirst({ where: { id, isActive: true } });
+        const section = await this.databaseService.section.findFirst({ where: { id, isActive: true, deletedAt: null } });
         if (!section) throw new NotFoundException(`Section with id "${id}" not found`);
-        return this.databaseService.section.update({ where: { id }, data: { isActive: false } });
+        return this.databaseService.section.update({ where: { id }, data: { isActive: false, deletedAt: new Date() } });
     }
 
 }

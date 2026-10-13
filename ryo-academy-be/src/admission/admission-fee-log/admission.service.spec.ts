@@ -31,7 +31,7 @@ describe('AdmissionService.findById (BUG-6: missing record must 404)', () => {
     const { service, findUnique } = buildFind(EXISTING);
     await service.findById('adm-1');
     expect(findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'adm-1' } }),
+      expect.objectContaining({ where: expect.objectContaining({ id: 'adm-1' }) }),
     );
   });
 

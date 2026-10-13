@@ -35,6 +35,7 @@ const studentWith = (headers: unknown[], status = 'CONFIRMED') => ({
   studentName: 'Student One',
   admission: {
     id: 'adm-1',
+    schoolId: 'school-1',
     admissionNumber: 'ADM-1',
     admissionStatus: status,
     feePaymentHeaders: headers,
@@ -50,15 +51,22 @@ type Harness = {
 
 function build(headers: unknown[], status = 'CONFIRMED'): Harness {
   const findUnique = jest.fn().mockResolvedValue(studentWith(headers, status));
+  const actorFindUnique = jest.fn().mockResolvedValue({ schoolId: 'school-1' });
   const detailUpdate = jest.fn().mockResolvedValue({});
   const headerUpdate = jest.fn().mockResolvedValue({});
+  const paymentCreate = jest.fn().mockResolvedValue({ id: 'payment-1' });
+  const logCreate = jest.fn().mockResolvedValue({});
   const tx = {
+    user: { findUnique: actorFindUnique },
     student: { findUnique },
     feePaymentDetails: { update: detailUpdate },
     feePaymentHeader: { update: headerUpdate },
+    feePayment: { create: paymentCreate },
+    financialLog: { create: logCreate },
   };
   const db = {
     student: { findUnique },
+    feePayment: { findUnique: jest.fn() },
     $transaction: jest.fn((fn: (t: unknown) => unknown) => fn(tx)),
   } as unknown as DatabaseService;
   return { service: new StudentService(db), findUnique, detailUpdate, headerUpdate };
@@ -93,7 +101,7 @@ describe('StudentService fee snapshot (BUG-4)', () => {
 describe('StudentService.recordStudentFeePayment', () => {
   it('records a valid payment and updates the header balance', async () => {
     const h = build([HEADER]);
-    await h.service.recordStudentFeePayment('stu-1', DTO(50000));
+    await h.service.recordStudentFeePayment('stu-1', DTO(50000), 'actor-1');
     expect(h.detailUpdate).toHaveBeenCalled();
     expect(h.headerUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -105,21 +113,21 @@ describe('StudentService.recordStudentFeePayment', () => {
 
   it('allocates the payment across the fee components', async () => {
     const h = build([HEADER]);
-    await h.service.recordStudentFeePayment('stu-1', DTO(50000));
+    await h.service.recordStudentFeePayment('stu-1', DTO(50000), 'actor-1');
     const [call] = h.detailUpdate.mock.calls;
     expect(call[0].where).toEqual({ id: 'detail-1' });
   });
 
   it('still rejects a payment when no snapshot exists (pre-BUG-4 state)', async () => {
     const h = build([]);
-    await expect(h.service.recordStudentFeePayment('stu-1', DTO(100))).rejects.toBeInstanceOf(
+    await expect(h.service.recordStudentFeePayment('stu-1', DTO(100), 'actor-1')).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });
 
   it('rejects non-positive payment input', async () => {
     const h = build([HEADER]);
-    await expect(h.service.recordStudentFeePayment('stu-1', DTO(0))).rejects.toBeInstanceOf(
+    await expect(h.service.recordStudentFeePayment('stu-1', DTO(0), 'actor-1')).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });
@@ -127,13 +135,13 @@ describe('StudentService.recordStudentFeePayment', () => {
   it('rejects a payment larger than the outstanding balance', async () => {
     const h = build([HEADER]);
     await expect(
-      h.service.recordStudentFeePayment('stu-1', DTO(999999)),
+      h.service.recordStudentFeePayment('stu-1', DTO(999999), 'actor-1'),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects payment for a cancelled admission', async () => {
     const h = build([HEADER], 'CANCELLED');
-    await expect(h.service.recordStudentFeePayment('stu-1', DTO(100))).rejects.toBeInstanceOf(
+    await expect(h.service.recordStudentFeePayment('stu-1', DTO(100), 'actor-1')).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });
@@ -142,7 +150,7 @@ describe('StudentService.recordStudentFeePayment', () => {
     // Header owes 125000 but components only cover 90000.
     const h = build([HEADER]);
     await expect(
-      h.service.recordStudentFeePayment('stu-1', DTO(100000)),
+      h.service.recordStudentFeePayment('stu-1', DTO(100000), 'actor-1'),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

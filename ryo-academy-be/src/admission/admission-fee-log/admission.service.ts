@@ -17,12 +17,12 @@ export class AdmissionService {
   ) {}
 
   async findAll() {
-    return this.databaseService.admission.findMany({ where: { isActive: true } });
+    return this.databaseService.admission.findMany({ where: { isActive: true, deletedAt: null } });
   }
 
   async findById(id: string) {
     const admission = await this.databaseService.admission.findUnique({
-      where: { id, isActive: true },
+      where: { id, isActive: true, deletedAt: null },
       include: {
         student: {
           select: {

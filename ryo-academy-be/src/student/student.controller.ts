@@ -13,6 +13,7 @@ import {
   Get,
   Param,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { StudentService } from './student.service.js';
@@ -65,7 +66,8 @@ export class StudentController {
   recordStudentFeePayment(
     @Param('id') id: string,
     @Body() dto: CreateStudentFeePaymentDto,
+    @Req() request: { user: { userId: string } },
   ) {
-    return this.studentService.recordStudentFeePayment(id, dto);
+    return this.studentService.recordStudentFeePayment(id, dto, request.user.userId);
   }
 }

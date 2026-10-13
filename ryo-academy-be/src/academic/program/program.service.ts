@@ -10,7 +10,7 @@ export class ProgramService {
     async createPrgm(dto: CreateProgramDto) {
         try {
             const academicYearId = await this.databaseService.academicYear.findUnique({
-                where: { id: dto.academicYear, isActive: true },
+                where: { id: dto.academicYear, isActive: true, deletedAt: null },
                 select: { id: true, name: true },
             });
 
@@ -21,9 +21,6 @@ export class ProgramService {
             if (dto.startTime >= dto.endTime) {
                 throw new BadRequestException(`Start time must be before end time`);
             }
-
-            console.log(academicYearId);
-            
 
             return this.databaseService.program.create({
                 data: {
@@ -47,7 +44,7 @@ export class ProgramService {
     async findAllPrgms() {
         try {
         return this.databaseService.program.findMany({
-            where: { isActive: true },
+            where: { isActive: true, deletedAt: null },
             orderBy: [{ name: 'asc' }, { academicYearId: 'desc' }, { isPrimary: 'desc' }],
         });
         }
@@ -59,7 +56,7 @@ export class ProgramService {
     async fingPrgmByName(name: string) {
         try {
             const program = await this.databaseService.program.findMany({
-                where: { name, isActive: true },
+                where: { name, isActive: true, deletedAt: null },
             });
             if (!program || program.length === 0) {
                 throw new NotFoundException(`Program with name "${name}" not found`);
@@ -73,7 +70,7 @@ export class ProgramService {
     async findPrgmById(id: string) {
         try {
             const program = await this.databaseService.program.findUnique({
-                where: { id, isActive: true },
+                where: { id, isActive: true, deletedAt: null },
             });
             if (!program) {
                 throw new NotFoundException(`Program with id "${id}" not found`);
@@ -118,7 +115,7 @@ export class ProgramService {
 
     async remove(id: string) {
         await this.findPrgmById(id);
-        return this.databaseService.program.update({ where: { id }, data: { isActive: false } });
+        return this.databaseService.program.update({ where: { id }, data: { isActive: false, deletedAt: new Date() } });
     }
 
     

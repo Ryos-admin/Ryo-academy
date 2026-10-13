@@ -19,6 +19,7 @@ model FeePaymentHeader {
   isActive Boolean @default(true)
   
   feePaymentDetails FeePaymentDetails[]
+  payments FeePayment[]
 
   @@unique([academicYearId, admissionId, feeStructureId])
   @@index([academicYearId, admissionId, feeStructureId])

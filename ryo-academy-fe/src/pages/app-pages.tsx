@@ -79,6 +79,7 @@ import {
 } from "@/pages/admissions-students-pages";
 import { TimetablePage, Profile } from "@/pages/operations-pages";
 import { Dashboard } from "@/pages/dashboard-page";
+import { FinancialLogPage } from "@/pages/financial-log-pages";
 import { AccessState, AppButton, Avatar, Loading } from "@/pages/page-primitives";
 
 export { queryClient };
@@ -228,6 +229,7 @@ const nav: NavItem[] = [
       },
     ],
   },
+  { label: "Financial Log", href: "/financial-log", icon: CircleDollarSign, permission: "FEES_READ", roles: ["OFFICE_ADMIN", "COLLEGE_ADMIN"] },
   {
     label: "Timetable",
     href: "/timetable",
@@ -929,6 +931,11 @@ function RoutedApp({ session, onLogout }: { session: User; onLogout: () => void 
         <Route path="/fees/new">
           <Protected session={session} permission="FEES_CREATE">
             <FeeForm session={session} />
+          </Protected>
+        </Route>
+        <Route path="/financial-log">
+          <Protected session={session} permission="FEES_READ">
+            <FinancialLogPage />
           </Protected>
         </Route>
         <Route path="/fees/:id/edit">

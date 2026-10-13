@@ -17,5 +17,9 @@ model Staff {
     updatedAt DateTime @updatedAt
 
     isActive Boolean @default(true)
+    deletedAt DateTime?
+    deletedById String?
+    deletedBy User? @relation("StaffDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+    @@index([deletedById])
 
 }

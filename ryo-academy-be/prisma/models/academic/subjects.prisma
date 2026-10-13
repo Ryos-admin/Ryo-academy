@@ -5,8 +5,11 @@ model Subjects {
     class Class @relation(fields: [classId], references: [id])
     teachingAssignments TeachingAssignment[]
     isActive Boolean @default(true)
+    deletedAt DateTime?
+    deletedById String?
+    deletedBy User? @relation("SubjectDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+    @@index([deletedById])
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
 
 }
-

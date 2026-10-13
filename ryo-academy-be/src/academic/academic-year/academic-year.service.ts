@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from "@nestjs/common";
 import { DatabaseService } from "../../database/database.service.js";
 import { CreateAcademicYearDto } from "./dto/create-academic-year.dto.js";
@@ -61,7 +62,7 @@ export class AcademicYearService {
 
   async findOne(id: string) {
     const academicYear = await this.databaseService.academicYear.findUnique({
-      where: { id, isActive: true },
+      where: { id, isActive: true, deletedAt: null },
     });
     if (!academicYear) {
       throw new NotFoundException(`Academic year with id "${id}" not found`);
@@ -98,9 +99,77 @@ export class AcademicYearService {
     }
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
-    return this.databaseService.academicYear.update({ where: { id }, data:{ isActive: false } });
+  async remove(id: string, actorUserId: string) {
+    const actor = await this.databaseService.user.findUnique({ where: { id: actorUserId }, select: { schoolId: true } });
+    if (!actor?.schoolId) throw new ForbiddenException('A school-scoped user is required');
+    const academicYear = await this.databaseService.academicYear.findFirst({
+      where: { id, schoolId: actor.schoolId },
+      select: { id: true, isActive: true, deletedAt: true },
+    });
+    if (!academicYear || !academicYear.isActive || academicYear.deletedAt) {
+      throw new NotFoundException(`Academic year with id "${id}" not found`);
+    }
+
+    const activeEnrollment = await this.databaseService.admission.findFirst({
+      where: {
+        academicYearId: id,
+        isActive: true,
+        deletedAt: null,
+        admissionStatus: 'CONFIRMED',
+        student: { isActive: true, deletedAt: null },
+      },
+      select: { id: true },
+    });
+    if (activeEnrollment) {
+      throw new ConflictException(
+        'Academic year cannot be deleted while active student enrollments exist.',
+      );
+    }
+
+    const deletedAt = new Date();
+    return this.databaseService.$transaction(async (tx) => {
+      const programs = await tx.program.findMany({
+        where: { academicYearId: id },
+        select: { id: true },
+      });
+      const programIds = programs.map(({ id: programId }) => programId);
+      const classes = await tx.class.findMany({
+        where: { programId: { in: programIds } },
+        select: { id: true },
+      });
+      const classIds = classes.map(({ id: classId }) => classId);
+
+      if (classIds.length) {
+        await tx.teachingAssignment.updateMany({
+          where: { classId: { in: classIds }, deletedAt: null },
+          data: { isActive: false, deletedAt, deletedById: actorUserId },
+        });
+      }
+      await tx.academicCalendar.updateMany({
+        where: { academicYearId: id, deletedAt: null },
+        data: { isActive: false, deletedAt, deletedById: actorUserId },
+      });
+      if (classIds.length) {
+        await tx.section.updateMany({
+          where: { classId: { in: classIds }, deletedAt: null },
+          data: { isActive: false, deletedAt, deletedById: actorUserId },
+        });
+        await tx.class.updateMany({
+          where: { id: { in: classIds }, deletedAt: null },
+          data: { isActive: false, deletedAt, deletedById: actorUserId },
+        });
+      }
+      if (programIds.length) {
+        await tx.program.updateMany({
+          where: { id: { in: programIds }, deletedAt: null },
+          data: { isActive: false, deletedAt, deletedById: actorUserId },
+        });
+      }
+      return tx.academicYear.update({
+        where: { id },
+        data: { isActive: false, deletedAt, deletedById: actorUserId },
+      });
+    });
   }
 
   private validateDateRange(startDate: Date, endDate: Date) {

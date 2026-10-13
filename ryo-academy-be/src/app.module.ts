@@ -14,6 +14,7 @@ import { SectionModule } from './academic/section/section.module.js';
 import { FeeStructureModule } from './admission/fee-structure/fee-structure.module.js';
 import { FeeComponentModule } from './admission/fee-component/fee-component.module.js';
 import { AdmissionModule } from './admission/admission-fee-log/admission.module.js';
+import { FinanceModule } from './finance/finance.module.js';
 import { SubjectModule } from './academic/subject/subject.module.js';
 import { StaffModule } from './academic/staff/staff.module.js';
 import { AcademicCalendarModule } from './academic/academic-calendar/academic-calendar.module.js';
@@ -37,6 +38,7 @@ import { StudentModule } from './student/student.module.js';
     FeeStructureModule,
     FeeComponentModule,
     AdmissionModule,
+    FinanceModule,
     SubjectModule,
     StaffModule,
     AcademicCalendarModule,

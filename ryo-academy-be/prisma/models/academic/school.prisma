@@ -9,4 +9,7 @@ model School {
   users        User[]
   admission     Admission[]
   isActive Boolean @default(true)
+  financialLogs FinancialLog[]
+  expenses Expense[]
+  feePayments FeePayment[]
 }
