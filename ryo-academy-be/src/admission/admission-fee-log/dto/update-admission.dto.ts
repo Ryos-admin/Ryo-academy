@@ -9,7 +9,6 @@ import {
   IsNumber,
   IsObject,
   IsOptional,
-  IsPhoneNumber,
   IsPostalCode,
   IsString,
 } from 'class-validator';

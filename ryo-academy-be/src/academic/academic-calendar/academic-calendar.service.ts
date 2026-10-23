@@ -91,7 +91,13 @@ export class AcademicCalendarService {
   async bulkUpdate(dto: BulkUpdateAcademicCalendarDto) {
     const academicYear = await this.findAcademicYear(dto.academicYearId);
     const dates = dto.dates.map((value) => this.toDate(value, 'dates'));
-    dates.forEach((date) => this.validateDateInAcademicYear(date, academicYear.startDate, academicYear.endDate));
+    dates.forEach((date) =>
+      this.validateDateInAcademicYear(
+        date,
+        academicYear.startDate,
+        academicYear.endDate,
+      ),
+    );
 
     return this.databaseService.$transaction(async (tx) => {
       let updated = 0;
@@ -101,12 +107,22 @@ export class AcademicCalendarService {
           where: { academicYearId: dto.academicYearId, date, isActive: true },
           select: { id: true },
         });
-        const data = { dayType: dto.dayType, title: dto.title, description: dto.description, isWorkingDay: dto.isWorkingDay };
+        const data = {
+          dayType: dto.dayType,
+          title: dto.title,
+          description: dto.description,
+          isWorkingDay: dto.isWorkingDay,
+        };
         if (existing) {
-          await tx.academicCalendar.update({ where: { id: existing.id }, data });
+          await tx.academicCalendar.update({
+            where: { id: existing.id },
+            data,
+          });
           updated += 1;
         } else {
-          await tx.academicCalendar.create({ data: { academicYearId: dto.academicYearId, date, ...data } });
+          await tx.academicCalendar.create({
+            data: { academicYearId: dto.academicYearId, date, ...data },
+          });
           created += 1;
         }
       }
@@ -271,4 +287,5 @@ export class AcademicCalendarService {
       error.code === 'P2002'
     );
   }
+  private findAcademic;
 }
