@@ -6,6 +6,7 @@ export const PERMISSIONS = {
   FEES_READ: 'fees:read',
   FEES_CREATE: 'fees:create',
   FEES_UPDATE: 'fees:update',
+  FEES_REVERSE: 'fees:reverse',
   EXPENSE_CREATE: 'expense:create',
   EXPENSE_DELETE: 'expense:delete',
 
@@ -34,6 +35,13 @@ export const PERMISSIONS = {
   SHIFT_UPDATE: 'shift:update',
 
   TIMETABLE_READ: 'timetable:read',
+
+  INSTALLMENT_TEMPLATE_READ: 'installment-template:read',
+  INSTALLMENT_TEMPLATE_CREATE: 'installment-template:create',
+  INSTALLMENT_TEMPLATE_DEACTIVATE: 'installment-template:deactivate',
+
+  INSTALLMENT_SCHEDULE_READ: 'installment-schedule:read',
+  INSTALLMENT_SCHEDULE_MANAGE: 'installment-schedule:manage',
 } as const;
 
 export type Permission =

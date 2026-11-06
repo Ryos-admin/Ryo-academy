@@ -16,7 +16,12 @@ model FeePayment {
   student          Student          @relation(fields: [studentId], references: [id])
   admission        Admission        @relation(fields: [admissionId], references: [id])
   feePaymentHeader FeePaymentHeader @relation(fields: [feePaymentHeaderId], references: [id])
+  installmentAllocations FeePaymentInstallmentAllocation[]
+  reversalEvent PaymentReversalEvent?
+  lineageEvents InstallmentLineageEvent[]
+  detailAttributions FeePaymentDetailAttribution[] @relation("FeePaymentAttributions")
 
+  @@unique([id, feePaymentHeaderId], name: "uq_payment_id_header")
   @@index([schoolId, createdAt])
   @@index([studentId, createdAt])
   @@index([feePaymentHeaderId, createdAt])

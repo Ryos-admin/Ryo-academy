@@ -1,0 +1,18 @@
+model FeePaymentDetailAttribution {
+  id                  String            @id @default(uuid())
+  feePaymentId        String
+  feePaymentDetailsId String
+  feePaymentHeaderId  String
+  amount              Decimal           @db.Decimal(65, 2)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  feePayment        FeePayment        @relation("FeePaymentAttributions", fields: [feePaymentId, feePaymentHeaderId], references: [id, feePaymentHeaderId], onDelete: Restrict, onUpdate: Restrict)
+  feePaymentDetails FeePaymentDetails @relation("DetailAttributions", fields: [feePaymentDetailsId, feePaymentHeaderId], references: [id, feePaymentHeaderId], onDelete: Restrict, onUpdate: Restrict)
+  feePaymentHeader  FeePaymentHeader  @relation("HeaderAttributions", fields: [feePaymentHeaderId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([feePaymentId, feePaymentDetailsId])
+  @@index([feePaymentId])
+  @@index([feePaymentDetailsId])
+  @@index([feePaymentHeaderId])
+}

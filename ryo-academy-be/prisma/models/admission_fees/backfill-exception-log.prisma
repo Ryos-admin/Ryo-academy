@@ -1,0 +1,15 @@
+model BackfillExceptionLog {
+  id                 String   @id @default(uuid())
+  schoolId           String
+  admissionId        String
+  feePaymentHeaderId String
+  errorCode          String
+  reason             String
+  payloadSnapshot    Json
+  createdAt          DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([admissionId])
+  @@index([feePaymentHeaderId])
+  @@index([errorCode])
+}

@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
-import { ArrayMinSize, IsArray, IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, ValidateNested } from "class-validator";
+import { ArrayMinSize, IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested } from "class-validator";
+import { IsMoneyString } from "../../../common/money/money.util.js";
 
 export class FeeComponentInputDto {
     @ApiProperty({ example: 'Tuition Fee', type: String })
@@ -13,10 +14,9 @@ export class FeeComponentInputDto {
     @IsString()
     description?: string;
 
-    @ApiProperty({ example: 5000, type: Number })
-    @IsNumber()
-    @IsPositive()
-    amount!: number;
+    @ApiProperty({ example: "5000.00", type: String })
+    @IsMoneyString()
+    amount!: string;
 
     @ApiPropertyOptional({ example: true, type: Boolean })
     @IsOptional()
@@ -75,23 +75,23 @@ export class FeeStructureDto {
     @IsNotEmpty()
     classId!: string;
 
-    @ApiProperty({
-        description: 'Total amount for the fee structure',  
-        example: 10000,
-        type: Number,
+    @ApiPropertyOptional({
+        description: 'Deprecated client preview; the backend derives the persisted total from fee components.',
+        example: '10000.00',
+        type: String,
     })
-    @IsNumber()
-    @IsPositive()
-    totalAmount!: number;
+    @IsOptional()
+    @IsMoneyString()
+    totalAmount?: string;
 
     @ApiProperty({
         description: 'List of fee components associated with this fee structure',
         type: () => FeeComponentInputDto,
         isArray: true,
         example: [
-            { name: 'Tuition Fee', amount: 5000 },
-            { name: 'Library Fee', amount: 2000 },
-            { name: 'Lab Fee', amount: 3000 },
+            { name: 'Tuition Fee', amount: '5000.00' },
+            { name: 'Library Fee', amount: '2000.00' },
+            { name: 'Lab Fee', amount: '3000.00' },
         ],
     })
     @IsArray()

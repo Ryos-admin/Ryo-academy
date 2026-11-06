@@ -20,7 +20,12 @@ model FeePaymentHeader {
   
   feePaymentDetails FeePaymentDetails[]
   payments FeePayment[]
+  installmentSchedule AdmissionInstallmentSchedule?
+  installmentAllocations FeePaymentInstallmentAllocation[]
+  installments AdmissionInstallment[]
+  detailAttributions FeePaymentDetailAttribution[] @relation("HeaderAttributions")
 
   @@unique([academicYearId, admissionId, feeStructureId])
+  @@unique([id, admissionId], name: "uq_header_id_admission")
   @@index([academicYearId, admissionId, feeStructureId])
 }

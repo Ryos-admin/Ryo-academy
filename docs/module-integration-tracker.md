@@ -18,7 +18,7 @@ This document tracks backend readiness and frontend real-API migration progress.
 | Students | Partial backend capability | Mock-backed | Yes | Confirm student API scope |
 | Academic Calendar | Implemented | Not migrated | Yes | Frontend migration |
 | Attendance | Implemented | Mock-backed | Yes | Frontend migration and live validation |
-| Fees | Partial/implemented | Mock-backed | Yes | Verify backend contract, then migrate |
+| Fees | Implemented (V1 Complete) | Mock-backed | Yes | Backend V1 verified (see `docs/architecture/financial-module-v1.md`); ready for frontend migration |
 | Timetable | Not fully available | Mock-backed | Yes | Keep mock until backend is ready |
 | Dashboard | Aggregated frontend view | Mock-backed | Yes | Migrate only after source modules are real |
 

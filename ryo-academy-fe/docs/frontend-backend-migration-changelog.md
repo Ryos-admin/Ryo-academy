@@ -4180,3 +4180,1193 @@ Status: Build verified; typecheck unavailable in the checkout.
 - Separated valid and invalid credential validation, restricted the synthetic 401 handler to the configured local `GET /protected/me` endpoint with guaranteed cleanup, and rejected the known financial-log API error state while preserving permission denial as a valid outcome.
 - `git diff --check` passed. The configured TypeScript check still reports only the existing errors in `src/lib/mock-erp.ts`, `src/pages/academic-pages.tsx`, and `src/pages/app-pages.tsx`; no Phase 2 spec error was reported.
 - Browser tests were not executed; real authentication, session restoration, API authorization, and database isolation remain unverified.
+
+# 2026-10-27 — M1 Stage 2: Class & Section soft‑deletion safeguards
+
+**Status:** Complete
+
+## Scope
+- Implement soft‑deletion for Class and Section entities with actor attribution (`deletedById`).
+- Add school‑ownership verification and guard against active DRAFT/CONFIRMED admissions and SUBMITTED attendance logs.
+- Ensure cross‑school deletion is prohibited and proper `NotFoundException` handling for missing or already‑soft‑deleted targets.
+- Update controllers to forward the authenticated user ID to service methods.
+- Remove dead‑code fragments left from earlier implementations.
+- Add focused unit tests for both services covering success, blocking admissions, blocking attendance, cross‑school restriction, and not‑found cases.
+
+## Files Modified
+- `src/academic/class/class.service.ts`
+- `src/academic/class/class.controller.ts`
+- `src/academic/section/section.service.ts`
+- `src/academic/section/section.controller.ts`
+
+## Tests Added
+- `src/academic/class/class.service.spec.ts`
+- `src/academic/section/section.service.spec.ts`
+
+## Verification
+- All new unit tests pass (`npm run test -- src/academic/class/class.service.spec.ts src/academic/section/section.service.spec.ts`).
+- `git diff --check` reports no trailing whitespace or stray changes.
+- No other files were altered, preserving repository integrity.
+
+## 2026-10-27 — Historical teacher attribution write‑once
+
+- **Scope**: Preserve historical teacher attribution when staff are deactivated.
+- **Files Modified**:
+  - `prisma/models/academic/staff/teachingAssignment.prisma` – added `historicalStaffId` field with optional relation (`onDelete: SetNull`).
+  - `src/academic/staff/staff.service.ts` – updated deactivation transaction: clears `staffId` and sets `historicalStaffId` only when currently `NULL` (write‑once behavior).
+  - `src/academic/staff/staff.service.spec.ts` – added assertions for the two `updateMany` calls using `toHaveBeenNthCalledWith`.
+- **Migration**: `prisma/migrations/20261027120000_add_historical_staff_id/steps.sql` adds nullable column and FK.
+- **Verification**: Focused Jest test `src/academic/staff/staff.service.spec.ts` passes, confirming the transactional behavior.
+- **Decision**: `historicalStaffId` is never overwritten once set, preserving the first historical teacher.
+
+[Back to Changelog Top](#ryo-academy-frontend--backend-migration-changelog)
+
+# 2026-10-27 — M2 Stage 1: Remove internal User ID from Profile page
+
+**Status:** Complete
+
+## Scope
+
+Removed the user-visible internal database User ID field from the Profile component.
+
+## Files Modified
+
+- `ryo-academy-fe/src/pages/operations-pages.tsx` — removed `session.id` display from the Profile panel; `session.id` is retained internally for API requests and session management.
+
+## User-visible change
+
+The "User ID" label and raw UUID value no longer appear on the Profile page.
+
+## Internal IDs preserved
+
+`session.id` remains available in the session object and is used for API authentication payloads. No authentication, routing, or API behavior was changed.
+
+## Verification
+
+Confirmed by source inspection that `session.id`, `userId`, and "User ID" are absent from the rendered Profile UI in `operations-pages.tsx`. No build or typecheck issues introduced.
+
+---
+
+# 2026-10-27 — M2 Stage 2: Replace raw ID fallbacks in fee structure list view
+
+**Status:** Complete
+
+## Scope
+
+Replaced raw database ID fallbacks with an em-dash placeholder in the fee structure list table columns.
+
+## Files Modified
+
+- `ryo-academy-fe/src/pages/fee-pages.tsx` (`RealFeesPage`) — list table columns for Academic year, Programme, and Class now render `row.academicYear?.name || '—'`, `row.program?.name || '—'`, and `row.class?.name || '—'` respectively, instead of falling back to raw IDs.
+
+## User-visible change
+
+Fee structure list table cells no longer display raw database UUIDs when relation names are unavailable; they show `—` instead.
+
+## Internal IDs preserved
+
+All `row.id` values are preserved for React keys and navigation links. No API, routing, or form behavior was changed.
+
+## Verification
+
+Confirmed by source inspection. Frontend build passed.
+
+---
+
+# 2026-10-27 — M2 Stage 3: Replace remaining raw ID fallbacks across fee and admission/student pages
+
+**Status:** Complete
+
+## Scope
+
+Applied em-dash fallbacks and removed unnecessary internal-ID display rows across fee detail, fee component list/detail, admission list/detail, and student detail views.
+
+## Files Modified
+
+- `ryo-academy-fe/src/pages/fee-pages.tsx`
+  - `RealFeeDetail` detail-fields: replaced `item.academicYearId`, `item.programId`, and `item.classId` raw ID fallbacks with `'—'`.
+  - `RealFeeComponentsPage` list table: replaced `component.feeStructureId` raw ID fallback with `'—'`.
+  - `RealFeeComponentDetail` detail-fields: removed the `["Component ID", item.id]` row (internal UUID, not user-meaningful); replaced `item.feeStructureId` fallback with `'—'` (parent structure name is already fetched and displayed).
+
+- `ryo-academy-fe/src/pages/admissions-students-pages.tsx`
+  - `AdmissionList` local `label()` helper: changed fallback from raw ID to `'—'` so missing academic-year/program/class/section names do not expose UUIDs in the admissions table.
+  - `AdmissionDetail` local `label()` helper: same fix applied to the detail view's placement label helper.
+  - `AdmissionDetail` detail-fields: removed the `["Student ID", item.studentId]` row (post-confirmation internal student UUID; the linked student record is accessible via the "View Student" button).
+  - `StudentDetail` detail-fields: removed `["Admission ID", student.admissionId]` and `["School ID", placement.schoolId]` rows (internal UUIDs with no user-meaningful content).
+
+## Findings intentionally left unchanged
+
+| Finding | Classification | Reason |
+|---|---|---|
+| `student.studentNumber` in student list | Business identifier | Meaningful sequential number; correctly displayed |
+| `item.admissionNumber` in admission detail | Business identifier | Meaningful application reference; correctly displayed |
+| Fee snapshot `feeStructureId` / `academicYearId` | API limitation | `StudentFeeState` type returns only ID fields; no name is available from the endpoint. Rows removed rather than displaying raw UUIDs. |
+| Academic-pages "School ID" admin columns | Admin-only context | Intentional internal display for admin screens; no change made |
+| Form field `academicYearId`, `programId`, `classId`, `feeStructureId` | Internal API payload | Used in form state and POST/PATCH request bodies only; never rendered as visible UI text |
+| React `key={row.id}` / `key={component.id}` | Internal-only | DOM reconciliation; not rendered to users |
+
+## Internal IDs preserved
+
+All IDs used for routing (`/fees/${row.id}`, `/students/${student.id}`), React keys, API payloads, relation lookups, and session references remain untouched.
+
+## Verification
+
+- `git diff --check`: **passed** (no trailing whitespace or stray changes).
+- Frontend production build (`pnpm run build`): **passed** in 7.37 s — 1854 modules, no errors.
+- No tests were added or modified; no new dependencies introduced.
+
+## Remaining M2 work
+
+- Fee snapshot section in Student Detail still shows no academic year or fee structure name because the `StudentFeeState` API response does not include those fields. A backend endpoint enhancement or a secondary lookup would be required to resolve this, and is deferred.
+- No timetable changes were made or are in scope.
+
+# 2026-10-27 — M2 Stage 4: Fix `studentLabel()` raw-ID fallback
+
+**Status:** Complete
+
+## Scope
+
+Replaced the raw-ID fallback in the module-level `studentLabel()` helper with `'—'`, consistent with the em-dash convention introduced in Stages 2–3.
+
+## File Modified
+
+- `ryo-academy-fe/src/pages/admissions-students-pages.tsx` (line 56) — `studentLabel()` fallback changed from `|| id` to `|| '—'`.
+
+## Call sites affected
+
+- `StudentList` — "Academic year", "Program", "Class", "Section" table columns.
+- `StudentDetail` — same four detail-field rows.
+
+In both components, `studentLabel()` resolves placement relation UUIDs to human-readable names. The UUID itself is not a meaningful business identifier and must not be shown to users when a name lookup fails. Business identifiers (`student.studentNumber`, `admissionRecord?.admissionNumber`) are passed directly and are unaffected.
+
+## Internal IDs preserved
+
+`student.id`, `placement.*Id` fields used for React keys, routing, API calls, and the `EMPTY_PLACEMENT` guard remain untouched.
+
+## Verification
+
+- `git diff --check`: **passed** (exit 0).
+- `pnpm run build`: **passed** — 1854 modules, 7.37 s, no errors.
+
+
+# 2026-11-02 — Fix Intermittent Prisma ETIMEDOUT and Academic Calendar Transaction Deadlock
+
+**Status:** Complete
+
+## Scope
+
+Investigated and resolved intermittent Prisma ETIMEDOUT errors in the local NestJS backend impacting authentication (`UsersRepository.findByEmailForAuthentication()` -> `AuthService.login()`) and academic-year creation with automatic academic-calendar generation.
+
+## Root Cause
+
+1. In `AcademicYearService.create()`, `this.databaseService.$transaction` was called without `return await`, resulting in unhandled floating transaction promises.
+2. The automatic calendar generation in `AcademicCalendarService.seed()` attempted nested transactions and queries on `this.databaseService` (outside the active transaction client `tx`), causing cross-connection deadlock on PostgreSQL foreign key row share locks and leaking pool connections.
+3. Leaked connections caused connection pool exhaustion in `pg.Pool`, preventing subsequent queries (`user.findUnique`) from obtaining a connection and resulting in `ETIMEDOUT`.
+4. Stale/idle remote Neon TCP sockets were unmanaged due to missing keepalive and connection timeout configurations on the driver adapter pool.
+
+## Backend Modifications
+
+- `src/academic/academic-calendar/academic-calendar.service.ts`: Decoupled calendar record generation into a pure `generateCalendarRecords()` function (zero database operations, no transactions). Fixed day-of-week index mapping for `getUTCDay()` (`0 = Sunday`). Updated `seed()` to perform direct bulk insertion without creating nested transactions.
+- `src/academic/academic-calendar/dto/seed-academic-calendar.dto.ts`: Added optional `startDate` and `endDate` fields supporting both Date and string representations.
+- `src/academic/academic-year/academic-year.service.ts`: Awaited and returned `$transaction`. Used the transaction client `tx` for both academic year creation and bulk calendar record insertion with atomic rollback on failure. Restored cascade soft-delete queries within `tx` in `remove()`.
+- `src/academic/academic-year/academic-year.module.ts`: Imported `AcademicCalendarModule` to inject the exported singleton calendar service.
+- `src/database/database.service.ts`: Managed explicit `pg.Pool` instance configured with `keepAlive: true`, ensuring graceful disconnection and pool shutdown in `onModuleDestroy()`.
+- Added unit test suites for `DatabaseService` lifecycle, `AcademicCalendarService` record generation, `AcademicYearService` atomic transaction rollback, and `UsersRepository`.
+
+## Verification
+
+- `npx prisma generate`: Passed.
+- `npm run build`: Passed (clean compilation).
+- Focused unit tests (15 test suites, 80 tests): All passed.
+- Runtime database lifecycle and user query verification: Succeeded.
+
+
+# 2026-11-03 — Resolve Node 22 Happy Eyeballs Prisma ETIMEDOUT and Pool Connection Churn
+
+**Status:** Complete
+
+## Scope
+
+Investigated and resolved intermittent `ETIMEDOUT` errors in Prisma Client (`User.findUnique` via `UsersRepository.findByEmailForAuthentication()` -> `AuthService.login()`) observed during concurrent Frontend and Swagger UI usage and after idle intervals.
+
+## Root Cause
+
+1. **Node 22 Happy Eyeballs Socket Timeout**: In Node.js 22.22.0, `net.connect` defaults `autoSelectFamily: true`. When connecting to AWS Neon's direct endpoint (`*.aws.neon.tech`), Node attempts IPv6 resolution first. Because IPv6 routing to the AWS Neon endpoint is unreachable from the host environment, Node's `internalConnectMultiple` attempts fail with an internal `AggregateError [ETIMEDOUT]` in ~760ms (observed failure rate: 60% on raw socket attempts).
+2. **False Correlation with Swagger UI**: Swagger UI is an in-browser SPA served in-memory from `/api/docs`; its authorization action is purely client-side Redux state management and issues zero background requests. However, when Swagger held an already-open pool connection, queries succeeded. Once idle for >10 seconds, `pg.Pool`'s default `idleTimeoutMillis: 10000` dropped the connection (`total=0`), forcing the next request (such as Frontend login) to establish a new TCP socket that hit the 60% Happy Eyeballs failure rate.
+3. **Frontend Post-Login Burst**: Upon successful login, the frontend router navigates to `/dashboard`, which immediately fires 8 concurrent queries (`useStudents`, `useAdmissions`, `useStaff`, `useFeeStructures`, `useAcademicYears`, `useClasses`, `useAttendance`, `useCurrentUser`). With `idleCount: 0`, the pool concurrently initialized up to 9 new TCP sockets against Neon, triggering multiple parallel Happy Eyeballs socket timeouts.
+
+## Implementation
+
+- `src/database/database.service.ts`:
+  - Added `net.setDefaultAutoSelectFamily?.(false)` at module load to direct all TCP socket acquisitions to IPv4 immediately (reducing connection establishment time from intermittent timeout to ~270ms with 0% failure rate).
+  - Explicitly configured `pg.Pool` with `max: 10`, `idleTimeoutMillis: 30000`, `connectionTimeoutMillis: 10000`, and `keepAlive: true`.
+  - Added pool error event listener (`pool.on('error')`).
+  - Preserved clean pool termination (`this.pool.end()`) in `onModuleDestroy()`.
+
+## Verification
+
+- Raw socket benchmarks (10 sequential attempts against Neon host):
+  - `autoSelectFamily: true`: 6/10 failed with `ETIMEDOUT` in ~760ms.
+  - `autoSelectFamily: false`: 10/10 succeeded in ~270ms (0 failures).
+- HTTP runtime concurrency verification:
+  - 5 simultaneous login queries: 5/5 succeeded (status 401, zero timeouts).
+  - 10 simultaneous login queries: 10/10 succeeded (status 401, zero timeouts).
+  - 12 mixed concurrent requests (Swagger UI HTML, Swagger spec, authenticated protected endpoints, login requests): 12/12 succeeded simultaneously.
+- Clean compilation: `npm run build` passed.
+- Unit tests: `src/database/database.service.spec.ts` passed (2/2 tests).
+
+
+# 2026-11-03 — Program daysOfWeek DTO Enum Validation
+
+**Status:** Complete
+
+## Scope
+
+Investigated and resolved Prisma validation error (`PrismaClientValidationError: Invalid value for argument daysOfWeek. Expected DayOfWeek.`) occurring during Program creation when invalid or misspelled weekday strings (such as `THRUSDAY`) were submitted.
+
+## Root Cause
+
+`CreateProgramDto` and `UpdateProgramDto` declared `daysOfWeek` as `string[]` with `@IsArray()` and `@IsNotEmpty()`, without `@IsEnum(DayOfWeek, { each: true })` or `@ArrayNotEmpty()`. Consequently, invalid enum strings passed DTO validation and only failed downstream when Prisma executed query construction.
+
+## Implementation
+
+- `src/academic/program/dto/create-program.dto.ts`:
+  - Imported generated Prisma `DayOfWeek` enum.
+  - Added `@IsEnum(DayOfWeek, { each: true })` and `@ArrayNotEmpty()` to `daysOfWeek`.
+  - Updated `@ApiProperty` metadata with `enum: DayOfWeek`, `isArray: true`, and standard examples.
+  - Typed `daysOfWeek` as `DayOfWeek[]`.
+- `src/academic/program/dto/update-program.dto.ts`:
+  - Applied the same `DayOfWeek` enum validation and typing with `@IsOptional()`.
+- `src/academic/program/program.service.ts`:
+  - Used typed `dto.daysOfWeek` directly without unsafe type casts.
+  - Removed unused `WeekdayDto` import.
+  - Awaited `this.databaseService.program.create()` and `update()` so database exceptions (e.g. `P2002`) are properly caught in the try/catch block.
+- Seeds & fixtures:
+  - Aligned `rbac.seed.ts`, `fee-dev.seed.ts`, and `attendance-dev.seed.ts` with `DayOfWeek` enum values.
+- Tests:
+  - Added `src/academic/program/dto/create-program.dto.spec.ts` covering valid enum arrays, invalid weekday rejection (`THRUSDAY`), non-array rejection, empty array rejection, and missing property rejection.
+  - Added `src/academic/program/program.service.spec.ts` covering successful program creation with `DayOfWeek` array, non-existent academic year rejection, invalid start/end times rejection, and duplicate name conflict handling.
+
+## Verification
+
+- Focused DTO validation unit tests: 6 passed (exit 0).
+- Focused Program service unit tests: 4 passed (exit 0).
+- Academic year regression test suite: 5 passed (exit 0).
+- Full core regression suite (8 test suites, 27 tests): All passed.
+- `npm run build`: Passed with clean Prisma generation and compilation.
+
+
+# 2026-11-03 — Fee Management Financial Integrity Stabilization (Task 02)
+
+**Status:** Complete
+
+## Scope
+
+Stabilized financial integrity and resolved critical and high-priority defects identified during the Fee Management module audit:
+- C1: Fee Structure creation failure (`feeComponents: []` rejected by backend `@ArrayMinSize(1)`).
+- C2: Concurrent payment overpayment race condition on `FeePaymentHeader`.
+- C3: Admission repository data integrity (`findMany` result array spread into an object and non-transactional writes).
+- H1: Payment idempotency support on client and backend.
+- H2: Payment history misreporting component breakdown instead of transactional `FeePayment` events.
+- H3: UUID compatibility failure in school sequence generation (`schoolId.split('(')[1]`).
+- H4: Documented discount calculation ambiguity (stored `discountPercentage` on Admission has no calculation engine or rule base).
+
+## Implementation
+
+- `ryo-academy-be/src/admission/fee-structure/dto/fee-structure.dto.ts`:
+  - Relaxed `feeComponents` validation on `FeeStructureDto` from `@ArrayMinSize(1)` to `@IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => FeeComponentInputDto)` to align with the frontend two-step creation workflow (create scope first, add components subsequently).
+- `ryo-academy-be/src/admission/fee-structure/fee-structure.service.ts`:
+  - Updated `create()` and `validateFeeStructure()` to guard `feeComponents` existence before creating components or checking positive component amounts.
+- `ryo-academy-be/src/student/student.service.ts`:
+  - Added row-level locking on `FeePaymentHeader` inside interactive transaction via `SELECT id FROM "FeePaymentHeader" WHERE id = $1 FOR UPDATE`.
+  - Re-fetched fresh committed header state within the transaction lock prior to balance validation to eliminate concurrent overpayment race conditions.
+  - Updated `getStudentFees()` to query and return actual `FeePayment` events (with `id`, `amount`, `paymentDate`, `createdAt`, `idempotencyKey`, `studentId`, and actor information) rather than `FeePaymentDetails` component snapshots.
+- `ryo-academy-be/src/admission/admission-fee-log/admission.repository.ts`:
+  - Replaced fragile string splitting in `generateSequenceNumber()` with safe lookup supporting UUIDs, school codes, and parenthesized names (`"Name (CODE)"`).
+  - Rewrote `getFeePaymentByAdmissionId()` to use `findFirst` with `include: { feePaymentDetails: true }`, returning a single typed entity instead of an array spread into an object.
+  - Wrapped `updateFeePaymentDet()` operations (header update/create and component detail upserts) in a single Prisma `$transaction` ensuring complete rollback on failure.
+- `ryo-academy-fe/src/lib/student-fees-api.ts`:
+  - Updated `CreateStudentFeePaymentRequest` to accept `idempotencyKey?: string`.
+  - Updated `StudentFeeResponse['payments']` to reflect actual `FeePayment` event structures.
+- `ryo-academy-fe/src/pages/admissions-students-pages.tsx`:
+  - Attached persistent `idempotencyKey` state using `crypto.randomUUID()` to payment submission. Refreshed key on successful payments to protect against rapid double-clicks and network retries while preserving independent subsequent payments.
+- Unit & Regression Tests:
+  - `fee-structure.service.spec.ts`: Added test cases for zero-component creation, multi-component atomic creation, non-positive total validation, nested component amount validation, scope conflict, and relation checks.
+  - `student.service.spec.ts`: Added test cases for row-level locking, overpayment rejection, payment event history verification, idempotent replay of matching submissions, and 409 Conflict rejection of mismatched key reuse.
+  - `admission.repository.spec.ts`: Added test cases for UUID school IDs, parenthesized school formats, single-object `getFeePaymentByAdmissionId`, transactional execution, and rollback on detail failure.
+
+## Verification
+
+- Backend compilation: `npm run build` passed with clean Prisma generation and TypeScript compilation.
+- Backend tests:
+  - `fee-structure.service.spec.ts`: 14/14 passed.
+  - `fee-component.service.spec.ts`: 5/5 passed.
+  - `admission.repository.spec.ts`: 13/13 passed.
+  - `admission.service.spec.ts`: 10/10 passed.
+  - `student.service.spec.ts`: 15/15 passed.
+- Frontend tests:
+  - `vitest run`: 10/10 test files passed, 115/115 tests passed.
+
+# 2026-11-03 — Discount Engine V1 Implementation (Task 03B)
+
+**Status:** Complete
+
+## Scope
+
+Implemented Discount Engine V1 in accordance with the approved architecture specification (`discount-engine-v1-architecture.md`) and finalized owner business decisions:
+- Decision 1 (Fixed Discount Validation): Enforced strict rejection of fixed discounts exceeding the fee component baseline amount with explicit `BadRequestException`. Auto-capping is prohibited.
+- Decision 2 (Concession Category Scope): Scoped categories by `schoolId` independently of academic year, supporting cross-year persistence, soft deactivation (`isActive: false`), and retention of historical references (`onDelete: Restrict`).
+- Decision 3 (Category Naming): Standardized clean semantic codes (`SIBLING`, `MERIT`, `STAFF_CHILD`) decoupled from discount percentages or values.
+- Temporal Lifecycle Separation: Concession obligations apply and are editable only while an admission is in `DRAFT` status; obligations are permanently locked and immutable upon `CONFIRMED` transition.
+- Exact Monetary Precision: Implemented all financial calculations using `Prisma.Decimal` arithmetic and `ROUND_HALF_UP` rounding to two decimal places.
+- Atomic Admission Confirmation: Integrated concession calculation and obligation freezing into the admission confirmation `$transaction`.
+
+## Implementation
+
+- **Prisma Schema & Database Migration:**
+  - `ryo-academy-be/prisma/models/admission_fees/discount-type.prisma`: Introduced `DiscountType` enum (`PERCENTAGE`, `FIXED`).
+  - `ryo-academy-be/prisma/models/admission_fees/fee-concession-category.prisma`: Introduced `FeeConcessionCategory` model with `schoolId`, `name`, `code`, `description`, `isActive`, `deletedAt`, `deletedById`, `@@unique([schoolId, code])`, and `@@index([schoolId, isActive])`.
+  - `ryo-academy-be/prisma/models/admission_fees/admission-fee-concession.prisma`: Introduced `AdmissionFeeConcession` model with 1:1 relation to `FeePaymentDetails` (`feePaymentDetailsId @unique`), `concessionCategoryId` (`onDelete: Restrict`), `discountType`, `discountValue`, `calculatedDiscountAmount`, and audit metadata.
+  - Relational updates to `FeePaymentDetails`, `Admission`, `School`, and `User`.
+  - Migration `20261103164831_add_fee_concessions_v1` generated and applied exclusively against disposable local PostgreSQL (`127.0.0.1:55432/ryo_qa`).
+- **Backend Discount Engine & Services:**
+  - `ryo-academy-be/src/admission/fee-concession/discount-calculator.ts`: Dedicated calculation engine enforcing component eligibility (`discountApplicable === true`), percentage range ($0 < v \le 100$), fixed discount upper ceiling ($v \le \text{originalAmount}$), `ROUND_HALF_UP` rounding to 2 decimal places, and net balance reconciliation.
+  - `ryo-academy-be/src/admission/fee-concession/fee-concession-category.service.ts` & `fee-concession-category.controller.ts`: Configurable school-scoped CRUD for concession categories supporting semantic uppercase normalization, code uniqueness, and soft deactivation.
+  - `ryo-academy-be/src/admission/fee-concession/admission-concession.service.ts`: Endpoints and atomic transactional logic for getting, assigning, and removing concessions on draft admissions with tenant checks and immutability guards.
+  - `ryo-academy-be/src/admission/admission-fee-log/admission.service.ts`:
+    - Updated `create()` to initialize `grossAmount`, `netAmount`, `totalFeeAmount`, and `totalDueAmount` to the fee structure total with zero initial discount.
+    - Added immutability guard in `updateById()` preventing modification of fee structures or component details on confirmed admissions.
+    - Updated `updateStatusById('CONFIRMED')` inside transaction to recalculate and freeze concessions, snapshot `discountAmount`, `finalAmount`, and `totalAmountToBePaid` on `FeePaymentDetails`, update `FeePaymentHeader` (`grossAmount`, `discountAmount`, `netAmount`), and ensure student number uniqueness.
+  - `ryo-academy-be/src/admission/admission-fee-log/admission.controller.ts`: Added `/admission/:id/concessions` routes (`GET`, `POST`, `DELETE`) with `@RequirePermissions` decoration.
+- **Frontend Admission Concessions Workflow:**
+  - `ryo-academy-fe/src/lib/concessions-api.ts`: API client and TanStack Query hooks for concession categories and admission concession assignments/removals.
+  - `ryo-academy-fe/src/pages/admissions-students-pages.tsx`:
+    - Enhanced `AdmissionDetail` with financial summary cards (Gross Fee Baseline, Total Concessions, Net Payable Obligation).
+    - Added component breakdown table showing baseline amount, eligibility badges, applied concession details, and net component payable.
+    - Added concession assignment dialog with live calculation preview and validation (preventing fixed discount from exceeding baseline).
+    - Preserved read-only view with "Obligations Frozen" badge for confirmed admissions.
+
+## Verification
+
+- **Disposable Local QA PostgreSQL (Port 55432):**
+  - Applied migration `20261103164831_add_fee_concessions_v1`.
+  - Executed `test/discount-engine.integration.ts` against PostgreSQL with 8/8 tests passing:
+    1. Category Scoping & Tenant Isolation: Verified cross-year persistence, code normalization, duplicate code rejection in same school, duplicate code allowance across different schools, and soft deactivation.
+    2. Percentage Concession Assignment: Verified 15% concession calculation ($10,000 \to 1,500$ discount, $8,500$ net) and database persistence.
+    3. Fixed Concession & Decision 1 Validation: Verified rejection of fixed discount exceeding component amount without auto-capping ($3,001 on $3,000 baseline), and successful assignment of valid fixed discount.
+    4. Domain Invariants & Edge Cases: Verified rejection of concessions on ineligible components (`discountApplicable = false`), duplicate concessions on a single component, deactivated categories, and cross-school categories.
+    5. Concession Removal: Verified removal in draft status restores component amount to baseline and updates header totals.
+    6. Atomic Confirmation & Freezing: Verified atomic status update to `CONFIRMED`, student creation, and permanent freezing of header and detail amounts.
+    7. Post-Confirmation Immutability: Verified strict rejection of assigning or removing concessions or altering fee structures on confirmed admissions.
+    8. Post-Confirmation Payment Integration: Verified payments allocate against frozen net obligations without modifying discount history.
+  - Re-verified payment financial integrity regression suite `test/fee-integrity-verification.integration.ts` (6/6 tests passed).
+- **Unit & Build Verification:**
+  - Backend unit test suite: 25/25 test suites passed, 157/157 tests passed (exit code 0).
+  - Backend compilation: `npm run build` passed cleanly with Prisma Client generation.
+  - Frontend test suite: 10/10 test files passed, 115/115 tests passed (exit code 0).
+  - Frontend production build: `vite build` completed cleanly in 7.58s.
+- Clean teardown: Disposable PostgreSQL instance stopped, temporary files removed with zero residue, and zero remote/Neon writes.
+
+
+# 2026-11-03 — Discount Engine Final Integrity Review (Task 03C)
+
+**Status:** Complete & Verified
+
+## Scope
+
+Performed a comprehensive, non-destructive financial integrity review and verification of Discount Engine V1 across five core focus areas:
+1. Admission Confirmation Concurrency: Protection against concurrent confirmation requests, racing concession assignments/removals, duplicate student creation, duplicate fee header creation, and verification of transactional rollback on partial failure.
+2. Financial Balance Preservation: Thorough inspection of all financial header and detail field assignments (`grossAmount`, `discountAmount`, `netAmount`, `totalFeeAmount`, `totalPaidAmount`, `totalDueAmount`) during confirmation to guarantee historical integrity.
+3. Financial Reconciliation: End-to-end multi-step lifecycle verification proving all 8 exact mathematical financial balance equations hold before, during, and after payment allocations.
+4. Legacy Discount Field Audit: Complete codebase scan of `Admission.discountPercentage` and `Admission.discountReason` across backend and frontend, assessing financial influence, compatibility, and migration impact.
+5. Authorization and Tenant Isolation: Verification that concession categories and assignments strictly enforce multi-tenant isolation, cross-school boundaries, and historical reference retention upon category deactivation.
+
+## Implementation Hardening & Defect Remediation
+
+During the integrity review, three hardening adjustments were implemented to guarantee strict concurrency and financial safety:
+- **Admission Row-Level Locking:**
+  - In `ryo-academy-be/src/admission/admission-fee-log/admission.service.ts` (`updateStatusById`) and `ryo-academy-be/src/admission/fee-concession/admission-concession.service.ts` (`assignConcession`, `removeConcession`):
+  - Added explicit row-level locking `SELECT id FROM "Admission" WHERE id = ${admissionId} FOR UPDATE` within the database transaction. This serializes concurrent confirmation requests and prevents concession mutations from racing with admission confirmation.
+- **Financial Invariant Guard on Confirmation:**
+  - Added an explicit check in `AdmissionService.updateStatusById`: if `header.totalPaidAmount` is present and $> 0$, the transaction aborts immediately with `BadRequestException("Cannot confirm an admission that already has recorded payment transactions.")`. This guarantees that setting `totalPaidAmount = 0` during confirmation cannot overwrite existing financial payment history.
+- **Status State-Machine Validation:**
+  - Enforced that admissions can only transition to `CONFIRMED` from status `DRAFT`. Losing concurrent requests unblock after the lock, observe the committed `CONFIRMED` status, and are rejected with `409 ConflictException`.
+
+## Legacy Discount Field Audit Summary
+
+- **Field References:** `discountPercentage` and `discountReason` are defined only in `ryo-academy-be/prisma/models/admission_fees/admission.prisma` and generated in initial migration SQL.
+- **Frontend References:** None. Frontend does not read or send either field.
+- **Backend Service Logic:** Zero references across controllers, DTOs, calculation services, or payment allocations. Neither field participates in fee calculations or financial summaries.
+- **Conflict Assessment:** No conflict exists with `AdmissionFeeConcession`, which operates on individual `FeePaymentDetails` components.
+- **Recommendation:** Retain both columns with `@default(0)` / nullable as deprecated legacy fields until an approved deprecation migration.
+
+## Verification & Test Results
+
+- **Disposable Local QA PostgreSQL (127.0.0.1:55432/ryo_qa):**
+  - Executed `test/discount-engine-integrity.integration.ts` covering all concurrency, financial preservation, reconciliation, and tenant isolation scenarios:
+    1. Simultaneous Confirmation Concurrency: Two simultaneous confirmation requests were executed concurrently. Exactly one succeeded (200 OK); the second failed cleanly with `409 ConflictException`. Exactly one `Student` record and one `FeePaymentHeader` record were created.
+    2. Confirmation Racing with Concession Assignment: Verified that row locking forces the concession mutation to wait; once confirmation commits, the concession assignment is rejected with `ConflictException` due to frozen status.
+    3. Atomic Rollback on Failure: Simulated failure during confirmation step; confirmed admission status remained `DRAFT`, no student was created, and no changes committed.
+    4. Financial Balance Invariant: Verified that an admission with pre-existing payment cannot be confirmed.
+    5. Complete 7-Step Lifecycle & Reconciliation: Verified Tuition (₹10,000, 15% discount), Lab (₹3,000, ₹500 discount), Exam (₹2,000, no discount) through multiple partial payments (₹4,000 + ₹5,000 + ₹4,000 = ₹13,000). Proved all 8 mathematical reconciliation equations hold with zero discrepancies and no negative balances.
+    6. Tenant Isolation: Confirmed cross-school category queries return empty, foreign category assignment is rejected (`403 ForbiddenException`), and deactivating a category retains historical concession records.
+  - Re-executed full regression suite `test/discount-engine.integration.ts` (8/8 passed).
+- **Unit & Build Checks:**
+  - Backend unit tests (`npm test`): 25/25 suites passed, 157/157 tests passed (exit code 0).
+  - Backend build (`npm run build`): Clean build, zero TypeScript or Prisma errors.
+  - Frontend unit tests (`npx vitest run`): 10/10 test files passed, 115/115 tests passed (exit code 0).
+  - Frontend production build (`npm run build`): Clean build in 6.95s.
+- Clean environment teardown: Disposable PostgreSQL stopped and unlinked. Zero remote/Neon writes.
+
+
+# 2026-11-04 — Installment Management V1: Schema & Migration Foundation (Task 04B.1)
+
+**Status:** Complete & Verified
+
+## Scope
+
+Implemented the complete persistent schema and PostgreSQL relational integrity foundation for Installment Management V1 in Ryo Academy Single-School ERP, strictly adhering to approved business decisions 1–55 and architecture specifications from Tasks 04A.1–04A.9:
+- Implemented models in `ryo-academy-be/prisma/models/admission_fees/`:
+  - `InstallmentTemplate` & `InstallmentTemplateItem` (`installment-template.prisma`)
+  - `AdmissionInstallmentSchedule` & `AdmissionInstallment` (`admission-installment.prisma`)
+  - `FeePaymentInstallmentAllocation` (`fee-payment-installment-allocation.prisma`)
+  - `PaymentReversalEvent` & `InstallmentAllocationReversalEvent` (`payment-reversal-event.prisma`)
+  - `InstallmentLineageEvent` & `InstallmentLineageTransferEdge` (`installment-lineage.prisma`)
+  - `BackfillExceptionLog` (`backfill-exception-log.prisma`)
+- Enriched existing models with required composite unique constraints and relations:
+  - `FeePaymentHeader`: Added `installmentSchedule`, `installmentAllocations`, `installments`, and prerequisite `@@unique([id, admissionId], name: "uq_header_id_admission")`.
+  - `FeePayment`: Added `installmentAllocations`, `reversalEvent`, and prerequisite `@@unique([id, feePaymentHeaderId], name: "uq_payment_id_header")`.
+  - `Admission`: Added `installmentSchedules AdmissionInstallmentSchedule[]`.
+  - `User`: Added `paymentReversals PaymentReversalEvent[] @relation("ReversalActor")`.
+  - `School`: Added `installmentTemplates`, `installmentSchedules`, `paymentReversals`.
+
+## PostgreSQL Relational Integrity & Migration
+
+- **Generated Migration:** `20261104063300_add_installment_management_v1/migration.sql`.
+- **Database-Enforced Composite Foreign Keys:**
+  1. `fk_schedule_header_admission`: `AdmissionInstallmentSchedule(feePaymentHeaderId, admissionId) -> FeePaymentHeader(id, admissionId)` (ON DELETE RESTRICT).
+  2. `fk_alloc_payment_header`: `FeePaymentInstallmentAllocation(feePaymentId, feePaymentHeaderId) -> FeePayment(id, feePaymentHeaderId)` (ON DELETE RESTRICT).
+  3. `fk_alloc_installment_header`: `FeePaymentInstallmentAllocation(installmentId, feePaymentHeaderId) -> AdmissionInstallment(id, feePaymentHeaderId)` (ON DELETE RESTRICT).
+  4. `fk_edge_event_schedule`: `InstallmentLineageTransferEdge(eventId, scheduleId) -> InstallmentLineageEvent(id, scheduleId)` (ON DELETE RESTRICT).
+  5. `fk_edge_source_installment_schedule`: `InstallmentLineageTransferEdge(sourceInstallmentId, scheduleId) -> AdmissionInstallment(id, scheduleId)` (MATCH SIMPLE, ON DELETE RESTRICT).
+  6. `fk_edge_result_installment_schedule`: `InstallmentLineageTransferEdge(resultInstallmentId, scheduleId) -> AdmissionInstallment(id, scheduleId)` (ON DELETE RESTRICT).
+  7. `fk_reversal_alloc_reversal_event`: `InstallmentAllocationReversalEvent(paymentReversalEventId, feePaymentId) -> PaymentReversalEvent(id, feePaymentId)` (ON DELETE RESTRICT).
+  8. `fk_reversal_alloc_allocation`: `InstallmentAllocationReversalEvent(allocationId, feePaymentId) -> FeePaymentInstallmentAllocation(id, feePaymentId)` (ON DELETE RESTRICT).
+- **Database-Enforced CHECK Constraints:**
+  1. `chk_transfer_edge_positive_amount`: `CHECK (amount > 0)`.
+  2. `chk_payment_reversal_positive_amount`: `CHECK (reversalAmount > 0)`.
+  3. `chk_alloc_reversal_positive_amount`: `CHECK (amount > 0)`.
+  4. `chk_alloc_positive_allocated_amount`: `CHECK (allocatedAmount > 0)`.
+  5. `chk_alloc_non_negative_reversed_amount`: `CHECK (reversedAmount >= 0)`.
+  6. `chk_installment_positive_amount`: `CHECK (amount > 0)`.
+
+## Verification & Test Results
+
+- **Migration Deployment:** Applied cleanly to disposable local PostgreSQL QA instance (`127.0.0.1:55432/ryo_qa`) with zero errors. Catalog checks verified all 14 constraints present in `pg_constraint`.
+- **Targeted Integration Test (`test/installment-schema-foundation.integration.ts`):**
+  - Test 1 (Schedule Admission/Header Ownership): Verified positive schedule creation; verified cross-admission schedule rejection with `fk_schedule_header_admission` (SQLSTATE `23503`).
+  - Test 2 (Installments & Transfer Edges): Verified positive edge creation with `sourceInstallmentId = null` via `MATCH SIMPLE`; verified negative transfer amount rejection with `chk_transfer_edge_positive_amount` (SQLSTATE `23514`).
+  - Test 3 (Allocation Header Ownership): Verified positive allocation; verified cross-header allocation rejection with `fk_alloc_payment_header` (SQLSTATE `23503`).
+  - Test 4 (Reversal Ownership & Cross-Payment Isolation): Verified positive reversal adjustment; verified independent Negative Test 1 (reversal event paired with different payment ID rejected with `fk_reversal_alloc_reversal_event`, SQLSTATE `23503`); verified independent Negative Test 2 (allocation paired with different reversal event rejected with `fk_reversal_alloc_allocation`, SQLSTATE `23503`).
+  - Test 5 (CHECK Constraints): Verified negative reversal amount rejected with `chk_payment_reversal_positive_amount` (SQLSTATE `23514`); verified negative adjustment amount rejected with `chk_alloc_reversal_positive_amount` (SQLSTATE `23514`).
+  - Test 6 (One Reversal per Payment): Verified second reversal for same `feePaymentId` rejected with unique constraint violation `PaymentReversalEvent_feePaymentId_key` (SQLSTATE `23505`).
+- **Regression Integration Tests:**
+  - `test/discount-engine-integrity.integration.ts`: Passed cleanly.
+  - `test/discount-engine.integration.ts`: 8/8 passed cleanly.
+  - `test/fee-integrity-verification.integration.ts`: 6/6 passed cleanly.
+- **Unit & Build Checks:**
+  - Backend unit test suite: 25/25 suites passed, 157/157 tests passed (exit code 0).
+  - Backend compilation: `npm run build` passed cleanly with Prisma Client generation.
+- **Clean Teardown:**
+  - Disposable PostgreSQL QA instance stopped and removed with zero residue. Zero remote/Neon writes.
+
+
+# 2026-11-04 — Installment Schema Foundation: Integrity Test Coverage Closure (Task 04B.1.1)
+
+**Status:** Complete & Verified
+
+## Scope
+
+Executed comprehensive PostgreSQL catalog verification and expanded the integration test suite in `test/installment-schema-foundation.integration.ts` to close all relational integrity coverage gaps identified in Task 04B.1:
+- Catalog-level verification of all 8 prerequisite composite unique indexes backing foreign keys.
+- Coverage for lineage source and result same-schedule ownership constraints.
+- Coverage isolating `fk_alloc_installment_header` without upstream interference from `fk_alloc_payment_header`.
+- Coverage for positive installment amount CHECK (`chk_installment_positive_amount`).
+- Coverage for non-negative reversed amount counter CHECK (`chk_alloc_non_negative_reversed_amount`).
+
+## Catalog Verification Findings
+
+Queried PostgreSQL system catalogs (`pg_class`, `pg_index`, `pg_attribute`) on disposable local PostgreSQL (`127.0.0.1:55432/ryo_qa`):
+1. `FeePaymentHeader(id, admissionId)` -> `CREATE UNIQUE INDEX "FeePaymentHeader_id_admissionId_key" ON public."FeePaymentHeader" USING btree (id, "admissionId")`
+2. `FeePayment(id, feePaymentHeaderId)` -> `CREATE UNIQUE INDEX "FeePayment_id_feePaymentHeaderId_key" ON public."FeePayment" USING btree (id, "feePaymentHeaderId")`
+3. `AdmissionInstallment(id, feePaymentHeaderId)` -> `CREATE UNIQUE INDEX "AdmissionInstallment_id_feePaymentHeaderId_key" ON public."AdmissionInstallment" USING btree (id, "feePaymentHeaderId")`
+4. `AdmissionInstallment(id, scheduleId)` -> `CREATE UNIQUE INDEX "AdmissionInstallment_id_scheduleId_key" ON public."AdmissionInstallment" USING btree (id, "scheduleId")`
+5. `InstallmentLineageEvent(id, scheduleId)` -> `CREATE UNIQUE INDEX "InstallmentLineageEvent_id_scheduleId_key" ON public."InstallmentLineageEvent" USING btree (id, "scheduleId")`
+6. `FeePaymentInstallmentAllocation(id, feePaymentHeaderId)` -> `CREATE UNIQUE INDEX "FeePaymentInstallmentAllocation_id_feePaymentHeaderId_key" ON public."FeePaymentInstallmentAllocation" USING btree (id, "feePaymentHeaderId")`
+7. `FeePaymentInstallmentAllocation(id, feePaymentId)` -> `CREATE UNIQUE INDEX "FeePaymentInstallmentAllocation_id_feePaymentId_key" ON public."FeePaymentInstallmentAllocation" USING btree (id, "feePaymentId")`
+8. `PaymentReversalEvent(id, feePaymentId)` -> `CREATE UNIQUE INDEX "PaymentReversalEvent_id_feePaymentId_key" ON public."PaymentReversalEvent" USING btree (id, "feePaymentId")`
+
+## Verification & Test Results
+
+- **Updated Integration Test (`test/installment-schema-foundation.integration.ts`):**
+  - **Test 2A (Installment Positive Amount CHECK):**
+    - Zero amount rejected: `chk_installment_positive_amount`, SQLSTATE `23514`.
+    - Negative amount (-1000) rejected: `chk_installment_positive_amount`, SQLSTATE `23514`.
+  - **Test 2B (Lineage Source Ownership):**
+    - Positive: Valid source installment from same schedule accepted.
+    - Negative: Source installment belonging to different schedule rejected with `fk_edge_source_installment_schedule`, SQLSTATE `23503`.
+  - **Test 2C (Lineage Result Ownership):**
+    - Negative: Result installment belonging to different schedule rejected with `fk_edge_result_installment_schedule`, SQLSTATE `23503`.
+  - **Test 3B (Isolated Allocation Installment Header Ownership):**
+    - Configured payload where `(paymentId, feePaymentHeaderId)` matches Header 1 (passing `fk_alloc_payment_header`), while `installmentId` belongs to Header 2.
+    - Negative: Specifically isolated and rejected by `fk_alloc_installment_header`, SQLSTATE `23503`.
+  - **Test 3C (Reversed Amount Non-Negative CHECK):**
+    - Positive: Positive `reversedAmount` update accepted.
+    - Negative: Negative `reversedAmount` (-100) rejected with `chk_alloc_non_negative_reversed_amount`, SQLSTATE `23514`.
+  - All existing positive and negative test cases preserved and passed.
+- **Regression Integration Tests:**
+  - `test/discount-engine-integrity.integration.ts`: Passed cleanly.
+  - `test/discount-engine.integration.ts`: 8/8 passed cleanly.
+  - `test/fee-integrity-verification.integration.ts`: 6/6 passed cleanly.
+- **Build & Compilation:**
+  - `npm run build`: Passed cleanly with zero TypeScript or Prisma Client errors.
+- **Clean Environment Teardown:**
+  - Disposable PostgreSQL instance stopped and removed with zero residue. Zero remote/Neon writes.
+
+
+# 2026-11-04 — Installment Template Management & Schedule Calculation V1 (Task 04B.2)
+
+**Status:** Complete & Verified
+
+## Scope
+
+Implemented complete backend installment template management and deterministic schedule calculation domain logic in `ryo-academy-be`, strictly observing approved business decisions 1–55:
+- **Module Structure:**
+  - `src/admission/installment/installment-template.module.ts`: Root module imported into `AppModule`.
+  - `src/admission/installment/installment-template.controller.ts`: Endpoints for template creation, listing, retrieval, deactivation, and schedule simulation.
+  - `src/admission/installment/installment-template.service.ts`: Template management service enforcing school tenant isolation, case-insensitive uniqueness, and template immutability.
+  - `src/admission/installment/schedule-calculator.service.ts`: Isolated in-memory deterministic calculation domain service supporting `PERCENTAGE`, `CUSTOM_AMOUNT`, and `EQUAL_SPLIT` modes.
+  - `src/admission/installment/dto/`: Strongly-typed validation DTOs (`create-installment-template.dto.ts`, `create-installment-template-item.dto.ts`, `calculate-schedule.dto.ts`).
+- **RBAC Policy & Permissions:**
+  - Added permissions to `src/auth/permissions/permission.constants.ts` and `src/database/seed/rbac.seed.ts`:
+    - `INSTALLMENT_TEMPLATE_READ` (`installment-template:read`): Assigned to `COLLEGE_ADMIN` and `OFFICE_ADMIN`.
+    - `INSTALLMENT_TEMPLATE_CREATE` (`installment-template:create`): Assigned exclusively to `COLLEGE_ADMIN`.
+    - `INSTALLMENT_TEMPLATE_DEACTIVATE` (`installment-template:deactivate`): Assigned exclusively to `COLLEGE_ADMIN`.
+- **Concurrency & Immutability:**
+  - Case-insensitive template name uniqueness is enforced under PostgreSQL transactional advisory locks (`SELECT pg_advisory_xact_lock(hashtext(...))`) inside atomic transactions.
+  - Deactivated template names remain permanently reserved.
+  - Zero template update or physical deletion endpoints exist (immutable audit trail).
+
+## Verification & Test Results
+
+- **Unit Test Suite (`src/admission/installment/schedule-calculator.service.spec.ts`):**
+  - Group B (Percentage Calculations): Verified 50/30/20 standard schedule; verified rejections for totals < 100% and > 100%; verified remainder absorption in 33.33/33.33/33.34 splits; verified two-decimal boundary cases (₹100.01); verified positive final installment invariant.
+  - Group C (Fixed-Amount Calculations): Verified exact matches; verified positive and negative difference absorption in final installment; verified rejection when absorption is disabled; verified rejection when prior installments exceed net obligation; verified rejection of non-positive amounts.
+  - Group D (Due-Date Calculations): Verified sequential relative interval addition from `firstDueDate`; verified preservation of weekend and holiday dates without shifting; verified zero-interval same-day installments; verified UTC day arithmetic preventing timezone/DST drift.
+  - Equal Split Mode: Verified 1/3 splits dividing net obligation with final remainder absorption.
+  - Total Unit Tests: 26 test suites, 173 tests passed (exit code 0).
+- **PostgreSQL Integration Test Suite (`test/installment-template-management.integration.ts`):**
+  - Test 1: College Admin successfully created 3-term template.
+  - Test 2: Office Admin successfully listed and retrieved template within own school.
+  - Test 3 & 4: Cross-school read and deactivation strictly rejected with `NotFoundException` (404).
+  - Test 5: Case-insensitive duplicate name in same school rejected with `ConflictException` (409).
+  - Test 6: Same template name in different school allowed.
+  - Test 7: Soft-deactivation verified; name remains reserved after deactivation.
+  - Test 8: Parallel concurrent creation serialized by advisory lock; duplicate rejected with `ConflictException`.
+  - Test 9: Atomic transaction rollback verified on validation failure with zero database residue.
+- **Full Regression Verification on Disposable Local PostgreSQL:**
+  - `test/installment-schema-foundation.integration.ts`: Passed cleanly.
+  - `test/discount-engine-integrity.integration.ts`: Passed cleanly.
+  - `test/discount-engine.integration.ts`: 8/8 passed cleanly.
+  - `test/fee-integrity-verification.integration.ts`: 6/6 passed cleanly.
+- **Backend Compilation:**
+  - `npm run build`: Passed cleanly with zero TypeScript or Prisma Client errors.
+- **Clean Teardown:**
+  - Disposable PostgreSQL QA instance stopped, temporary directory unlinked with zero residue. Zero remote/Neon writes.
+
+# 2026-11-04 — Task 04B.2.1: Installment Calculator Semantics and Template Authorization Closure
+
+## Summary of Changes
+
+- **Due-Date Interval Semantics Clarified & Renamed:**
+  - Verified and clarified that interval fields represent the relative interval in days from the previous installment (`intervalDaysAfterPrevious`), satisfying the approved business formula:
+    `dueDate[0] = firstDueDate`
+    `dueDate[i] = dueDate[i - 1] + intervalDaysAfterPrevious[i]` (for $i \ge 1$).
+  - Updated `CreateInstallmentTemplateItemDto` and `ScheduleCalculatorService` input interfaces to accept `intervalDaysAfterPrevious` as the primary property, while retaining `dueDaysAfterAdmission` as a backward-compatible alias.
+  - No database migration was needed because the underlying column name `dueDaysAfterAdmission` in `InstallmentTemplateItem` remains unchanged.
+- **Strict Date-Only and Timezone Guarantees:**
+  - Enforced strict `YYYY-MM-DD` date-only validation at DTO boundary (`@Matches(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/)`).
+  - Hardened `ScheduleCalculatorService.parseDateUtc` to strictly parse `YYYY-MM-DD` into UTC midnight, validate calendar date existence (rejecting invalid dates like February 30), and reject ISO timestamp strings containing time components to eliminate Asia/Kolkata timezone shift risks.
+  - Added `dueDateFormatted` (`YYYY-MM-DD`) property to calculation output while preserving `dueDate: Date` for backward compatibility.
+  - Verified non-shifting weekend and holiday date preservation, leap-year calculations (Feb 29), and month-end arithmetic.
+- **Template Deactivation Guard for Schedule Calculation:**
+  - Added strict check in `InstallmentTemplateController.calculateSchedule`: if `dto.templateId` references a deactivated template (`isActive === false`), the request is rejected with `BadRequestException("Deactivated installment template cannot be used for new schedule calculations.")` (HTTP 400).
+- **Comprehensive RBAC Authorization & Semantic Integration Testing:**
+  - Expanded `test/installment-template-management.integration.ts` with 12 end-to-end integration tests asserting exact HTTP status codes and database state:
+    - Test 1: `OFFICE_ADMIN` cannot create a template — rejected with HTTP 403 Forbidden.
+    - Test 2: `COLLEGE_ADMIN` creates valid template with `intervalDaysAfterPrevious` — HTTP 201 Created.
+    - Test 3: `OFFICE_ADMIN` cannot deactivate a template — rejected with HTTP 403 Forbidden.
+    - Test 4: Both `COLLEGE_ADMIN` and `OFFICE_ADMIN` can read templates within own school — HTTP 200 OK.
+    - Test 5: `COLLEGE_ADMIN` can deactivate template — HTTP 200 OK.
+    - Test 6: Deactivated template remains retrievable by ID with `isActive: false` — HTTP 200 OK.
+    - Test 7: Inactive template filtering works (`includeInactive=false` returns 0; `includeInactive=true` returns 1).
+    - Test 8: Deactivated templates cannot be used for new schedule calculations — rejected with HTTP 400 BadRequest.
+    - Test 9: Cross-school read and deactivation strictly rejected with HTTP 404 NotFound.
+    - Test 10: Case-insensitive duplicate name in same school rejected with HTTP 409 Conflict.
+    - Test 11: Concurrency protection under parallel creation serialized by advisory lock — HTTP 409 Conflict on loser.
+    - Test 12: Atomic rollback on failure with zero residue — HTTP 400 BadRequest.
+
+## Verification & Test Results
+
+- **Unit Test Suite (`schedule-calculator.service.spec.ts`):**
+  - 25/25 tests passed cleanly, covering equal splits (uneven 2-decimal division, final remainder absorption, net amount too small), percentage splits (33.33/33.33/33.34 on ₹10,000, 50/50 on ₹100.01, awkward values exercising `ROUND_HALF_UP` such as ₹1,234.56 and ₹777.77), fixed amounts (positive/negative absorption, absorption disabled mismatch rejection, zero/negative final amount rejections), leap years (2028-02-15 + 14d = 2028-02-29, + 1d = 2028-03-01), month ends, and strict date-only validation.
+  - Overall Unit Suite: 26 test suites, 182/182 tests passed.
+- **Integration Test Suite (`test/installment-template-management.integration.ts`):**
+  - All 12/12 scenarios passed cleanly on disposable local QA PostgreSQL (`127.0.0.1:55432/ryo_qa`).
+- **Regression Test Suites on Local QA PostgreSQL:**
+  - `test/installment-schema-foundation.integration.ts`: Passed cleanly.
+  - `test/discount-engine-integrity.integration.ts`: Passed cleanly.
+  - `test/discount-engine.integration.ts`: Passed cleanly.
+  - `test/fee-integrity-verification.integration.ts`: Passed cleanly.
+- **Build Verification:**
+  - `npm run build`: Passed cleanly with exit code 0.
+- **Clean Teardown:**
+  - Disposable PostgreSQL QA instance stopped, temporary directory unlinked with zero residue. Zero remote/Neon writes.
+
+# 2026-11-04 — Task 04B.3: Admission Installment Schedule Persistence and Confirmation Integration V1
+
+## Summary of Changes
+
+- **Admission Installment Schedule Lifecycle Implementation:**
+  - Implemented `AdmissionInstallmentScheduleService` and `AdmissionInstallmentScheduleController` providing:
+    - `POST /admissions/:id/installment-schedule/preview`: Previews schedule calculations against draft admission net obligations without persisting records.
+    - `POST /admissions/:id/installment-schedule/template`: Configures a draft admission schedule from an active template with strict `firstDueDate` validation (rejecting deactivated templates, template items sum mismatch, and obligation mismatch).
+    - `POST /admissions/:id/installment-schedule/manual`: Configures a custom manual installment schedule with mandatory non-empty justification string, contiguous 1-based sequences, strictly positive amounts, and exact reconciliation to header net amount.
+    - `PUT /admissions/:id/installment-schedule`: Replaces/edits a draft schedule (adding, reordering, removing, changing amounts/due dates).
+    - `GET /admissions/:id/installment-schedule`: Retrieves persisted schedule and installments for an admission.
+    - `GET /admissions/:id/installment-schedule/lineage`: Retrieves the complete audit lineage events and transfer edges for the schedule.
+  - Implemented transactional schedule persistence with immutable initial lineage event (`INITIAL_SCHEDULE`) and 1:1 `InstallmentLineageTransferEdge` records tracking initial obligation allocations.
+- **Admission Confirmation Integration & Schedule Freezing:**
+  - Wired `confirmAdmissionSchedules` into `AdmissionService.updateStatusById` inside the confirmation transaction.
+  - Enforced deterministic lock hierarchy across all operations:
+    `Admission → FeePaymentHeader → FeePaymentDetails → AdmissionInstallmentSchedule → AdmissionInstallment`.
+  - On admission confirmation:
+    - If a draft schedule exists: validates sequence continuity, positivity, and exact reconciliation against the finalized net obligation (`header.netAmount`), and freezes the schedule.
+    - If no schedule was configured: automatically creates a default single-installment schedule for 100% of the net obligation due on the confirmation date (Asia/Kolkata date-only), status `PENDING`, with initial lineage tracking.
+    - Handles multiple active `FeePaymentHeader` rows on the admission deterministically (`ORDER BY id ASC`), creating or freezing schedules per header.
+    - Once confirmed (`admissionStatus === 'CONFIRMED'`), any schedule mutation is strictly rejected with `BadRequestException`.
+- **Financial Invariant & Discount Engine Preservation:**
+  - Preserved all discount snapshotting and concession finalization invariants from Tasks 03B/03C.
+  - Preserved existing payment guard: confirmation is rejected if payments were already recorded on the admission.
+  - Preserved admission number assignment and student profile creation semantics.
+- **RBAC Matrix Updates:**
+  - Defined permissions `INSTALLMENT_SCHEDULE_READ` and `INSTALLMENT_SCHEDULE_MANAGE` in `permission.constants.ts`.
+  - Updated `rbac.seed.ts`:
+    - `OFFICE_ADMIN`: granted both `INSTALLMENT_SCHEDULE_READ` and `INSTALLMENT_SCHEDULE_MANAGE`.
+    - `COLLEGE_ADMIN`: granted `INSTALLMENT_SCHEDULE_READ` only. Routine manual schedule creation and editing by `COLLEGE_ADMIN` is rejected with `ForbiddenException` (HTTP 403).
+    - `STAFF`: no schedule permissions (HTTP 403).
+- **Comprehensive Integration Testing (`test/admission-installment-schedule.integration.ts`):**
+  - Group A (Template-based schedules): Active template generation, deactivated template rejection, reconciliation check, template deactivation snapshot independence.
+  - Group B (Manual schedules): Office Admin creation, mandatory justification check, non-positive amount rejection, net mismatch rejection, same-due-date installment acceptance, cross-school 404 isolation.
+  - Group C (DRAFT editing & RBAC): Adding, reordering, changing amounts/dates, invalid total rejection, complete atomic rollback on failure, COLLEGE_ADMIN 403 Forbidden check, STAFF 403 Forbidden check.
+  - Group D (Admission confirmation integration): Default single-installment generation on confirmation date, preservation of pre-configured custom schedule, post-confirmation mutation freezing, multi-header schedule generation, atomic rollback on confirmation failure, discount concession preservation, existing payment protection guard, concurrency serialization via row lock, racing mutation vs confirmation serialization, and net amount mismatch rejection.
+
+## Verification & Test Results
+
+- **Task 04B.3 Integration Test Suite (`test/admission-installment-schedule.integration.ts`):**
+  - All 10 confirmation scenarios, concurrency races, RBAC guards, and multi-header tests passed cleanly on disposable local QA PostgreSQL (`127.0.0.1:55432/ryo_qa`).
+- **Regression Test Suites on Local QA PostgreSQL:**
+  - `test/installment-template-management.integration.ts`: Passed cleanly.
+  - `test/installment-schema-foundation.integration.ts`: Passed cleanly.
+  - `test/discount-engine-integrity.integration.ts`: Passed cleanly.
+  - `test/discount-engine.integration.ts`: Passed cleanly.
+  - `test/fee-integrity-verification.integration.ts`: Passed cleanly.
+- **NestJS Unit Test Suite:**
+  - 26/26 test suites passed cleanly (182/182 tests passed).
+- **Backend Production Compilation:**
+  - `npm run build`: Compiled cleanly with exit code 0.
+- **Database Residue & Teardown Verification:**
+  - Zero residue on QA instance. Instance stopped and removed cleanly. Zero remote/Neon writes.
+
+# Milestone 26 — Task 04B.4 FIFO Payment Allocation V1 Implementation
+
+Status: Complete
+
+## Scope
+
+Implemented FIFO installment payment allocation inside the existing single payment writer pipeline (`StudentService.recordStudentFeePayment`).
+
+## Files Created
+
+- `ryo-academy-be/src/admission/installment/installment-allocation.service.ts`
+- `ryo-academy-be/test/fifo-payment-allocation.integration.ts`
+
+## Files Modified
+
+- `ryo-academy-be/src/student/dto/create-student-fee-payment.dto.ts`
+- `ryo-academy-be/src/student/student.service.ts`
+- `ryo-academy-be/src/student/student.module.ts`
+- `ryo-academy-be/src/student/student.service.spec.ts`
+- `ryo-academy-be/src/admission/installment/installment-template.module.ts`
+- `ryo-academy-be/test/discount-engine-integrity.integration.ts`
+- `ryo-academy-be/test/fee-integrity-verification.integration.ts`
+- `ryo-academy-fe/docs/frontend-backend-migration-changelog.md`
+
+## Architecture & Implementation Invariants
+
+- **Single Payment Entry Point:**
+  All installment allocations occur exclusively within `StudentService.recordStudentFeePayment` inside its existing `$transaction`. No second payment endpoint or independent transaction writer was introduced.
+- **Strict Lock Hierarchy:**
+  1. `Admission` (`SELECT ... FOR UPDATE`)
+  2. `FeePaymentHeader` (`SELECT ... FOR UPDATE`)
+  3. `FeePaymentDetails` (`ORDER BY id ASC FOR UPDATE`)
+  4. `AdmissionInstallmentSchedule` (`SELECT ... FOR UPDATE`)
+  5. `AdmissionInstallment` (`ORDER BY dueDate ASC, sequence ASC, subSequence ASC, id ASC FOR UPDATE`)
+  6. `FeePayment` (`INSERT`)
+  7. `FeePaymentInstallmentAllocation` (`INSERT`)
+  8. `FinancialLog` (`INSERT`)
+- **Multi-Header Targeting & Validation:**
+  - Optional `feePaymentHeaderId` added to `CreateStudentFeePaymentDto` with `@IsOptional() @IsUUID()`.
+  - Stale-read protected: Header resolution executes only after acquiring `Admission FOR UPDATE`.
+  - Single active header: defaults to that header if omitted.
+  - Multiple active headers: requires explicit `feePaymentHeaderId` or rejects with `BadRequestException`.
+  - Omitted or invalid headers rejected before financial mutation.
+- **Monetary Precision & Financial Validation:**
+  - Strict two-decimal validation: payments with > 2 decimal places rejected before database interaction.
+  - Zero and negative amounts rejected.
+  - Authoritative balance checked: `outstandingBalance = totalFeeAmount - totalPaidAmount`.
+  - Pre-condition assertions: `totalFeeAmount == netAmount` and `totalDueAmount == totalFeeAmount - totalPaidAmount`.
+  - Overpayments strictly prohibited.
+- **Schedule Reconciliation Before Payment Creation:**
+  - Asserts exactly one schedule exists for selected header.
+  - Asserts schedule total matches header confirmed obligation.
+  - Asserts sum of active PENDING installments equals header `totalDueAmount`.
+  - Fails closed on missing or inconsistent schedules.
+- **FIFO Allocation & Lineage Tracking (`InstallmentAllocationService`):**
+  - Eligible installments sorted by `dueDate ASC, sequence ASC, subSequence ASC, id ASC`.
+  - Full settlement: Updates installment to `PAID` or `PAID_EARLY` with `paidAt`, creates allocation.
+  - Partial settlement (Auto-split):
+    - Original installment marked `SUPERSEDED` with `supersededAt`.
+    - Settled child created with `subSequence + 1`, `status = PAID/PAID_EARLY`, `paidAt = paymentDate`.
+    - Remaining child created with `subSequence + 2`, `status = PENDING`, `paidAt = null`.
+    - Lineage event `PAYMENT_AUTO_SPLIT` created with `description`.
+    - Two transfer edges created (`sourceInstallmentId -> resultInstallmentId`) conserving parent amount.
+    - Allocation targets settled child only.
+  - Final assertion: $\sum \text{allocatedAmount} \equiv \text{paymentAmount}$.
+- **School Timezone Calendar Semantics:**
+  - Normalizes payment date and installment due date to school timezone (`Asia/Kolkata`).
+  - Calendar date `< dueDate`: `PAID_EARLY`.
+  - Calendar date `>= dueDate`: `PAID`.
+- **Idempotency Replay & Collision:**
+  - Initial check outside transaction. Replays on key match if payload (`studentId`, `feePaymentHeaderId`, `amount`, and effective date) matches.
+  - Concurrent race catching `P2002` re-reads winner outside aborted transaction.
+  - Mismatching payload throws `409 ConflictException`.
+- **Existing Payment Pipeline Preservation:**
+  - All existing operations (`FeePayment`, component attribution on `FeePaymentDetails.amountPaid`, `FeePaymentHeader.totalPaidAmount` & `totalDueAmount`, `FinancialLog` creation) commit or roll back atomically in the same transaction.
+
+## Verification & Test Results
+
+- **Task 04B.4 FIFO Allocation Integration Test Suite (`test/fifo-payment-allocation.integration.ts`):**
+  - SC-01 (Concurrent exact-balance payments): Passed.
+  - SC-02 (Concurrent partial splits on same installment): Passed.
+  - SC-03 (Concurrent payments on different headers): Passed.
+  - SC-04 (DRAFT admission payment boundary): Passed.
+  - SC-05 (Payment versus concession mutation): Passed.
+  - SC-06 (Concurrent identical idempotency keys): Passed.
+  - SC-07 (Concurrent idempotency payload collision): Passed.
+  - SC-08 (Two-decimal paise conservation): Passed.
+  - SC-09 (Payment against fully settled schedule): Passed.
+  - SC-10 (Concurrent payments exceeding balance): Passed.
+  - Precision, boundary, rollback atomicity, and calendar semantics tests: Passed.
+- **Full Regression Integration Suites on Local QA PostgreSQL:**
+  - `test/admission-installment-schedule.integration.ts`: Passed.
+  - `test/installment-template-management.integration.ts`: Passed.
+  - `test/installment-schema-foundation.integration.ts`: Passed.
+  - `test/discount-engine-integrity.integration.ts`: Passed.
+  - `test/fee-integrity-verification.integration.ts`: Passed.
+  - `test/fifo-payment-allocation.integration.ts`: Passed.
+  - Summary: 6/6 integration suites passed cleanly.
+- **NestJS Unit Test Suite:**
+  - 26/26 test suites passed cleanly (183/183 tests passed).
+- **Backend Production Compilation:**
+  - `npm run build`: Compiled cleanly with exit code 0.
+- **Database & Migration Status:**
+  - Zero schema migrations needed.
+  - Zero remote/Neon database writes. Tested solely on disposable local PostgreSQL (`127.0.0.1:55432/ryo_qa`) with verified zero residue.
+
+
+# Milestone 27 — Task 04B.5.2 Full Payment Reversal V1 Implementation
+
+Status: Complete
+
+## Scope
+
+Implemented Full Payment Reversal V1 in the Ryo Academy ERP backend. This provides full payment reversal for student fee payments, restoring the exact historical installment allocations using lineage events and transfer edges without re-running FIFO, executing deterministic reverse-FIFO component attribution rollback, maintaining immutable audit trails, enforcing single-writer isolation, and introducing lineage-based offset backfill with active interval integrity validation.
+
+## Files Created
+
+- `ryo-academy-be/prisma/migrations/20261104170000_add_full_payment_reversal_v1/migration.sql`
+- `ryo-academy-be/src/admission/installment/historical-offset-backfill.service.ts`
+- `ryo-academy-be/src/student/dto/reverse-student-fee-payment.dto.ts`
+- `ryo-academy-be/src/student/payment-reversal.service.ts`
+- `ryo-academy-be/test/payment-reversal.integration.ts`
+
+## Files Modified
+
+- `ryo-academy-be/prisma/models/admission_fees/installment-lineage.prisma`
+- `ryo-academy-be/prisma/models/admission_fees/fee-payment.prisma`
+- `ryo-academy-be/prisma/models/admission_fees/admission-installment.prisma`
+- `ryo-academy-be/prisma/models/admission_fees/payment-reversal-event.prisma`
+- `ryo-academy-be/prisma/models/finance/financial-log.prisma`
+- `ryo-academy-be/src/auth/permissions/permission.constants.ts`
+- `ryo-academy-be/src/database/seed/rbac.seed.ts`
+- `ryo-academy-be/src/finance/financial-log.service.ts`
+- `ryo-academy-be/src/admission/installment/installment-allocation.service.ts`
+- `ryo-academy-be/src/student/student.controller.ts`
+- `ryo-academy-be/src/student/student.module.ts`
+- `ryo-academy-be/src/admission/installment/installment-template.module.ts`
+- `ryo-academy-fe/docs/frontend-backend-migration-changelog.md`
+
+## Architecture & Implementation Invariants
+
+- **Full Payment Reversal Only:**
+  Only full payment reversals are supported in V1. Partial refunds are out of scope. Original `FeePayment` records are strictly immutable and can only be reversed once.
+- **Dedicated Reversal Writer (`PaymentReversalService`):**
+  Single-writer architecture preserved: `StudentService.recordStudentFeePayment` remains the exclusive payment writer; `PaymentReversalService.reverseStudentFeePayment` is the exclusive reversal writer.
+- **RBAC & Authorization:**
+  - New permission `FEES_REVERSE: 'fees:reverse'` declared and seeded.
+  - Granted exclusively to `COLLEGE_ADMIN`. Withheld from `OFFICE_ADMIN` and `STAFF`.
+  - Endpoint `POST /students/:id/fees/payments/:paymentId/reverse` protected with `@RequirePermissions(PERMISSIONS.FEES_REVERSE)`.
+  - School tenant isolation strictly enforced: cross-school operations return `404 NotFoundException`.
+- **Strict 10-Level Lock Hierarchy:**
+  All reversal mutations acquire row-level locks in deterministic sequence:
+  1. `Admission` (`SELECT ... FOR UPDATE`)
+  2. `FeePaymentHeader` (`SELECT ... FOR UPDATE`)
+  3. `FeePaymentDetails` (`ORDER BY id ASC FOR UPDATE`)
+  4. `AdmissionInstallmentSchedule` (`SELECT ... FOR UPDATE`)
+  5. `AdmissionInstallment` (`ORDER BY dueDate ASC, sequence ASC, offsetAmount ASC, id ASC FOR UPDATE`)
+  6. `FeePayment` (`SELECT ... FOR UPDATE`)
+  7. `FeePaymentInstallmentAllocation` (`ORDER BY id ASC FOR UPDATE`)
+  8. `PaymentReversalEvent` (`INSERT`)
+  9. `InstallmentAllocationReversalEvent` (`INSERT` per allocation)
+  10. `FinancialLog` (`INSERT`)
+- **Restoration without Re-running FIFO:**
+  - Original allocation records remain immutable except for their approved `reversedAmount` counter (`reversedAmount = allocatedAmount`).
+  - For each allocation, the target installment is marked `SUPERSEDED` with `supersededAt`.
+  - A restored child installment is created with:
+    - `sequence`: matches target installment sequence.
+    - `subSequence`: `max(subSequence) + 1` for the sequence.
+    - `offsetAmount`: inherits target installment offset coordinate.
+    - `amount`: exactly equals `allocatedAmount`.
+    - `dueDate`: preserves original installment due date.
+    - `status`: `PENDING`.
+  - Lineage event `REVERSAL_RESTORE` created with `feePaymentId` set.
+  - 1:1 `InstallmentLineageTransferEdge` links target installment to restored child installment.
+  - Subsequent payments remain intact; FIFO allocator prioritizes restored installments naturally via `dueDate ASC, sequence ASC, offsetAmount ASC, id ASC`.
+- **Reverse-FIFO Component Rollback:**
+  - Component paid counters (`FeePaymentDetails.amountPaid`) are decremented in reverse attribution order (`createdAt DESC, id DESC`).
+  - Implements aggregate rollback; does not claim exact historical component attribution.
+- **Financial Balances & Audit Trail:**
+  - `FeePaymentHeader.totalPaidAmount` decremented, `totalDueAmount` incremented by reversal amount.
+  - `PaymentReversalEvent` recorded with reason, idempotencyKey, and reversedByUserId.
+  - `FinancialLog` emitted with `FinancialFlowType.REVERSAL` and `FinancialLogType.FEE_PAYMENT_REVERSAL` (never EXPENSE).
+- **Idempotency Semantics:**
+  - UUID `idempotencyKey` required.
+  - Safe replay on identical payload returns current student fees.
+  - Collisions with different `paymentId` or `reason` throw `409 ConflictException`.
+  - Double reversal rejected with `409 ConflictException`.
+- **Historical Offset Backfill Service (`HistoricalOffsetBackfillService`):**
+  - Directed acyclic graph traversal with Kahn's cycle detection.
+  - Resolves settled children deterministically using `feePaymentId` and allocation relationships.
+  - Validates active interval partition integrity: $\bigcup [offset_i, offset_i + amount_i) \equiv [0, \text{sequenceRoot.amount})$.
+  - Atomic transaction with rollback and durable error persistence to `BackfillExceptionLog` via independent connection.
+
+## Verification & Test Results
+
+- **Task 04B.5.2 Payment Reversal Integration Test Suite (`test/payment-reversal.integration.ts`):**
+  - MIG-01 (Schema migration & offsetAmount column verification): Passed.
+  - MIG-02 (Un-split schedule backfill offsets remain 0): Passed.
+  - MIG-03 (Single partial split history backfilled offsets 0 and 5000): Passed.
+  - MIG-04 (Multi-split intervals partitioned correctly [0,5000) [5000,15000) [15000,30000)): Passed.
+  - MIG-06 (Malformed graph failure rolled back; BackfillExceptionLog persisted): Passed.
+  - Case A (Full single-installment payment reversed with exact 1:1 lineage restoration): Passed.
+  - Case B (Partial split payment reversal + FIFO priority restoration via offsetAmount): Passed.
+  - Case C (Multi-installment payment reversed with all allocations restored): Passed.
+  - Case D (Subsequent valid payment preserved when earlier payment reversed): Passed.
+  - Case E (Double reversal prevention rejected with ConflictException): Passed.
+  - Case F (Idempotency safe replay and parameter conflict rejection): Passed.
+  - Case G (RBAC & tenant isolation: cross-school 404, un-scoped user 403): Passed.
+  - Case H (Reverse-FIFO component rollback order verified): Passed.
+  - Summary: 13/13 scenarios passed cleanly.
+- **Full Regression Integration Suites on Local QA PostgreSQL:**
+  - `test/fifo-payment-allocation.integration.ts`: Passed (All SC-01 through SC-10 + edge cases).
+  - `test/admission-installment-schedule.integration.ts`: Passed (Groups A through D).
+  - `test/discount-engine-integrity.integration.ts`: Passed (Sections 1 through 4).
+  - `test/fee-integrity-verification.integration.ts`: Passed (Tests 1 through 6).
+- **NestJS Unit Test Suite:**
+  - 26/26 test suites passed cleanly (183/183 tests passed).
+- **Backend Production Compilation:**
+  - `npm run build`: Compiled cleanly with exit code 0.
+- **Database & Migration Status:**
+  - Migration `20261104170000_add_full_payment_reversal_v1` applied cleanly.
+  - Zero remote/Neon database writes. Tested solely on disposable local PostgreSQL (`127.0.0.1:55432/ryo_qa`) with verified zero residue.
+
+# Task 04B.5.2.2 — Reversal Integrity Corrections and Migration Hardening
+
+Status: Complete
+
+## Scope
+
+Addressed the integrity gaps and migration hardening requirements identified during the Task 04B.5.2.1 read-only audit:
+1. **Historical Offset Migration Recovery (Phase 1 / P0):**
+   - Dropped PostgreSQL `DEFAULT 0` on `AdmissionInstallment.offsetAmount` via forward corrective migration `20261104200000_harden_reversal_integrity`.
+   - Updated Prisma model to reflect `offsetAmount Decimal @db.Decimal(12, 2)` without default.
+   - Updated all application installment writers (`AdmissionInstallmentScheduleService`) and legacy test fixtures to explicitly pass `offsetAmount`.
+   - Created standalone deployment runner `scripts/run-historical-offset-backfill.ts` (`npm run backfill:offsets`) with PostgreSQL advisory locking (`55432001`), durable `OffsetBackfillRun` tracking (`RUNNING`, `COMPLETED`, `FAILED`, `INTERRUPTED`), and independent connection error logging.
+2. **Idempotency Replay Authorization & Canonical Canonical Payload Matching (Phase 2 / P1):**
+   - Hardened `PaymentReversalService` to enforce strict canonical payload validation (`paymentId`, `studentId`, `schoolId`, trimmed `reason`).
+   - Idempotency key lookup checks tenant ownership (`actor.schoolId`), student ownership, and payment ownership before replay; mismatches return 403 Forbidden or 404 NotFound.
+   - Fixed concurrency replay ordering: in-transaction idempotency key check runs prior to `alreadyReversed` check to allow simultaneous identical requests to safely replay without raising false conflict.
+3. **In-Transaction Post-Reversal Financial Reconciliation (Phase 3 / P1):**
+   - Implemented strict 5-part assertion suite (`verifyPostReversalInvariants`) executing within the reversal `$transaction`:
+     - Check A (Header Reconciliation): `totalDueAmount == totalFeeAmount - totalPaidAmount`, `totalFeeAmount == netAmount`.
+     - Check B (Installment Reconciliation): Active pending leaves == `totalDueAmount`, active paid leaves == `totalPaidAmount`, all active leaves == `totalFeeAmount`, and status/`supersededAt` consistency.
+     - Check C (Component Reconciliation): Sum of `FeePaymentDetails.amountPaid` == `header.totalPaidAmount`, each `0 <= amountPaid <= totalAmountToBePaid`.
+     - Check D (Allocation Reversal Reconciliation): Sum of `InstallmentAllocationReversalEvent.amount` == `FeePayment.amount`, each `reversedAmount == allocatedAmount`.
+     - Check E (Schedule Reconciliation): Sum of root installments == `schedule.totalAmount == header.netAmount`.
+4. **Real Concurrency Verification (Phase 4 / P1):**
+   - Added suite of real concurrency tests using `Promise.all` / `Promise.allSettled` (CONC-01 through CONC-06) covering simultaneous identical requests, cross-admission key collisions, racing different keys, payment racing reversal, concurrent reversals under same admission, and repeated split/reversal cycles.
+5. **Comprehensive Negative-Path Backfill & Interval Validation Tests (Phase 5):**
+   - Implemented 19 negative scenarios (NEG-01 through NEG-19) verifying rejection of cross-sequence edges, invalid degree, cycles, disconnected orphans, unsupported events, zero-edge splits, multiple initial events, missing sequences, non-null root lineage, root sum mismatches, interval gaps/overlaps, missing active leaves, active rows with outgoing edges, inconsistent status/supersededAt, payment context mismatches, allocation vs edge amount mismatches, failure logger crashes, and interrupted migration recovery.
+6. **Relational Ownership & Composite Foreign Key Hardening (Phase 6):**
+   - Added `@@unique([id, feePaymentHeaderId])` (`uq_schedule_id_header`) to `AdmissionInstallmentSchedule`.
+   - Added composite foreign key `fk_installment_schedule_header` referencing `("scheduleId", "feePaymentHeaderId")` in `AdmissionInstallment` to prevent cross-header installment schedule linking.
+
+## Files Created
+
+- `ryo-academy-be/prisma/models/admission_fees/offset-backfill-run.prisma`
+- `ryo-academy-be/prisma/migrations/20261104200000_harden_reversal_integrity/migration.sql`
+- `ryo-academy-be/scripts/run-historical-offset-backfill.ts`
+
+## Files Modified
+
+- `ryo-academy-be/prisma/models/admission_fees/admission-installment.prisma`
+- `ryo-academy-be/package.json`
+- `ryo-academy-be/src/admission/installment/historical-offset-backfill.service.ts`
+- `ryo-academy-be/src/admission/installment/admission-installment-schedule.service.ts`
+- `ryo-academy-be/src/student/payment-reversal.service.ts`
+- `ryo-academy-be/test/payment-reversal.integration.ts`
+- `ryo-academy-be/test/fifo-payment-allocation.integration.ts`
+- `ryo-academy-be/test/installment-schema-foundation.integration.ts`
+- `ryo-academy-be/test/fee-integrity-verification.integration.ts`
+
+## Verification & Test Results
+
+- **Task 04B.5.2.2 Hardened Integration Test Suite (`test/payment-reversal.integration.ts`):**
+  - Migration & Backfill (MIG-01, MIG-02, MIG-03, MIG-04, MIG-06): Passed.
+  - Functional Reversal Scenarios (Case A, Case B, Case C, Case D, Case E, Case F, Case G, Case H): Passed.
+  - Concurrency Test Suite (CONC-01 to CONC-06): Passed.
+  - Negative Path Backfill Suite (NEG-01 to NEG-19): Passed.
+- **Standalone Deployment Backfill Runner:**
+  - `npm run backfill:offsets`: Executed successfully with advisory locking and zero errors.
+- **Regression Integration Test Suites:**
+  - `test/fifo-payment-allocation.integration.ts`: Passed (SC-01 through SC-10 + edge cases).
+  - `test/admission-installment-schedule.integration.ts`: Passed (Groups A through D).
+  - `test/discount-engine-integrity.integration.ts`: Passed (Sections 1 through 4).
+  - `test/fee-integrity-verification.integration.ts`: Passed (Tests 1 through 6).
+  - `test/installment-schema-foundation.integration.ts`: Passed (Tests 1 through 6).
+- **Unit Test Suite:**
+  - 26/26 test suites passed cleanly (183/183 tests passed).
+- **Production Build:**
+  - `npm run build`: Compiled cleanly with exit code 0.
+- **Disposable Database Teardown:**
+  - Local QA database (`127.0.0.1:55432`) used exclusively; stopped and wiped with zero remote residue.
+
+# Task 04B.5.2.3 — Final Reversal Integrity Evidence Closure
+
+Status: Complete
+
+## Scope
+
+Performed final, narrowly scoped verification and physical evidence closure for Task 04B.5.2.2:
+1. **Backfill Runner Execution on Synthetic Historical Fixtures:**
+   - Ran `backfill:offsets` runner (`scripts/run-historical-offset-backfill.ts`) against synthetic historical fixtures on disposable local PostgreSQL.
+   - Verified fail-closed transaction abort and rollback when a malformed schedule is present (`ERR_SPLIT_EDGE_CARDINALITY`), with durable diagnostics in `OffsetBackfillRun` (status: `FAILED`) and `BackfillExceptionLog`.
+   - Verified clean execution across 4 valid synthetic historical fixtures (Unsplit, Single-Split, Multi-Split, and Historical Split requiring `feePaymentId` extraction from description), achieving 100% completion with 0 exceptions and 0 unresolved NULL offsets.
+   - Verified PostgreSQL physical catalog (`column_default`: NULL / none, `is_nullable`: NO).
+   - Verified advisory lock `55432001` acquired and released.
+2. **Sequence Boundary Hardening & Testing:**
+   - Added explicit boundary check `ERR_SEQUENCE_OUT_OF_BOUNDS` in `HistoricalOffsetBackfillService` for any installment where `sequence < 1` or `sequence > schedule.installmentCount`.
+   - Verified backfill fails closed for `sequence = installmentCount + 1` (with no committed offsets and durable failure diagnostics).
+   - Verified backfill fails closed for `sequence = 0` (with no committed offsets and durable failure diagnostics).
+3. **Header Obligation Boundary Hardening & Testing:**
+   - Verified rejection with `ERR_SCHEDULE_HEADER_OBLIGATION_MISMATCH` when root installment sum equals `schedule.totalAmount` but differs from `header.netAmount`.
+   - Verified zero silent repair of financial values and durable failure diagnostics.
+4. **Post-Reversal Reconciliation Rollback Test:**
+   - Verified complete atomic rollback of reversal `$transaction` when post-reversal active installment reconciliation fails (`verifyPostReversalInvariants`).
+   - Verified zero residue via independent post-failure reads: 0 `PaymentReversalEvent`, 0 `InstallmentAllocationReversalEvent`, original allocation `reversedAmount` unchanged (0), 0 restoration installments, 0 restoration lineage events/edges, header totals and component counters unchanged, 0 reversal `FinancialLog` entries.
+5. **Full Regression Suite & Production Verification:**
+   - Re-verified all test suites against disposable local PostgreSQL (`127.0.0.1:55432/ryo_qa`).
+
+## Files Created
+
+- `ryo-academy-be/test/reversal-evidence-closure.integration.ts`
+
+## Files Modified
+
+- `ryo-academy-be/src/admission/installment/historical-offset-backfill.service.ts`
+
+## Verification & Test Results
+
+- **Evidence Closure Integration Suite (`test/reversal-evidence-closure.integration.ts`):** Passed (Sections 1 through 4).
+- **Payment Reversal Hardened Integration Suite (`test/payment-reversal.integration.ts`):** Passed (MIG-01..06, Case A..H, CONC-01..06, NEG-01..19).
+- **FIFO Payment Allocation Integration Suite (`test/fifo-payment-allocation.integration.ts`):** Passed (SC-01 through SC-10 + edge cases).
+- **Admission Installment Schedule Integration Suite (`test/admission-installment-schedule.integration.ts`):** Passed (Groups A through D).
+- **Discount Engine Integrity Review Suite (`test/discount-engine-integrity.integration.ts`):** Passed (Sections 1 through 4).
+- **NestJS Unit Test Suite (`npm run test`):** 26/26 test suites passed; 183/183 tests passed.
+- **Backend Production Build (`npm run build`):** Exit code 0.
+- **Disposable Database Teardown:** Local QA cluster (`127.0.0.1:55432`) stopped and completely purged.
+
+# Task 04B.5.3 — Financial Module V1 Closure & Operational Runbook
+
+Status: Complete
+
+## Scope
+
+Authored the canonical architecture specification and production operational runbook for Financial Module V1:
+1. Created `docs/architecture/financial-module-v1.md` documenting the complete financial data model (18 entities), Discount Engine V1, Installment Schedule Management V1, FIFO Allocation Engine, and Full Payment Reversal V1.
+2. Created `docs/operations/financial-module-v1-runbook.md` detailing operational deployment procedures, advisory lock handling, error catalog, diagnostic SQL playbooks, and incident response.
+3. Created `ReadMe.md` repository documentation index and updated `docs/module-integration-tracker.md`.
+
+## Files Created
+
+- `docs/architecture/financial-module-v1.md`
+- `docs/operations/financial-module-v1-runbook.md`
+- `ReadMe.md`
+
+## Files Modified
+
+- `docs/module-integration-tracker.md`
+
+# Task 04B.5.3.1 — Financial Module V1 Documentation Accuracy Audit
+
+Status: Complete
+
+## Scope
+
+Performed a READ-ONLY technical accuracy audit of all documentation created in Task 04B.5.3:
+1. Corrected rounding terminology from "bankers' rounding" to standard arithmetic half-up rounding (`ROUND_HALF_UP`) with explicit differentiation from `ROUND_HALF_EVEN`.
+2. Corrected deployment availability claims: replaced "zero-downtime" with "Controlled Financial-Write Maintenance Window", adding an explicit Availability Impact Matrix detailing frozen financial write endpoints vs preserved read-only operations.
+3. Clarified interrupted backfill recovery: documented that the backfill does not resume from partial checkpoints but restarts clean across all schedules within an atomic PostgreSQL transaction after marking stale records `INTERRUPTED`.
+4. Hardened advisory lock incident instructions: documented session-level scope of key `55432001`, shared memory residence in `pg_locks`, query age/state verification in `pg_stat_activity` to distinguish abandoned from active sessions, safe release paths, and risks of terminating active runners.
+5. Added complete API Endpoints & Permissions Matrix with controller names and permission constants.
+6. Documented full multi-resource concurrency lock hierarchies and exact database vs application immutability boundaries.
+
+## Files Modified
+
+- `docs/architecture/financial-module-v1.md`
+- `docs/operations/financial-module-v1-runbook.md`
+- `ReadMe.md`
+
+# M4.3.2 — Nested Fee Structure Master Creation
+
+Status: Implemented and focused checks passed.
+
+## Scope
+
+- The fee master create form now submits at least one nested component using the existing backend contract and decimal-string amounts.
+- Academic year selection filters programs; program selection filters classes and upstream changes clear dependent selections.
+- Component amounts are validated as positive values with at most two fractional digits. The preview uses the existing BigInt minor-unit helpers and is omitted while any amount is invalid.
+- The request omits client-calculated `totalAmount`; the success toast displays the total returned by the backend.
+- Existing fee query invalidation and authentication behavior remain in the existing API mutation.
+- Fee conflict messages now retain the backend-provided detail.
+
+## Files Changed
+
+- `src/pages/fee-pages.tsx`
+- `src/lib/fees-api.ts`
+- `src/lib/__tests__/fees-api.test.ts`
+- `src/pages/__tests__/fee-structure-form.test.tsx`
+- `docs/frontend-backend-migration-changelog.md`
+
+## Verification
+
+- `npm test -- --run src/pages/__tests__/fee-structure-form.test.tsx src/lib/__tests__/fees-api.test.ts src/lib/__tests__/fee-money.test.ts`: 3 files and 30 tests passed.
+- `npm run typecheck`: passed.
+- `git diff --check` on the tracked implementation and changelog paths: passed.
+- No backend, schema, migration, database, server, or browser operations were performed. Browser/runtime behavior remains unverified.
+
+# M5.1 — Applicable Fee Preview Contract
+
+## Scope
+
+- Updated the frontend preview type to match the backend `feeStructure` and `components` response, preserving decimal strings and backend selection flags.
+- Migrated admission creation to display the backend master/component shape, initialize selection only from a preview matching the selected lookup dimensions, keep locked/mandatory components selected, and submit selected source component IDs without client fee amounts or totals.
+- Added preview error messaging for not-found and ambiguous-master responses, plus loading, empty, failed, and stale-preview submission guards.
+- Added API and mounted form regression coverage for the backend response contract, selection behavior, payload, and preview states.
+
+## Files Changed
+
+- `src/lib/admissions-api.ts`
+- `src/lib/__tests__/admissions-api.test.tsx`
+- `src/pages/admissions-students-pages.tsx`
+- `src/pages/__tests__/admission-fee-preview.test.tsx`
+- `src/pages/__tests__/payable-concession.test.ts`
+- `docs/frontend-backend-migration-changelog.md`
+
+## Verification
+
+- `npm test -- --run src/lib/__tests__/admissions-api.test.tsx src/pages/__tests__/admission-fee-preview.test.tsx src/pages/__tests__/payable-concession.test.ts`: 3 files and 25 tests passed.
+- `npm test -- --run src/pages/__tests__/fee-structure-form.test.tsx src/lib/__tests__/fees-api.test.ts src/lib/__tests__/fee-money.test.ts src/lib/__tests__/concessions-api.test.ts`: 4 files and 51 tests passed.
+- `npm run typecheck`: passed.
+- `git diff --check` on M5.1 paths: passed.
+- No backend, schema, migration, database, seed, server, remote, HTTP, or browser operations were performed.
+
+# M5.2 — Admission Creation and Metadata Editing Separation
+
+## Scope
+
+- Separated the required create payload, which includes `selectedFeeComponentIds`, from the generic metadata update payload, which now contains only fields supported by `UpdateAdmissionDto`.
+- Generic admission edits no longer request or depend on applicable fee preview data, selection state, or create-only school/creator derivation.
+- Kept creation's dimension-matching preview and selected-source-ID requirements unchanged.
+- Kept the dedicated DRAFT fee-configuration editor unchanged; its regression test verifies snapshot detail IDs are sent to the dedicated update mutation.
+- Added mounted form and API adapter coverage for create/update payload separation and preview-independent edits.
+
+## Files Changed
+
+- `src/lib/admissions-api.ts`
+- `src/lib/__tests__/admissions-api.test.tsx`
+- `src/pages/admissions-students-pages.tsx`
+- `src/pages/__tests__/admission-fee-preview.test.tsx`
+- `docs/frontend-backend-migration-changelog.md`
+
+## Verification
+
+- `npm test -- --run src/pages/__tests__/admission-fee-preview.test.tsx src/lib/__tests__/admissions-api.test.tsx src/lib/__tests__/concessions-api.test.ts`: 3 files and 20 tests passed.
+- `npm run typecheck`: passed.
+- `git diff --check` on M5.2 paths: passed.
+- No backend, schema, migration, database, seed, server, remote, HTTP, or browser operations were performed.
+
+# M5.3 — DRAFT Fee Configuration Permissions and Error States
+
+## Scope
+
+- DRAFT fee selection controls require `ADMISSION_UPDATE`; concession controls additionally require both fee configuration and concession GET data to have loaded successfully.
+- Fee configuration and concession GET loading, error, stale-refresh, unavailable, empty, and populated states are distinguished. A failed concession GET is displayed as unavailable rather than as no concession.
+- Fee selection PATCH failures remain visible in the fee section. Concession POST/PATCH failures remain in the dialog, and DELETE failures use the existing error toast path.
+- Existing snapshot detail IDs, success toasts, and mutation-hook cache invalidation behavior are retained.
+- The page renders inactive rows if returned, but the current backend fee-configuration and concession GET queries filter snapshot details to `isActive: true`; inactive historical rows therefore cannot currently be displayed through these contracts. No backend change was made in this milestone.
+
+## Files Changed
+
+- `src/pages/admissions-students-pages.tsx`
+- `src/pages/__tests__/admission-fee-preview.test.tsx`
+- `src/lib/__tests__/concessions-api.test.ts`
+- `docs/frontend-backend-migration-changelog.md`
+
+## Verification
+
+- `npm test -- --run src/pages/__tests__/admission-fee-preview.test.tsx src/lib/__tests__/concessions-api.test.ts src/lib/__tests__/permissions.test.ts`: 3 files and 54 tests passed.
+- `npm run typecheck`: passed.
+- `git diff --check` on changed tracked paths and whitespace checks on the two untracked regression specs: passed.
+- No backend, schema, migration, database, seed, server, remote, HTTP, or browser operations were performed.

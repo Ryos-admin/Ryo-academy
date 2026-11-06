@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsDate, IsNotEmpty, IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { WeekdayDto } from '../../../academic/academic-calendar/dto/seed-academic-calendar.dto.js';
 
 export class CreateAcademicYearDto {
   @ApiProperty({
@@ -20,6 +21,16 @@ export class CreateAcademicYearDto {
   @IsString()
   @IsNotEmpty()
   name: string;
+
+  @ApiProperty({
+    description: 'Array of weekdays that are considered weekly off days',
+    example: ['SATURDAY', 'SUNDAY'],
+    type: [String],
+    enum: WeekdayDto,
+  })
+  @IsNotEmpty()
+  @IsString({ each: true })
+  weeklyOffDays: Array<WeekdayDto>;
 
   @ApiProperty({
     description: 'Start date of the academic year',

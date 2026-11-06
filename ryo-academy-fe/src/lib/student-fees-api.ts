@@ -6,6 +6,8 @@ export interface StudentFeeComponentResponse {
   id: string;
   feeComponentId: string;
   nameSnapshot: string;
+  isActive: boolean;
+  isIncluded: boolean;
   originalAmount: number | string;
   discountApplicable: boolean;
   isMandatory: boolean;
@@ -42,13 +44,23 @@ export interface StudentFeeResponse {
     paymentDate: string | null;
     amount: number | string;
     createdAt: string;
+    idempotencyKey?: string;
+    studentId?: string;
+    actor?: {
+      id: string;
+      name: string;
+      email: string;
+    } | null;
   }>;
 }
 
 export interface CreateStudentFeePaymentRequest {
-  amount: number;
+  amount: string;
   paymentDate?: string;
+  idempotencyKey?: string;
 }
+export const parsePaymentMinor = (value: string): bigint | null => { if (!/^\d+(?:\.\d{1,2})?$/.test(value.trim())) return null; const [whole, fraction = ""] = value.trim().split("."); return BigInt(whole) * 100n + BigInt((fraction + "00").slice(0, 2)); };
+export const validatePaymentAmount = (value: string, outstanding: string | number) => { const amount = parsePaymentMinor(value); const due = parsePaymentMinor(String(outstanding)); return amount !== null && due !== null && amount > 0n && amount <= due ? amount : null; };
 
 export const studentFeesQueryKey = ["student-fees"] as const;
 

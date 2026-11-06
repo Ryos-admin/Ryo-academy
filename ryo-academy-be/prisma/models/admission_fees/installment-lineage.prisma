@@ -1,0 +1,41 @@
+enum LineageEventType {
+  INITIAL_SCHEDULE
+  MANUAL_RESCHEDULE
+  PAYMENT_AUTO_SPLIT
+  REVERSAL_RESTORE
+}
+
+model InstallmentLineageEvent {
+  id            String                          @id @default(uuid())
+  scheduleId    String
+  feePaymentId  String?
+  eventType     LineageEventType
+  description   String?
+  createdAt     DateTime                        @default(now())
+
+  schedule      AdmissionInstallmentSchedule    @relation(fields: [scheduleId], references: [id], onDelete: Restrict)
+  feePayment    FeePayment?                     @relation(fields: [feePaymentId], references: [id], onDelete: Restrict)
+  transferEdges InstallmentLineageTransferEdge[]
+
+  @@unique([id, scheduleId], name: "uq_lineage_event_id_schedule")
+  @@index([scheduleId, eventType])
+  @@index([feePaymentId], map: "InstallmentLineageEvent_feePaymentId_idx")
+}
+
+model InstallmentLineageTransferEdge {
+  id                  String                          @id @default(uuid())
+  eventId             String
+  scheduleId          String
+  sourceInstallmentId String?
+  resultInstallmentId String
+  amount              Decimal                         @db.Decimal(12, 2)
+
+  event               InstallmentLineageEvent         @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  sourceInstallment   AdmissionInstallment?           @relation("SourceTransferEdges", fields: [sourceInstallmentId], references: [id], onDelete: Restrict)
+  resultInstallment   AdmissionInstallment            @relation("ResultTransferEdges", fields: [resultInstallmentId], references: [id], onDelete: Restrict)
+
+  @@index([eventId])
+  @@index([scheduleId])
+  @@index([sourceInstallmentId])
+  @@index([resultInstallmentId])
+}

@@ -6,7 +6,7 @@ export interface FeeComponentResponse {
   id: string;
   name: string;
   description?: string | null;
-  amount: number | string;
+  amount: string;
   isMandatory: boolean;
   discountApplicable: boolean;
   isActive: boolean;
@@ -19,7 +19,7 @@ export interface FeeStructureResponse {
   id: string;
   name: string;
   description?: string | null;
-  totalAmount: number | string;
+  totalAmount: string;
   isActive: boolean;
   academicYearId: string;
   programId: string;
@@ -35,7 +35,7 @@ export interface FeeStructureResponse {
 export interface FeeComponentCreateRequest {
   name: string;
   description?: string | null;
-  amount: number;
+  amount: string;
   feeStructureId: string;
   discountApplicable?: boolean;
   isMandatory?: boolean;
@@ -44,7 +44,7 @@ export interface FeeComponentCreateRequest {
 export interface FeeComponentUpdateRequest {
   name?: string;
   description?: string | null;
-  amount?: number;
+  amount?: string;
   discountApplicable?: boolean;
   isMandatory?: boolean;
 }
@@ -52,7 +52,7 @@ export interface FeeComponentUpdateRequest {
 export interface FeeComponentInputRequest {
   name: string;
   description?: string | null;
-  amount: number;
+  amount: string;
   discountApplicable?: boolean;
   isMandatory?: boolean;
 }
@@ -63,15 +63,12 @@ export interface FeeStructureCreateRequest {
   academicYearId: string;
   programId: string;
   classId: string;
-  totalAmount: number;
   feeComponents: FeeComponentInputRequest[];
 }
 
 export interface FeeStructureUpdateRequest {
   name?: string;
   description?: string;
-  totalAmount?: number;
-  isActive?: boolean;
 }
 
 export const feeStructuresQueryKey = ["feeStructures"] as const;
@@ -206,8 +203,8 @@ export function feeErrorMessage(error: unknown, fallback: string) {
   if (error.status === 401) return "Your session has expired. Please sign in again.";
   if (error.status === 403) return "You do not have permission to update fee configuration.";
   if (error.status === 404) return "The requested fee record was not found.";
-  if (error.status === 409) return "The fee record conflicts with existing configuration.";
   if (Array.isArray(error.backendMessage)) return error.backendMessage.join(" ");
+  if (error.status === 409) return error.backendMessage || "The fee record conflicts with existing configuration.";
   return error.backendMessage || fallback;
 }
 

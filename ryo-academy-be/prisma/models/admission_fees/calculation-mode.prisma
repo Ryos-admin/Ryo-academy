@@ -1,0 +1,5 @@
+enum CalculationMode {
+  LEGACY_PERCENTAGE
+  LEGACY_FIXED
+  PAYABLE
+}

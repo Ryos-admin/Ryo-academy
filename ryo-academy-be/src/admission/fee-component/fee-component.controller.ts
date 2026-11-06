@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards, Req } from "@nestjs/common";
 import { ApiBadRequestResponse, ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { UpdateFeeComponentDto } from "./dto/update-fee-component.dto.js";
 import { CreateFeeComponentDto } from "./dto/create-fee-component.dto.js";
@@ -42,8 +42,8 @@ export class FeeComponentController {
     @ApiOperation({ summary: 'Delete a fee component by ID' })
     @ApiOkResponse({ description: 'Fee component deleted successfully' })
     @ApiBadRequestResponse({ description: 'Fee component not found' })
-    async deleteFeeComponent(@Param('id') id: string) {
-        return await this.feeComponentService.delete(id);
+    async deleteFeeComponent(@Param('id') id: string, @Req() req: any) {
+        return await this.feeComponentService.delete(id, req.user.userId);
     }
 
     @Get()

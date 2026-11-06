@@ -682,7 +682,7 @@ function ParamAttendanceDetail({ session }: { session: User }) {
 }
 function AcademicYearEditRoute() {
   const { id } = useParams();
-  return <AcademicYearForm id={id}  schoolId={session?.schoolId} />;
+  return <AcademicYearForm id={id} />;
 }
 function AcademicYearDetailRoute() {
   const { id } = useParams();
@@ -740,7 +740,7 @@ function RoutedApp({ session, onLogout }: { session: User; onLogout: () => void 
         </Route>
         <Route path="/academic-years/:id/edit">
           <Protected session={session} permission="CLASS_UPDATE">
-            <AcademicYearEditRoute  schoolId={session?.schoolId}  />
+            <AcademicYearEditRoute />
           </Protected>
         </Route>
         <Route path="/academic-years/:id">

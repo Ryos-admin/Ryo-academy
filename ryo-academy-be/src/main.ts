@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import './common/money/decimal-precision.js';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { Logger, ValidationPipe } from '@nestjs/common';

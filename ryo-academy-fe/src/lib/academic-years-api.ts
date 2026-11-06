@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient, ApiError } from "./api-client";
 import { session } from "./session";
 
+export type AcademicWeekday = "SUNDAY" | "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | "SATURDAY";
+
 export interface AcademicYear {
   id: string;
   schoolId: string;
@@ -16,12 +18,14 @@ export interface AcademicYear {
 export interface CreateAcademicYearRequest {
   schoolId: string;
   name: string;
+  weeklyOffDays: AcademicWeekday[];
   startDate: string;
   endDate: string;
 }
 
 export interface UpdateAcademicYearRequest {
   name?: string;
+  weeklyOffDays?: AcademicWeekday[];
   startDate?: string;
   endDate?: string;
 }
@@ -44,8 +48,10 @@ function authOptions() {
 export const academicYearsApi = {
   list: () => apiClient.get<AcademicYear[]>("/academic-years", authOptions()),
   get: (id: string) => apiClient.get<AcademicYear>(`/academic-years/${id}`, authOptions()),
-  create: (payload: CreateAcademicYearRequest) => apiClient.post<AcademicYear>("/academic-years", payload, authOptions()),
-  update: (id: string, payload: UpdateAcademicYearRequest) => apiClient.patch<AcademicYear>(`/academic-years/${id}`, payload, authOptions()),
+  create: (payload: CreateAcademicYearRequest) =>
+    apiClient.post<AcademicYear>("/academic-years", payload, authOptions()),
+  update: (id: string, payload: UpdateAcademicYearRequest) =>
+    apiClient.patch<AcademicYear>(`/academic-years/${id}`, payload, authOptions()),
   remove: (id: string) => apiClient.delete<AcademicYear>(`/academic-years/${id}`, authOptions()),
 };
 
@@ -59,7 +65,13 @@ export function useAcademicYears() {
 
 export function useDeleteAcademicYear() {
   const queryClient = useQueryClient();
-  return useMutation({ mutationFn: academicYearsApi.remove, onSuccess: async (_deleted, id) => { queryClient.removeQueries({ queryKey: [...academicYearsQueryKey, id] }); await queryClient.invalidateQueries({ queryKey: academicYearsQueryKey }); } });
+  return useMutation({
+    mutationFn: academicYearsApi.remove,
+    onSuccess: async (_deleted, id) => {
+      queryClient.removeQueries({ queryKey: [...academicYearsQueryKey, id] });
+      await queryClient.invalidateQueries({ queryKey: academicYearsQueryKey });
+    },
+  });
 }
 
 export function useAcademicYear(id?: string) {
@@ -75,7 +87,9 @@ export function useSaveAcademicYear(id?: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: CreateAcademicYearRequest | UpdateAcademicYearRequest) =>
-      id ? academicYearsApi.update(id, payload as UpdateAcademicYearRequest) : academicYearsApi.create(payload as CreateAcademicYearRequest),
+      id
+        ? academicYearsApi.update(id, payload as UpdateAcademicYearRequest)
+        : academicYearsApi.create(payload as CreateAcademicYearRequest),
     onSuccess: async (saved) => {
       queryClient.setQueryData([...academicYearsQueryKey, saved.id], saved);
       await queryClient.invalidateQueries({ queryKey: academicYearsQueryKey });
@@ -88,7 +102,10 @@ export function academicYearErrorMessage(error: unknown, fallback: string) {
   if (error.status === 401) return "Your session has expired. Please sign in again.";
   if (error.status === 403) return "You do not have permission to manage academic years.";
   if (error.status === 404) return "Academic year not found.";
-  if (error.status === 409) return "An academic year with this school and name already exists.";
+  if (error.status === 409)
+    return Array.isArray(error.backendMessage)
+      ? error.backendMessage.join(" ")
+      : error.backendMessage || "An academic year with this school and name already exists.";
   if (Array.isArray(error.backendMessage)) return error.backendMessage.join(" ");
   return error.backendMessage || fallback;
 }

@@ -8,7 +8,7 @@ import {
   type Path,
   type UseFormReturn,
 } from "react-hook-form";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useParams } from "wouter";
 import {
   ArrowLeft,
   ArrowRight,
@@ -39,6 +39,7 @@ import {
   useSaveAcademicYear,
   type AcademicYear,
   type CreateAcademicYearRequest,
+  type AcademicWeekday,
 } from "@/lib/academic-years-api";
 import {
   academicCalendarErrorMessage,
@@ -112,10 +113,20 @@ import {
   date,
   titleCase,
 } from "@/pages/page-primitives";
-export type SetupResource = "academicYears" | "programs" | "classes" | "sections";
+export type SetupResource =
+  | "academicYears"
+  | "programs"
+  | "classes"
+  | "sections";
 const setupMeta: Record<
   SetupResource,
-  { title: string; singular: string; read: Permission; create: Permission; update: Permission }
+  {
+    title: string;
+    singular: string;
+    read: Permission;
+    create: Permission;
+    update: Permission;
+  }
 > = {
   academicYears: {
     title: "Academic Years",
@@ -146,24 +157,39 @@ const setupMeta: Record<
     update: "CLASS_UPDATE",
   },
 };
-const weekdayCodeSchema = z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]);
-const daysOfWeekSchema = z.array(weekdayCodeSchema).min(1, "Add at least one day");
+const weekdayCodeSchema = z.enum([
+  "SUNDAY",
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+]);
+const daysOfWeekSchema = z
+  .array(weekdayCodeSchema)
+  .min(1, "Add at least one day");
 const weekdayOptions: string[][] = [
-  ["MON", "Monday"],
-  ["TUE", "Tuesday"],
-  ["WED", "Wednesday"],
-  ["THU", "Thursday"],
-  ["FRI", "Friday"],
-  ["SAT", "Saturday"],
-  ["SUN", "Sunday"],
+  ["SUNDAY", "Sunday"],
+  ["MONDAY", "Monday"],
+  ["TUESDAY", "Tuesday"],
+  ["WEDNESDAY", "Wednesday"],
+  ["THURSDAY", "Thursday"],
+  ["FRIDAY", "Friday"],
+  ["SATURDAY", "Saturday"],
 ];
-const defaultDaysOfWeek: WeekdayCode[] = ["MON", "TUE", "WED", "THU", "FRI"];
+
+const defaultDaysOfWeek: AcademicWeekday[] = [
+  "SUNDAY",
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+];
 function toWeekdayCodeList(value: unknown): WeekdayCode[] {
-  if (Array.isArray(value))
-    return value
-      .map((day) => weekdayCodeSchema.safeParse(day))
-      .filter((result) => result.success)
-      .map((result) => result.data);
+  if (Array.isArray(value)) return toWeekdayCodes(value.join(","));
   return toWeekdayCodes(String(value ?? ""));
 }
 const setupSchema = {
@@ -195,6 +221,7 @@ const academicYearSchema = z
   .object({
     schoolId: z.string().min(2, "School ID is required"),
     name: z.string().min(3, "Name is required"),
+    weeklyOffDays: z.array(weekdayCodeSchema).optional(),
     startDate: z.string().min(10, "Start date is required"),
     endDate: z.string().min(10, "End date is required"),
   })
@@ -209,7 +236,11 @@ export function AcademicYearsList() {
   const [search, setSearch] = useState("");
   const [, setLocation] = useLocation();
   const deleteYear = (id: string) => {
-    if (!window.confirm("Deactivate this academic year? It will be hidden from active lists."))
+    if (
+      !window.confirm(
+        "Deactivate this academic year? It will also remove all the relative records.\nDo you agree to proceed.",
+      )
+    )
       return;
     remove.mutate(id, {
       onSuccess: () => toast({ title: "Academic year deactivated" }),
@@ -233,8 +264,13 @@ export function AcademicYearsList() {
         <PageHeader title="Academic Years" />
         <Empty
           title="Could not load academic years"
-          detail={academicYearErrorMessage(query.error, "Please try again later.")}
-          action={<AppButton onClick={() => query.refetch()}>Try again</AppButton>}
+          detail={academicYearErrorMessage(
+            query.error,
+            "Please try again later.",
+          )}
+          action={
+            <AppButton onClick={() => query.refetch()}>Try again</AppButton>
+          }
         />
       </>
     );
@@ -264,7 +300,11 @@ export function AcademicYearsList() {
         <span className="hierarchy-node">Section</span>
       </div>
       <div className="list-toolbar">
-        <SearchBox value={search} onChange={setSearch} placeholder="Search academic years" />
+        <SearchBox
+          value={search}
+          onChange={setSearch}
+          placeholder="Search academic years"
+        />
       </div>
       {rows.length === 0 ? (
         <Empty
@@ -288,7 +328,10 @@ export function AcademicYearsList() {
                 {rows.map((row) => (
                   <tr key={row.id}>
                     <td>
-                      <Link href={`/academic-years/${row.id}`} className="table-link">
+                      <Link
+                        href={`/academic-years/${row.id}`}
+                        className="table-link"
+                      >
                         <strong>{row.name}</strong>
                       </Link>
                     </td>
@@ -321,7 +364,9 @@ export function AcademicYearsList() {
           </div>
           <div className="table-foot">
             <span>{rows.length} records</span>
-            <span className="table-foot-note">Deactivate removes records from active lists</span>
+            <span className="table-foot-note">
+              Deactivate removes records from active lists
+            </span>
           </div>
         </div>
       )}
@@ -329,10 +374,16 @@ export function AcademicYearsList() {
   );
 }
 
-export function AcademicYearForm({ id, schoolId }: { id?: string | null; schoolId?: string }) {
+export function AcademicYearForm({
+  id,
+  schoolId,
+}: {
+  id?: string | null;
+  schoolId?: string;
+}) {
   const editing = Boolean(id);
-  const query = useAcademicYear(id);
-  const save = useSaveAcademicYear(id);
+  const query = useAcademicYear(id ?? undefined);
+  const save = useSaveAcademicYear(id ?? undefined);
   const [, setLocation] = useLocation();
 
   const form = useForm<z.infer<typeof academicYearSchema>>({
@@ -358,30 +409,53 @@ export function AcademicYearForm({ id, schoolId }: { id?: string | null; schoolI
     return (
       <Empty
         title="Could not load academic year"
-        detail={academicYearErrorMessage(query.error, "Please try again later.")}
+        detail={academicYearErrorMessage(
+          query.error,
+          "Please try again later.",
+        )}
       />
     );
   if (editing && !query.data)
-    return <Empty title="Record not found" detail="This academic year is no longer available." />;
-  const submit = (values: CreateAcademicYearRequest) => {
+    return (
+      <Empty
+        title="Record not found"
+        detail="This academic year is no longer available."
+      />
+    );
+  const submit = (values: z.infer<typeof academicYearSchema>) => {
     const payload = editing
-      ? { name: values.name, startDate: values.startDate, endDate: values.endDate }
-      : values;
+      ? {
+          name: values.name,
+          weeklyOffDays: values.weeklyOffDays ?? [],
+          startDate: values.startDate,
+          endDate: values.endDate,
+        }
+      : { ...values, weeklyOffDays: values.weeklyOffDays ?? [] };
+    console.log(payload, id, "payload");
+
     save.mutate(payload, {
       onSuccess: (saved) => {
-        toast({ title: editing ? "Academic year updated" : "Academic year created" });
+        toast({
+          title: editing ? "Academic year updated" : "Academic year created",
+        });
         setLocation(`/academic-years/${saved.id}`);
       },
       onError: (error) =>
         toast({
           title: "Could not save academic year",
-          description: academicYearErrorMessage(error, "Please check the form and try again."),
+          description: academicYearErrorMessage(
+            error,
+            "Please check the form and try again.",
+          ),
         }),
     });
   };
   return (
     <>
-      <button className="back-link page-back" onClick={() => setLocation("/academic-years")}>
+      <button
+        className="back-link page-back"
+        onClick={() => setLocation("/academic-years")}
+      >
         <ArrowLeft size={15} />
         Back to Academic Years
       </button>
@@ -393,7 +467,10 @@ export function AcademicYearForm({ id, schoolId }: { id?: string | null; schoolI
       <form
         className="form-card"
         onSubmit={form.handleSubmit(
-          (values) => submit(values),
+          (values) => {
+            console.log(values, "values");
+            submit(values);
+          },
           () =>
             toast({
               title: "Check the form",
@@ -403,17 +480,37 @@ export function AcademicYearForm({ id, schoolId }: { id?: string | null; schoolI
       >
         <div className="form-grid">
           {/* <Field form={form} name="schoolId" label="School ID" disabled={editing} /> */}
-          {editing && <p className="field-help">School ID cannot be changed after creation.</p>}
+          {editing && (
+            <p className="field-help">
+              School ID cannot be changed after creation.
+            </p>
+          )}
           <Field form={form} name="name" label="Academic year name" />
+
+          <MultiSelectField
+            form={form}
+            name="weeklyOffDays"
+            label="Weekly off days"
+            options={weekdayOptions}
+            placeholder="Select days"
+          />
           <Field form={form} name="startDate" label="Start date" type="date" />
           <Field form={form} name="endDate" label="End date" type="date" />
         </div>
         <div className="form-actions">
-          <AppButton type="button" variant="ghost" onClick={() => setLocation("/academic-years")}>
+          <AppButton
+            type="button"
+            variant="ghost"
+            onClick={() => setLocation("/academic-years")}
+          >
             Cancel
           </AppButton>
           <AppButton type="submit" disabled={save.isPending}>
-            {save.isPending ? "Saving…" : editing ? "Save changes" : "Create academic year"}
+            {save.isPending
+              ? "Saving…"
+              : editing
+                ? "Save changes"
+                : "Create academic year"}
             <ArrowRight size={16} />
           </AppButton>
         </div>
@@ -430,7 +527,10 @@ export function AcademicYearDetail({ id }: { id: string }) {
     return (
       <Empty
         title="Could not load academic year"
-        detail={academicYearErrorMessage(query.error, "Please try again later.")}
+        detail={academicYearErrorMessage(
+          query.error,
+          "Please try again later.",
+        )}
       />
     );
   const item = query.data;
@@ -448,7 +548,10 @@ export function AcademicYearDetail({ id }: { id: string }) {
     );
   return (
     <>
-      <button className="back-link page-back" onClick={() => setLocation("/academic-years")}>
+      <button
+        className="back-link page-back"
+        onClick={() => setLocation("/academic-years")}
+      >
         <ArrowLeft size={15} />
         Back to Academic Years
       </button>
@@ -511,7 +614,10 @@ const dayTypeLabels: Record<DayType, string> = {
   HOLIDAY: "Holiday",
   SPECIAL_WORKING_DAY: "Special working day",
 };
-const dayTypeOptions: [DayType, string][] = Object.entries(dayTypeLabels) as [DayType, string][];
+const dayTypeOptions: [DayType, string][] = Object.entries(dayTypeLabels) as [
+  DayType,
+  string,
+][];
 const calendarSchema = z.object({
   academicYearId: z.string().min(1, "Choose an academic year"),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date is required"),
@@ -532,14 +638,30 @@ function toCalendarDate(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
-function InteractiveCalendar({ records, academicYearId, canEdit }: { records: AcademicCalendarRecord[]; academicYearId: string; canEdit: boolean }) {
+function InteractiveCalendar({
+  records,
+  academicYearId,
+  canEdit,
+}: {
+  records: AcademicCalendarRecord[];
+  academicYearId: string;
+  canEdit: boolean;
+}) {
   const bulkSave = useBulkUpdateAcademicCalendar();
   const [mode, setMode] = useState<"single" | "bulk">("single");
-  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [month, setMonth] = useState(
+    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+  );
   const [selected, setSelected] = useState<string[]>([]);
   const [anchor, setAnchor] = useState<string | null>(null);
   const [bulkType, setBulkType] = useState<DayType>("WORKING_DAY");
-  const recordMap = useMemo(() => new Map(records.map((record) => [calendarDateValue(record.date), record])), [records]);
+  const recordMap = useMemo(
+    () =>
+      new Map(
+        records.map((record) => [calendarDateValue(record.date), record]),
+      ),
+    [records],
+  );
   const cells = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1);
     const start = new Date(first);
@@ -552,10 +674,24 @@ function InteractiveCalendar({ records, academicYearId, canEdit }: { records: Ac
   }, [month]);
   const updateSelected = () => {
     if (!academicYearId || selected.length === 0) return;
-    const isWorkingDay = bulkType === "WORKING_DAY" || bulkType === "SPECIAL_WORKING_DAY";
-    bulkSave.mutate({ academicYearId, dates: selected, dayType: bulkType, title: dayTypeLabels[bulkType], isWorkingDay, description: "" }, { onSuccess: () => setSelected([]) });
+    const isWorkingDay =
+      bulkType === "WORKING_DAY" || bulkType === "SPECIAL_WORKING_DAY";
+    bulkSave.mutate(
+      {
+        academicYearId,
+        dates: selected,
+        dayType: bulkType,
+        title: dayTypeLabels[bulkType],
+        isWorkingDay,
+        description: "",
+      },
+      { onSuccess: () => setSelected([]) },
+    );
   };
-  const selectDate = (dateValue: string, event: MouseEvent<HTMLButtonElement>) => {
+  const selectDate = (
+    dateValue: string,
+    event: MouseEvent<HTMLButtonElement>,
+  ) => {
     if (mode === "single") {
       setSelected([dateValue]);
       setAnchor(dateValue);
@@ -571,31 +707,142 @@ function InteractiveCalendar({ records, academicYearId, canEdit }: { records: Ac
       }
     }
     setAnchor(dateValue);
-    setSelected((current) => current.includes(dateValue) ? current.filter((value) => value !== dateValue) : [...current, dateValue]);
+    setSelected((current) =>
+      current.includes(dateValue)
+        ? current.filter((value) => value !== dateValue)
+        : [...current, dateValue],
+    );
   };
   return (
     <section className="panel mb-6 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-5 py-4">
-        <div><div className="eyebrow">Academic Calendar</div><h2 className="text-xl font-semibold">{month.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</h2><p className="text-sm text-muted-foreground">Edit one date or select a range and update multiple dates.</p></div>
-        <div className="flex items-center gap-2"><AppButton variant="ghost" aria-label="Previous month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft size={16} /></AppButton><AppButton variant="ghost" aria-label="Next month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight size={16} /></AppButton></div>
+        <div>
+          <div className="eyebrow">Academic Calendar</div>
+          <h2 className="text-xl font-semibold">
+            {month.toLocaleDateString("en-IN", {
+              month: "long",
+              year: "numeric",
+            })}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Edit one date or select a range and update multiple dates.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <AppButton
+            variant="ghost"
+            aria-label="Previous month"
+            onClick={() =>
+              setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))
+            }
+          >
+            <ChevronLeft size={16} />
+          </AppButton>
+          <AppButton
+            variant="ghost"
+            aria-label="Next month"
+            onClick={() =>
+              setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))
+            }
+          >
+            <ChevronRight size={16} />
+          </AppButton>
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/20 px-5 py-3">
-        <button type="button" onClick={() => { setMode("single"); setSelected([]); }} className={`rounded-lg border px-4 py-2 text-sm font-semibold ${mode === "single" ? "border-primary bg-primary/10 text-primary" : "border-border bg-card"}`}>Single Edit<span className="ml-2 block text-xs font-normal text-muted-foreground">Click one date</span></button>
-        <button type="button" onClick={() => { setMode("bulk"); setSelected([]); }} className={`rounded-lg border px-4 py-2 text-sm font-semibold ${mode === "bulk" ? "border-primary bg-primary/10 text-primary" : "border-border bg-card"}`}>Bulk Edit<span className="ml-2 block text-xs font-normal text-muted-foreground">Select dates or shift-click a range</span></button>
-        <label className="field"><span>Selected dates</span><strong>{selected.length}</strong></label>
-        <label className="field"><span>Set type</span><select value={bulkType} onChange={(event) => setBulkType(event.target.value as DayType)}><option value="WORKING_DAY">Working day</option><option value="WEEKEND">Weekend</option><option value="HOLIDAY">Holiday</option><option value="SPECIAL_WORKING_DAY">Special working day</option></select></label>
-        <AppButton disabled={!canEdit || selected.length === 0 || bulkSave.isPending} onClick={updateSelected}>{bulkSave.isPending ? "Saving…" : "Apply to selected"}</AppButton>
-        <AppButton variant="ghost" disabled={selected.length === 0} onClick={() => setSelected([])}>Clear</AppButton>
+        <button
+          type="button"
+          onClick={() => {
+            setMode("single");
+            setSelected([]);
+          }}
+          className={`rounded-lg border px-4 py-2 text-sm font-semibold ${mode === "single" ? "border-primary bg-primary/10 text-primary" : "border-border bg-card"}`}
+        >
+          Single Edit
+          <span className="ml-2 block text-xs font-normal text-muted-foreground">
+            Click one date
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMode("bulk");
+            setSelected([]);
+          }}
+          className={`rounded-lg border px-4 py-2 text-sm font-semibold ${mode === "bulk" ? "border-primary bg-primary/10 text-primary" : "border-border bg-card"}`}
+        >
+          Bulk Edit
+          <span className="ml-2 block text-xs font-normal text-muted-foreground">
+            Select dates or shift-click a range
+          </span>
+        </button>
+        <label className="field">
+          <span>Selected dates</span>
+          <strong>{selected.length}</strong>
+        </label>
+        <label className="field">
+          <span>Set type</span>
+          <select
+            value={bulkType}
+            onChange={(event) => setBulkType(event.target.value as DayType)}
+          >
+            <option value="WORKING_DAY">Working day</option>
+            <option value="WEEKEND">Weekend</option>
+            <option value="HOLIDAY">Holiday</option>
+            <option value="SPECIAL_WORKING_DAY">Special working day</option>
+          </select>
+        </label>
+        <AppButton
+          disabled={!canEdit || selected.length === 0 || bulkSave.isPending}
+          onClick={updateSelected}
+        >
+          {bulkSave.isPending ? "Saving…" : "Apply to selected"}
+        </AppButton>
+        <AppButton
+          variant="ghost"
+          disabled={selected.length === 0}
+          onClick={() => setSelected([])}
+        >
+          Clear
+        </AppButton>
       </div>
       <div className="grid grid-cols-7 gap-px bg-border p-px">
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => <div key={label} className="bg-muted/50 px-3 py-2 text-center text-xs font-semibold text-muted-foreground">{label}</div>)}
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
+          <div
+            key={label}
+            className="bg-muted/50 px-3 py-2 text-center text-xs font-semibold text-muted-foreground"
+          >
+            {label}
+          </div>
+        ))}
         {cells.map((day) => {
           const dateValue = toCalendarDate(day);
           const record = recordMap.get(dateValue);
           const isCurrentMonth = day.getMonth() === month.getMonth();
           const isSelected = selected.includes(dateValue);
-          const tone = record?.isWorkingDay ? "bg-emerald-50" : record ? "bg-rose-50" : "bg-card";
-          return <button key={dateValue} type="button" disabled={!canEdit || !isCurrentMonth} onClick={(event) => selectDate(dateValue, event)} className={`min-h-20 p-3 text-left transition ${tone} ${!isCurrentMonth ? "opacity-40" : "hover:bg-blue-50"} ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}><strong className={record && !record.isWorkingDay ? "text-red-600" : ""}>{day.getDate()}</strong><span className="mt-2 block truncate text-xs text-muted-foreground">{record?.title || "No record"}</span></button>;
+          const tone = record?.isWorkingDay
+            ? "bg-emerald-50"
+            : record
+              ? "bg-rose-50"
+              : "bg-card";
+          return (
+            <button
+              key={dateValue}
+              type="button"
+              disabled={!canEdit || !isCurrentMonth}
+              onClick={(event) => selectDate(dateValue, event)}
+              className={`min-h-20 p-3 text-left transition ${tone} ${!isCurrentMonth ? "opacity-40" : "hover:bg-blue-50"} ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}
+            >
+              <strong
+                className={record && !record.isWorkingDay ? "text-red-600" : ""}
+              >
+                {day.getDate()}
+              </strong>
+              <span className="mt-2 block truncate text-xs text-muted-foreground">
+                {record?.title || "No record"}
+              </span>
+            </button>
+          );
         })}
       </div>
     </section>
@@ -607,7 +854,8 @@ export function AcademicCalendarList({ session }: { session: User }) {
   const [academicYearId, setAcademicYearId] = useState("");
   const [, setLocation] = useLocation();
   useEffect(() => {
-    if (!academicYearId && years.data?.[0]?.id) setAcademicYearId(years.data[0].id);
+    if (!academicYearId && years.data?.[0]?.id)
+      setAcademicYearId(years.data[0].id);
   }, [academicYearId, years.data]);
   const query = useAcademicCalendar({
     academicYearId: academicYearId || undefined,
@@ -642,7 +890,9 @@ export function AcademicCalendarList({ session }: { session: User }) {
         />
       </>
     );
-  const yearNames = new Map((years.data || []).map((year) => [year.id, year.name]));
+  const yearNames = new Map(
+    (years.data || []).map((year) => [year.id, year.name]),
+  );
   const rows = query.data || [];
   return (
     <>
@@ -650,18 +900,38 @@ export function AcademicCalendarList({ session }: { session: User }) {
         eyebrow="Academic operations"
         title="Academic Calendar"
         description="Manage working days, weekends, holidays, and special working days for an academic year."
-        action={
-          hasPermission(session, "SHIFT_CREATE") && (
-            <AppButton onClick={() => setLocation("/academic-calendar/new")}>
-              <Plus size={16} />
-              Add calendar record
-            </AppButton>
-          )
-        }
+        // action={
+        //   hasPermission(session, "SHIFT_CREATE") && (
+        //     <AppButton onClick={() => setLocation("/academic-calendar/new")}>
+        //       <Plus size={16} />
+        //       Add calendar record
+        //     </AppButton>
+        //   )
+        // }
       />
-      <div className="list-toolbar"><label className="field"><span>Academic year</span><select value={academicYearId} onChange={(event) => setAcademicYearId(event.target.value)}>{(years.data || []).map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}</select></label></div>
-      {academicYearId && <InteractiveCalendar records={rows} academicYearId={academicYearId} canEdit={hasPermission(session, "SHIFT_UPDATE")} />}
-      {rows.length === 0 ? (
+      <div className="list-toolbar">
+        <label className="field">
+          <span>Academic year</span>
+          <select
+            value={academicYearId}
+            onChange={(event) => setAcademicYearId(event.target.value)}
+          >
+            {(years.data || []).map((year) => (
+              <option key={year.id} value={year.id}>
+                {year.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {academicYearId && (
+        <InteractiveCalendar
+          records={rows}
+          academicYearId={academicYearId}
+          canEdit={hasPermission(session, "SHIFT_UPDATE")}
+        />
+      )}
+      {/* {rows.length === 0 ? (
         <Empty
           title="No calendar records found"
           detail="Create records manually or seed an academic year from the backend when a seed workflow is approved."
@@ -684,11 +954,16 @@ export function AcademicCalendarList({ session }: { session: User }) {
                 {rows.map((row) => (
                   <tr key={row.id}>
                     <td>
-                      <Link href={`/academic-calendar/${row.id}`} className="table-link">
+                      <Link
+                        href={`/academic-calendar/${row.id}`}
+                        className="table-link"
+                      >
                         <strong>{date(calendarDateValue(row.date))}</strong>
                       </Link>
                     </td>
-                    <td>{yearNames.get(row.academicYearId) || row.academicYearId}</td>
+                    <td>
+                      {yearNames.get(row.academicYearId) || row.academicYearId}
+                    </td>
                     <td>
                       <Status>{dayTypeLabels[row.dayType]}</Status>
                     </td>
@@ -712,10 +987,12 @@ export function AcademicCalendarList({ session }: { session: User }) {
           </div>
           <div className="table-foot">
             <span>{rows.length} records</span>
-            <span className="table-foot-note">Calendar records are Academic Year scoped</span>
+            <span className="table-foot-note">
+              Calendar records are Academic Year scoped
+            </span>
           </div>
         </div>
-      )}
+      )} */}
     </>
   );
 }
@@ -784,24 +1061,36 @@ export function AcademicCalendarForm({ id }: { id?: string }) {
       description: String(values.description || ""),
       isWorkingDay: values.isWorkingDay === "true",
     };
-    const payload: CreateAcademicCalendarRequest | UpdateAcademicCalendarRequest = editing
+    const payload:
+      | CreateAcademicCalendarRequest
+      | UpdateAcademicCalendarRequest = editing
       ? common
       : { ...common, academicYearId: String(values.academicYearId) };
     save.mutate(payload, {
       onSuccess: (saved) => {
-        toast({ title: editing ? "Calendar record updated" : "Calendar record created" });
+        toast({
+          title: editing
+            ? "Calendar record updated"
+            : "Calendar record created",
+        });
         setLocation(`/academic-calendar/${saved.id}`);
       },
       onError: (error) =>
         toast({
           title: "Could not save calendar record",
-          description: academicCalendarErrorMessage(error, "Please check the form and try again."),
+          description: academicCalendarErrorMessage(
+            error,
+            "Please check the form and try again.",
+          ),
         }),
     });
   };
   return (
     <>
-      <button className="back-link page-back" onClick={() => setLocation("/academic-calendar")}>
+      <button
+        className="back-link page-back"
+        onClick={() => setLocation("/academic-calendar")}
+      >
         <ArrowLeft size={15} />
         Back to Academic Calendar
       </button>
@@ -830,10 +1119,17 @@ export function AcademicCalendarForm({ id }: { id?: string }) {
             options={(years.data || []).map((year) => [year.id, year.name])}
           />
           {editing && (
-            <p className="field-help">Academic year cannot be changed during calendar editing.</p>
+            <p className="field-help">
+              Academic year cannot be changed during calendar editing.
+            </p>
           )}
           <Field form={form} name="date" label="Date" type="date" />
-          <SelectField form={form} name="dayType" label="Day type" options={dayTypeOptions} />
+          <SelectField
+            form={form}
+            name="dayType"
+            label="Day type"
+            options={dayTypeOptions}
+          />
           <Field form={form} name="title" label="Title" />
           <SelectField
             form={form}
@@ -846,7 +1142,11 @@ export function AcademicCalendarForm({ id }: { id?: string }) {
           />
           <div className="field field-wide">
             <label htmlFor="calendar-description">Description</label>
-            <textarea id="calendar-description" rows={4} {...form.register("description")} />
+            <textarea
+              id="calendar-description"
+              rows={4}
+              {...form.register("description")}
+            />
           </div>
         </div>
         <div className="form-actions">
@@ -858,7 +1158,11 @@ export function AcademicCalendarForm({ id }: { id?: string }) {
             Cancel
           </AppButton>
           <AppButton type="submit" disabled={save.isPending}>
-            {save.isPending ? "Saving…" : editing ? "Save changes" : "Create calendar record"}
+            {save.isPending
+              ? "Saving…"
+              : editing
+                ? "Save changes"
+                : "Create calendar record"}
             <ArrowRight size={16} />
           </AppButton>
         </div>
@@ -867,7 +1171,13 @@ export function AcademicCalendarForm({ id }: { id?: string }) {
   );
 }
 
-export function AcademicCalendarDetail({ id, session }: { id: string; session: User }) {
+export function AcademicCalendarDetail({
+  id,
+  session,
+}: {
+  id: string;
+  session: User;
+}) {
   const query = useAcademicCalendarRecord(id);
   const years = useAcademicYears();
   const remove = useDeleteAcademicCalendar();
@@ -901,7 +1211,9 @@ export function AcademicCalendarDetail({ id, session }: { id: string; session: U
         }
       />
     );
-  const academicYear = (years.data || []).find((year) => year.id === item.academicYearId);
+  const academicYear = (years.data || []).find(
+    (year) => year.id === item.academicYearId,
+  );
   const deleteRecord = () => {
     if (
       !window.confirm(
@@ -923,7 +1235,10 @@ export function AcademicCalendarDetail({ id, session }: { id: string; session: U
   };
   return (
     <>
-      <button className="back-link page-back" onClick={() => setLocation("/academic-calendar")}>
+      <button
+        className="back-link page-back"
+        onClick={() => setLocation("/academic-calendar")}
+      >
         <ArrowLeft size={15} />
         Back to Academic Calendar
       </button>
@@ -936,7 +1251,8 @@ export function AcademicCalendarDetail({ id, session }: { id: string; session: U
             <div className="eyebrow">Academic Calendar</div>
             <h1>{item.title}</h1>
             <p>
-              {date(calendarDateValue(item.date))} · {academicYear?.name || item.academicYearId}
+              {date(calendarDateValue(item.date))} ·{" "}
+              {academicYear?.name || item.academicYearId}
             </p>
           </div>
         </div>
@@ -951,7 +1267,11 @@ export function AcademicCalendarDetail({ id, session }: { id: string; session: U
             </Link>
           )}
           {hasPermission(session, "SHIFT_UPDATE") && (
-            <AppButton variant="danger" onClick={deleteRecord} disabled={remove.isPending}>
+            <AppButton
+              variant="danger"
+              onClick={deleteRecord}
+              disabled={remove.isPending}
+            >
               <X size={15} />
               Delete
             </AppButton>
@@ -1010,7 +1330,11 @@ export function ProgramsList() {
   const [search, setSearch] = useState("");
   const [, setLocation] = useLocation();
   const deleteProgram = (id: string) => {
-    if (!window.confirm("Deactivate this program / shift? It will be hidden from active lists."))
+    if (
+      !window.confirm(
+        "Deactivate this program / shift? It will be hidden from active lists.",
+      )
+    )
       return;
     remove.mutate(id, {
       onSuccess: () => toast({ title: "Program deactivated" }),
@@ -1051,10 +1375,16 @@ export function ProgramsList() {
         />
       </>
     );
-  const yearNames = new Map((years.data || []).map((year) => [year.id, year.name]));
+  const yearNames = new Map(
+    (years.data || []).map((year) => [year.id, year.name]),
+  );
   const rows = (query.data || [])
-    .map((program) => toProgramViewModel(program, yearNames.get(program.academicYearId)))
-    .filter((row) => JSON.stringify(row).toLowerCase().includes(search.toLowerCase()));
+    .map((program) =>
+      toProgramViewModel(program, yearNames.get(program.academicYearId)),
+    )
+    .filter((row) =>
+      JSON.stringify(row).toLowerCase().includes(search.toLowerCase()),
+    );
   return (
     <>
       <PageHeader
@@ -1078,7 +1408,11 @@ export function ProgramsList() {
         <span className="hierarchy-node">Section</span>
       </div>
       <div className="list-toolbar">
-        <SearchBox value={search} onChange={setSearch} placeholder="Search programs & shifts" />
+        <SearchBox
+          value={search}
+          onChange={setSearch}
+          placeholder="Search programs & shifts"
+        />
       </div>
       {rows.length === 0 ? (
         <Empty
@@ -1104,7 +1438,10 @@ export function ProgramsList() {
                 {rows.map((row) => (
                   <tr key={row.id}>
                     <td>
-                      <Link href={`/academic-programs/${row.id}`} className="table-link">
+                      <Link
+                        href={`/academic-programs/${row.id}`}
+                        className="table-link"
+                      >
                         <strong>{row.name}</strong>
                       </Link>
                     </td>
@@ -1141,7 +1478,9 @@ export function ProgramsList() {
           </div>
           <div className="table-foot">
             <span>{rows.length} records</span>
-            <span className="table-foot-note">Deactivate removes records from active lists</span>
+            <span className="table-foot-note">
+              Deactivate removes records from active lists
+            </span>
           </div>
         </div>
       )}
@@ -1182,19 +1521,28 @@ export function ProgramForm({ id }: { id?: string }) {
     return (
       <Empty
         title="Could not load academic years"
-        detail={programErrorMessage(years.error, "Could not load academic programs.")}
+        detail={programErrorMessage(
+          years.error,
+          "Could not load academic programs.",
+        )}
       />
     );
   if (editing && query.isError)
     return (
       <Empty
         title="Could not load academic program"
-        detail={programErrorMessage(query.error, "Could not load academic program.")}
+        detail={programErrorMessage(
+          query.error,
+          "Could not load academic program.",
+        )}
       />
     );
   if (editing && !query.data)
     return (
-      <Empty title="Record not found" detail="This academic program is no longer available." />
+      <Empty
+        title="Record not found"
+        detail="This academic program is no longer available."
+      />
     );
   const submit = (values: Record<string, unknown>) => {
     const name = String(values.name);
@@ -1217,13 +1565,19 @@ export function ProgramForm({ id }: { id?: string }) {
       onError: (error) =>
         toast({
           title: "Could not save academic program",
-          description: programErrorMessage(error, "Could not save academic program."),
+          description: programErrorMessage(
+            error,
+            "Could not save academic program.",
+          ),
         }),
     });
   };
   return (
     <>
-      <button className="back-link page-back" onClick={() => setLocation("/academic-programs")}>
+      <button
+        className="back-link page-back"
+        onClick={() => setLocation("/academic-programs")}
+      >
         <ArrowLeft size={15} />
         Back to Programs & Shifts
       </button>
@@ -1253,7 +1607,9 @@ export function ProgramForm({ id }: { id?: string }) {
             options={(years.data || []).map((year) => [year.id, year.name])}
           />
           {editing && (
-            <p className="field-help">Academic year cannot be changed during program editing.</p>
+            <p className="field-help">
+              Academic year cannot be changed during program editing.
+            </p>
           )}
           <SelectField
             form={form}
@@ -1283,7 +1639,11 @@ export function ProgramForm({ id }: { id?: string }) {
             Cancel
           </AppButton>
           <AppButton type="submit" disabled={save.isPending}>
-            {save.isPending ? "Saving…" : editing ? "Save changes" : "Create program / shift"}
+            {save.isPending
+              ? "Saving…"
+              : editing
+                ? "Save changes"
+                : "Create program / shift"}
             <ArrowRight size={16} />
           </AppButton>
         </div>
@@ -1301,7 +1661,10 @@ export function ProgramDetail({ id }: { id: string }) {
     return (
       <Empty
         title="Could not load academic program"
-        detail={programErrorMessage(query.error || years.error, "Could not load academic program.")}
+        detail={programErrorMessage(
+          query.error || years.error,
+          "Could not load academic program.",
+        )}
       />
     );
   const item = query.data;
@@ -1323,7 +1686,10 @@ export function ProgramDetail({ id }: { id: string }) {
   );
   return (
     <>
-      <button className="back-link page-back" onClick={() => setLocation("/academic-programs")}>
+      <button
+        className="back-link page-back"
+        onClick={() => setLocation("/academic-programs")}
+      >
         <ArrowLeft size={15} />
         Back to Programs & Shifts
       </button>
@@ -1405,7 +1771,12 @@ export function ClassList({ session }: { session: User }) {
   const sections = useSections();
   const [search, setSearch] = useState("");
   const deleteClass = (id: string) => {
-    if (!window.confirm("Deactivate this class? It will be hidden from active lists.")) return;
+    if (
+      !window.confirm(
+        "Deactivate this class? It will be hidden from active lists.",
+      )
+    )
+      return;
     remove.mutate(id, {
       onSuccess: () => toast({ title: "Class deactivated" }),
       onError: (error) =>
@@ -1450,7 +1821,10 @@ export function ClassList({ session }: { session: User }) {
         />
         <Empty
           title="Could not load sections"
-          detail={sectionErrorMessage(sections.error, "Could not load sections.")}
+          detail={sectionErrorMessage(
+            sections.error,
+            "Could not load sections.",
+          )}
         />
       </>
     );
@@ -1485,7 +1859,11 @@ export function ClassList({ session }: { session: User }) {
         <span className="hierarchy-node">Section</span>
       </div>
       <div className="list-toolbar">
-        <SearchBox value={search} onChange={setSearch} placeholder="Search classes" />
+        <SearchBox
+          value={search}
+          onChange={setSearch}
+          placeholder="Search classes"
+        />
       </div>
       {rows.length === 0 ? (
         <Empty
@@ -1513,16 +1891,20 @@ export function ClassList({ session }: { session: User }) {
                       </Link>
                     </td>
                     <td>
-                      {programs.data?.find((program) => program.id === row.programId)?.name || "—"}
+                      {programs.data?.find(
+                        (program) => program.id === row.programId,
+                      )?.name || "—"}
                     </td>
                     <td>
-                      {sections.data?.filter((section) => section.classId === row.id).length || 0}
+                      {sections.data?.filter(
+                        (section) => section.classId === row.id,
+                      ).length || 0}
                     </td>
                     <td className="row-actions">
                       {hasPermission(session, "CLASS_UPDATE") && (
                         <>
                           <Link
-                            href={`/classes/${row.id}/edit`}
+                            href={`/classes/${row.id}`}
                             className="icon-button"
                             title="Edit record"
                           >
@@ -1548,7 +1930,9 @@ export function ClassList({ session }: { session: User }) {
           </div>
           <div className="table-foot">
             <span>{rows.length} records</span>
-            <span className="table-foot-note">Deactivate removes records from active lists</span>
+            <span className="table-foot-note">
+              Deactivate removes records from active lists
+            </span>
           </div>
         </div>
       )}
@@ -1556,18 +1940,36 @@ export function ClassList({ session }: { session: User }) {
   );
 }
 
-export function ClassForm({ id, session }: { id?: string; session: User }) {
-  const editing = Boolean(id);
-  const query = useClass(id);
+export function ClassForm({ session }: { id?: string; session: User }) {
+  const params = useParams();
+  const classId = params?.id;
+  const editing = Boolean(classId);
+  const query = useClass(classId);
   const programs = usePrograms();
-  const save = useSaveClass(id);
+  const [programsOptions, setProgramsOptions] = useState(
+    programs.data?.map((program) => ({
+      id: program.id,
+      name: program.name,
+    })) || [],
+  );
+  const academicYears = useAcademicYears();
+  const save = useSaveClass(classId);
   const [, setLocation] = useLocation();
-  const form = useForm<{ name: string; programId: string }>({
+  const form = useForm<{
+    name: string;
+    programId: string;
+    academicYearId: string;
+  }>({
     resolver: zodResolver(classSchema),
-    defaultValues: { name: "", programId: "" },
+    defaultValues: { name: "", programId: "", academicYearId: "" },
   });
   useEffect(() => {
-    if (query.data) form.reset({ name: query.data.name, programId: query.data.programId });
+    if (query.data)
+      form.reset({
+        name: query.data.name,
+        programId: query.data.programId,
+        academicYearId: query.data.academicYearId,
+      });
   }, [query.data, form]);
   if (!hasPermission(session, editing ? "CLASS_UPDATE" : "CLASS_CREATE"))
     return <AccessState role={session.role} />;
@@ -1580,7 +1982,14 @@ export function ClassForm({ id, session }: { id?: string; session: User }) {
       />
     );
   if (editing && !query.data)
-    return <Empty title="Class not found" detail="The requested class could not be found." />;
+    return (
+      <Empty
+        title="Class not found"
+        detail="The requested class could not be found."
+      />
+    );
+  else {
+  }
   const submit = (values: { name: string; programId: string }) => {
     const payload: ClassCreateRequest | ClassUpdateRequest = editing
       ? { name: values.name }
@@ -1604,7 +2013,9 @@ export function ClassForm({ id, session }: { id?: string; session: User }) {
     <>
       <button
         className="back-link page-back"
-        onClick={() => setLocation(id ? `/classes/${id}` : "/classes")}
+        onClick={() =>
+          setLocation(classId ? `/classes/${classId}` : "/classes")
+        }
       >
         <ArrowLeft size={15} />
         Back to Classes
@@ -1624,25 +2035,53 @@ export function ClassForm({ id, session }: { id?: string; session: User }) {
         )}
       >
         <div className="form-grid">
-          <Field form={form} name="name" label="Class name" />
+          {JSON.stringify(query.data)}
+          {JSON.stringify(classId)}
+          {/* {JSON.stringify(programsOptions)} */}
+          <SelectField
+            form={form}
+            name="academicYearId"
+            label="Academic Year"
+            options={(academicYears.data || []).map((year) => [
+              year.id,
+              year.name,
+            ])}
+            onChange={(e) => {
+              // academicYearChange(e?.target.value);
+              setProgramsOptions(
+                programs.data?.filter(
+                  (program) => program.academicYearId == e?.target.value,
+                ) || [],
+              );
+            }}
+            disabled={editing}
+          />
           <SelectField
             form={form}
             name="programId"
             label="Programme / shift"
-            options={(programs.data || []).map((program) => [program.id, program.name])}
+            options={(programsOptions || []).map((program) => [
+              program.id,
+              program.name,
+            ])}
             disabled={editing}
           />
+          <Field form={form} name="name" label="Class name" />
         </div>
         <div className="form-actions">
           <AppButton
             type="button"
             variant="ghost"
-            onClick={() => setLocation(id ? `/classes/${id}` : "/classes")}
+            onClick={() => setLocation(id ? `/classes/${classId}` : "/classes")}
           >
             Cancel
           </AppButton>
           <AppButton type="submit" disabled={save.isPending}>
-            {save.isPending ? "Saving…" : editing ? "Save changes" : "Create class"}
+            {save.isPending
+              ? "Saving…"
+              : editing
+                ? "Save changes"
+                : "Create class"}
             <ArrowRight size={16} />
           </AppButton>
         </div>
@@ -1660,7 +2099,10 @@ export function ClassDetail({ id, session }: { id: string; session: User }) {
   if (query.isError || !query.data)
     return (
       <>
-        <button className="back-link page-back" onClick={() => setLocation("/classes")}>
+        <button
+          className="back-link page-back"
+          onClick={() => setLocation("/classes")}
+        >
           <ArrowLeft size={15} />
           Back to Classes
         </button>
@@ -1673,22 +2115,33 @@ export function ClassDetail({ id, session }: { id: string; session: User }) {
   if (sections.isError)
     return (
       <>
-        <button className="back-link page-back" onClick={() => setLocation("/classes")}>
+        <button
+          className="back-link page-back"
+          onClick={() => setLocation("/classes")}
+        >
           <ArrowLeft size={15} />
           Back to Classes
         </button>
         <Empty
           title="Could not load sections"
-          detail={sectionErrorMessage(sections.error, "Could not load sections.")}
+          detail={sectionErrorMessage(
+            sections.error,
+            "Could not load sections.",
+          )}
         />
       </>
     );
   const item = query.data;
   const program = programs.data?.find((value) => value.id === item.programId);
-  const childRows = (sections.data || []).filter((section) => section.classId === id);
+  const childRows = (sections.data || []).filter(
+    (section) => section.classId === id,
+  );
   return (
     <>
-      <button className="back-link page-back" onClick={() => setLocation("/classes")}>
+      <button
+        className="back-link page-back"
+        onClick={() => setLocation("/classes")}
+      >
         <ArrowLeft size={15} />
         Back to Classes
       </button>
@@ -1740,7 +2193,11 @@ export function ClassDetail({ id, session }: { id: string; session: User }) {
             {childRows.length === 1 ? "" : "s"}.
           </p>
           {childRows.map((section) => (
-            <Link key={section.id} href={`/sections/${section.id}`} className="pending-item">
+            <Link
+              key={section.id}
+              href={`/sections/${section.id}`}
+              className="pending-item"
+            >
               <strong>Section {section.name}</strong>
               <ArrowRight size={15} />
             </Link>
@@ -1768,7 +2225,12 @@ export function SectionList({ session }: { session: User }) {
   const classes = useClasses();
   const [search, setSearch] = useState("");
   const deleteSection = (id: string) => {
-    if (!window.confirm("Deactivate this section? It will be hidden from active lists.")) return;
+    if (
+      !window.confirm(
+        "Deactivate this section? It will be hidden from active lists.",
+      )
+    )
+      return;
     remove.mutate(id, {
       onSuccess: () => toast({ title: "Section deactivated" }),
       onError: (error) =>
@@ -1848,7 +2310,11 @@ export function SectionList({ session }: { session: User }) {
         <span className="hierarchy-node">Section</span>
       </div>
       <div className="list-toolbar">
-        <SearchBox value={search} onChange={setSearch} placeholder="Search sections" />
+        <SearchBox
+          value={search}
+          onChange={setSearch}
+          placeholder="Search sections"
+        />
       </div>
       {rows.length === 0 ? (
         <Empty
@@ -1875,8 +2341,9 @@ export function SectionList({ session }: { session: User }) {
                       </Link>
                     </td>
                     <td>
-                      {classes.data?.find((schoolClass) => schoolClass.id === row.classId)?.name ||
-                        "—"}
+                      {classes.data?.find(
+                        (schoolClass) => schoolClass.id === row.classId,
+                      )?.name || "—"}
                     </td>
                     <td className="row-actions">
                       {hasPermission(session, "CLASS_UPDATE") && (
@@ -1908,7 +2375,9 @@ export function SectionList({ session }: { session: User }) {
           </div>
           <div className="table-foot">
             <span>{rows.length} records</span>
-            <span className="table-foot-note">Deactivate removes records from active lists</span>
+            <span className="table-foot-note">
+              Deactivate removes records from active lists
+            </span>
           </div>
         </div>
       )}
@@ -1934,7 +2403,8 @@ export function SectionForm({ id, session }: { id?: string; session: User }) {
   }, [editing, id, sections.data, form]);
   if (!hasPermission(session, editing ? "CLASS_UPDATE" : "CLASS_CREATE"))
     return <AccessState role={session.role} />;
-  if (sections.isLoading || classes.isLoading) return <Loading label="Loading section" />;
+  if (sections.isLoading || classes.isLoading)
+    return <Loading label="Loading section" />;
   if (sections.isError)
     return (
       <Empty
@@ -1949,9 +2419,16 @@ export function SectionForm({ id, session }: { id?: string; session: User }) {
         detail={classErrorMessage(classes.error, "Could not load classes.")}
       />
     );
-  const item = editing ? sections.data?.find((section) => section.id === id) : undefined;
+  const item = editing
+    ? sections.data?.find((section) => section.id === id)
+    : undefined;
   if (editing && !item)
-    return <Empty title="Section not found" detail="The requested section could not be found." />;
+    return (
+      <Empty
+        title="Section not found"
+        detail="The requested section could not be found."
+      />
+    );
   const submit = (values: { name: string; classId: string }) => {
     const payload: SectionCreateRequest | SectionUpdateRequest = editing
       ? { name: values.name }
@@ -2000,7 +2477,10 @@ export function SectionForm({ id, session }: { id?: string; session: User }) {
             form={form}
             name="classId"
             label="Parent class"
-            options={(classes.data || []).map((schoolClass) => [schoolClass.id, schoolClass.name])}
+            options={(classes.data || []).map((schoolClass) => [
+              schoolClass.id,
+              schoolClass.name,
+            ])}
             disabled={editing}
           />
         </div>
@@ -2013,7 +2493,11 @@ export function SectionForm({ id, session }: { id?: string; session: User }) {
             Cancel
           </AppButton>
           <AppButton type="submit" disabled={save.isPending}>
-            {save.isPending ? "Saving…" : editing ? "Save changes" : "Create section"}
+            {save.isPending
+              ? "Saving…"
+              : editing
+                ? "Save changes"
+                : "Create section"}
             <ArrowRight size={16} />
           </AppButton>
         </div>
@@ -2026,7 +2510,8 @@ export function SectionDetail({ id, session }: { id: string; session: User }) {
   const sections = useSections();
   const classes = useClasses();
   const [, setLocation] = useLocation();
-  if (sections.isLoading || classes.isLoading) return <Loading label="Loading section" />;
+  if (sections.isLoading || classes.isLoading)
+    return <Loading label="Loading section" />;
   if (sections.isError)
     return (
       <Empty
@@ -2042,12 +2527,22 @@ export function SectionDetail({ id, session }: { id: string; session: User }) {
       />
     );
   const item = sections.data?.find((section) => section.id === id);
-  const parent = item && classes.data?.find((schoolClass) => schoolClass.id === item.classId);
+  const parent =
+    item &&
+    classes.data?.find((schoolClass) => schoolClass.id === item.classId);
   if (!item)
-    return <Empty title="Section not found" detail="The requested section could not be found." />;
+    return (
+      <Empty
+        title="Section not found"
+        detail="The requested section could not be found."
+      />
+    );
   return (
     <>
-      <button className="back-link page-back" onClick={() => setLocation("/sections")}>
+      <button
+        className="back-link page-back"
+        onClick={() => setLocation("/sections")}
+      >
         <ArrowLeft size={15} />
         Back to Sections
       </button>
@@ -2097,7 +2592,11 @@ export function SectionDetail({ id, session }: { id: string; session: User }) {
 }
 
 const subjectSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").min(2, "Name is too short"),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .min(2, "Name is too short"),
   classId: z.string().min(1, "Choose a class"),
 });
 
@@ -2113,14 +2612,20 @@ export function SubjectList({ session }: { session: User }) {
   if (classes.isLoading)
     return (
       <>
-        <PageHeader title="Subjects" description="Subjects available within a class." />
+        <PageHeader
+          title="Subjects"
+          description="Subjects available within a class."
+        />
         <Loading label="Loading classes" />
       </>
     );
   if (classes.isError)
     return (
       <>
-        <PageHeader title="Subjects" description="Subjects available within a class." />
+        <PageHeader
+          title="Subjects"
+          description="Subjects available within a class."
+        />
         <Empty
           title="Could not load classes"
           detail={classErrorMessage(classes.error, "Could not load classes.")}
@@ -2130,21 +2635,29 @@ export function SubjectList({ session }: { session: User }) {
   if (query.isLoading)
     return (
       <>
-        <PageHeader title="Subjects" description="Subjects available within a class." />
+        <PageHeader
+          title="Subjects"
+          description="Subjects available within a class."
+        />
         <Loading label="Loading subjects" />
       </>
     );
   if (query.isError)
     return (
       <>
-        <PageHeader title="Subjects" description="Subjects available within a class." />
+        <PageHeader
+          title="Subjects"
+          description="Subjects available within a class."
+        />
         <Empty
           title="Could not load subjects"
           detail={subjectErrorMessage(query.error, "Could not load subjects.")}
         />
       </>
     );
-  const selectedClass = classes.data?.find((schoolClass) => schoolClass.id === classId);
+  const selectedClass = classes.data?.find(
+    (schoolClass) => schoolClass.id === classId,
+  );
   const rows = query.data || [];
   const deleteSubject = (id: string) => {
     if (
@@ -2159,12 +2672,16 @@ export function SubjectList({ session }: { session: User }) {
         onSuccess: () =>
           toast({
             title: "Subject deleted",
-            description: "The subject and related teaching assignments were removed.",
+            description:
+              "The subject and related teaching assignments were removed.",
           }),
         onError: (error) =>
           toast({
             title: "Could not delete subject",
-            description: subjectErrorMessage(error, "Could not delete subject."),
+            description: subjectErrorMessage(
+              error,
+              "Could not delete subject.",
+            ),
           }),
       },
     );
@@ -2189,7 +2706,10 @@ export function SubjectList({ session }: { session: User }) {
       <div className="list-toolbar">
         <label className="field">
           <span>Class</span>
-          <select value={classId} onChange={(event) => setClassId(event.target.value)}>
+          <select
+            value={classId}
+            onChange={(event) => setClassId(event.target.value)}
+          >
             {(classes.data || []).map((schoolClass) => (
               <option key={schoolClass.id} value={schoolClass.id}>
                 {schoolClass.name}
@@ -2269,12 +2789,15 @@ export function SubjectForm({ id, session }: { id?: string; session: User }) {
     defaultValues: { name: "", classId: "" },
   });
   useEffect(() => {
-    if (query.data) form.reset({ name: query.data.name, classId: query.data.classId });
-    else if (!editing && classes.data?.[0]) form.setValue("classId", classes.data[0].id);
+    if (query.data)
+      form.reset({ name: query.data.name, classId: query.data.classId });
+    else if (!editing && classes.data?.[0])
+      form.setValue("classId", classes.data[0].id);
   }, [query.data, classes.data, editing, form]);
   if (!hasPermission(session, editing ? "CLASS_UPDATE" : "CLASS_CREATE"))
     return <AccessState role={session.role} />;
-  if (classes.isLoading || (editing && query.isLoading)) return <Loading label="Loading subject" />;
+  if (classes.isLoading || (editing && query.isLoading))
+    return <Loading label="Loading subject" />;
   if (classes.isError)
     return (
       <Empty
@@ -2290,7 +2813,12 @@ export function SubjectForm({ id, session }: { id?: string; session: User }) {
       />
     );
   if (editing && !query.data)
-    return <Empty title="Subject not found" detail="The requested subject could not be found." />;
+    return (
+      <Empty
+        title="Subject not found"
+        detail="The requested subject could not be found."
+      />
+    );
   const submit = (values: { name: string; classId: string }) => {
     const payload: SubjectCreateRequest | SubjectUpdateRequest = editing
       ? { name: values.name.trim() }
@@ -2339,7 +2867,10 @@ export function SubjectForm({ id, session }: { id?: string; session: User }) {
             form={form}
             name="classId"
             label="Class"
-            options={(classes.data || []).map((schoolClass) => [schoolClass.id, schoolClass.name])}
+            options={(classes.data || []).map((schoolClass) => [
+              schoolClass.id,
+              schoolClass.name,
+            ])}
             disabled={editing}
           />
         </div>
@@ -2352,7 +2883,11 @@ export function SubjectForm({ id, session }: { id?: string; session: User }) {
             Cancel
           </AppButton>
           <AppButton type="submit" disabled={save.isPending}>
-            {save.isPending ? "Saving…" : editing ? "Save changes" : "Create subject"}
+            {save.isPending
+              ? "Saving…"
+              : editing
+                ? "Save changes"
+                : "Create subject"}
             <ArrowRight size={16} />
           </AppButton>
         </div>
@@ -2366,7 +2901,8 @@ export function SubjectDetail({ id, session }: { id: string; session: User }) {
   const classes = useClasses();
   const remove = useDeleteSubject();
   const [, setLocation] = useLocation();
-  if (query.isLoading || classes.isLoading) return <Loading label="Loading subject" />;
+  if (query.isLoading || classes.isLoading)
+    return <Loading label="Loading subject" />;
   if (query.isError)
     return (
       <Empty
@@ -2382,9 +2918,16 @@ export function SubjectDetail({ id, session }: { id: string; session: User }) {
       />
     );
   if (!query.data)
-    return <Empty title="Subject not found" detail="The requested subject could not be found." />;
+    return (
+      <Empty
+        title="Subject not found"
+        detail="The requested subject could not be found."
+      />
+    );
   const item = query.data;
-  const parent = classes.data?.find((schoolClass) => schoolClass.id === item.classId);
+  const parent = classes.data?.find(
+    (schoolClass) => schoolClass.id === item.classId,
+  );
   const handleDelete = () => {
     if (
       !window.confirm(
@@ -2398,21 +2941,28 @@ export function SubjectDetail({ id, session }: { id: string; session: User }) {
         onSuccess: () => {
           toast({
             title: "Subject deleted",
-            description: "The subject and related teaching assignments were removed.",
+            description:
+              "The subject and related teaching assignments were removed.",
           });
           setLocation("/subjects");
         },
         onError: (error) =>
           toast({
             title: "Could not delete subject",
-            description: subjectErrorMessage(error, "Could not delete subject."),
+            description: subjectErrorMessage(
+              error,
+              "Could not delete subject.",
+            ),
           }),
       },
     );
   };
   return (
     <>
-      <button className="back-link page-back" onClick={() => setLocation("/subjects")}>
+      <button
+        className="back-link page-back"
+        onClick={() => setLocation("/subjects")}
+      >
         <ArrowLeft size={15} />
         Back to Subjects
       </button>
@@ -2437,7 +2987,11 @@ export function SubjectDetail({ id, session }: { id: string; session: User }) {
                 <Settings2 size={15} />
                 Edit
               </Link>
-              <AppButton variant="danger" onClick={handleDelete} disabled={remove.isPending}>
+              <AppButton
+                variant="danger"
+                onClick={handleDelete}
+                disabled={remove.isPending}
+              >
                 {remove.isPending ? "Deleting…" : "Delete"}
               </AppButton>
             </>
@@ -2493,9 +3047,16 @@ export function Field<TFieldValues extends FieldValues = FieldValues>({
   return (
     <div className="field">
       <label htmlFor={name}>{label}</label>
-      <input id={name} type={type} disabled={disabled} {...form.register(name)} />
+      <input
+        id={name}
+        type={type}
+        disabled={disabled}
+        {...form.register(name)}
+      />
       {form.formState.errors[name] && (
-        <span className="field-error">{String(form.formState.errors[name]?.message)}</span>
+        <span className="field-error">
+          {String(form.formState.errors[name]?.message)}
+        </span>
       )}
     </div>
   );
@@ -2518,7 +3079,11 @@ export function SelectField<TFieldValues extends FieldValues = FieldValues>({
   return (
     <div className="field">
       <label htmlFor={name}>{label}</label>
-      <select id={name} disabled={disabled} {...(form ? form.register(name, { onChange }) : {})}>
+      <select
+        id={name}
+        disabled={disabled}
+        {...(form ? form.register(name, { onChange }) : {})}
+      >
         {options.map(([value, text]) => (
           <option key={value} value={value}>
             {text}
@@ -2526,13 +3091,17 @@ export function SelectField<TFieldValues extends FieldValues = FieldValues>({
         ))}
       </select>
       {form?.formState.errors[name] && (
-        <span className="field-error">{String(form.formState.errors[name]?.message)}</span>
+        <span className="field-error">
+          {String(form.formState.errors[name]?.message)}
+        </span>
       )}
     </div>
   );
 }
 
-export function MultiSelectField<TFieldValues extends FieldValues = FieldValues>({
+export function MultiSelectField<
+  TFieldValues extends FieldValues = FieldValues,
+>({
   form,
   name,
   label,
@@ -2555,7 +3124,9 @@ export function MultiSelectField<TFieldValues extends FieldValues = FieldValues>
         control={form.control}
         name={name}
         render={({ field }) => {
-          const selected = Array.isArray(field.value) ? (field.value as string[]) : [];
+          const selected = Array.isArray(field.value)
+            ? (field.value as string[])
+            : [];
           const labels = options
             .filter(([value]) => selected.includes(value))
             .map(([, text]) => text);
@@ -2606,7 +3177,9 @@ export function MultiSelectField<TFieldValues extends FieldValues = FieldValues>
         }}
       />
       {form.formState.errors[name] && (
-        <span className="field-error">{String(form.formState.errors[name]?.message)}</span>
+        <span className="field-error">
+          {String(form.formState.errors[name]?.message)}
+        </span>
       )}
     </div>
   );

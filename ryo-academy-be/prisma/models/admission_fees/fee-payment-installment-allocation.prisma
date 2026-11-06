@@ -1,0 +1,22 @@
+model FeePaymentInstallmentAllocation {
+  id                 String                          @id @default(uuid())
+  feePaymentId       String
+  installmentId      String
+  feePaymentHeaderId String
+  allocatedAmount    Decimal                         @db.Decimal(12, 2)
+  reversedAmount     Decimal                         @default(0) @db.Decimal(12, 2)
+  isReconstructed    Boolean                         @default(false)
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+
+  feePayment         FeePayment                      @relation(fields: [feePaymentId], references: [id], onDelete: Restrict)
+  installment        AdmissionInstallment            @relation(fields: [installmentId], references: [id], onDelete: Restrict)
+  header             FeePaymentHeader                @relation(fields: [feePaymentHeaderId], references: [id], onDelete: Restrict)
+  reversalAllocations InstallmentAllocationReversalEvent[]
+
+  @@unique([id, feePaymentId], name: "uq_alloc_id_payment")
+  @@unique([id, feePaymentHeaderId], name: "uq_alloc_id_header")
+  @@index([feePaymentId])
+  @@index([installmentId])
+  @@index([feePaymentHeaderId])
+}

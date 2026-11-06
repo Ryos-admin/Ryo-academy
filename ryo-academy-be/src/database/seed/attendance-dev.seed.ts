@@ -4,6 +4,7 @@ import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   AdmissionStatus,
+  DayOfWeek,
   DayType,
   Gender,
   type Prisma,
@@ -266,7 +267,13 @@ async function main() {
       academicYearId: academicYear.id,
       name: 'Day Care Program',
       isPrimary: true,
-      daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+      daysOfWeek: [
+        DayOfWeek.MONDAY,
+        DayOfWeek.TUESDAY,
+        DayOfWeek.WEDNESDAY,
+        DayOfWeek.THURSDAY,
+        DayOfWeek.FRIDAY,
+      ],
       startTime: '08:00',
       endTime: '17:00',
     },

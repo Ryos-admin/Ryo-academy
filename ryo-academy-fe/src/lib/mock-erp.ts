@@ -79,9 +79,9 @@ export type DB = { users: User[]; students: Student[]; admissions: Admission[]; 
 
 const seed: DB = {
   users: [
-    { id: "u1", name: "Ananya Rao", email: "ananya.rao@nalanda.edu.in", role: "OFFICE_ADMIN", permissions: [], avatar: "AR", title: "Registrar & Office Admin" },
-    { id: "u2", name: "Vikram Menon", email: "vikram.menon@nalanda.edu.in", role: "COLLEGE_ADMIN", permissions: [], avatar: "VM", title: "Dean of Academics" },
-    { id: "u3", name: "Meera Iyer", email: "meera.iyer@nalanda.edu.in", role: "STAFF", permissions: [], avatar: "MI", title: "Assistant Professor, Science" },
+    { id: "u1", name: "Ananya Rao", email: "ananya.rao@nalanda.edu.in", schoolId: null, role: "OFFICE_ADMIN", permissions: [], avatar: "AR", title: "Registrar & Office Admin" },
+    { id: "u2", name: "Vikram Menon", email: "vikram.menon@nalanda.edu.in", schoolId: null, role: "COLLEGE_ADMIN", permissions: [], avatar: "VM", title: "Dean of Academics" },
+    { id: "u3", name: "Meera Iyer", email: "meera.iyer@nalanda.edu.in", schoolId: null, role: "STAFF", permissions: [], avatar: "MI", title: "Assistant Professor, Science" },
   ],
   students: [
     { id: "s1", admissionNumber: "NAC-24-0187", name: "Aarav Sharma", email: "aarav.sharma@gmail.com", phone: "+91 98765 41208", className: "B.Sc. Computer Science", section: "A", dateOfBirth: "2005-08-14", gender: "Male", guardianName: "Rakesh Sharma", guardianPhone: "+91 98450 11209", status: "Active", admissionId: "ad4", feeStatus: "Partial" },

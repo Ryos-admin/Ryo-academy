@@ -10,6 +10,9 @@ model FeeStructure {
     class Class @relation(fields: [classId], references: [id])
     totalAmount Decimal
     isActive Boolean @default(true)
+    deletedAt DateTime?
+    deletedById String?
+    deletedBy User? @relation("FeeStructureDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
     feeComponents FeeComponent[]

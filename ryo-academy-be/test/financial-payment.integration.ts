@@ -44,7 +44,7 @@ async function main() {
     const actorB = await db.user.create({ data: { email: `qa-finance-actor-b-${Date.now()}@example.test`, passwordHash: 'fixture-hash', firstName: 'Finance', lastName: 'B', schoolId: schoolB.id } });
     ids.users.push(actorA.id, actorB.id);
     const year = await db.academicYear.create({ data: { name: 'QA Finance Year', startDate: new Date('2026-06-01'), endDate: new Date('2027-03-31'), schoolId: schoolA.id } }); ids.years.push(year.id);
-    const program = await db.program.create({ data: { name: 'QA Finance Program', academicYearId: year.id, startTime: '08:00', endTime: '15:00', daysOfWeek: ['MON'] } }); ids.programs.push(program.id);
+    const program = await db.program.create({ data: { name: 'QA Finance Program', academicYearId: year.id, startTime: '08:00', endTime: '15:00', daysOfWeek: ['MONDAY'] } }); ids.programs.push(program.id);
     const cls = await db.class.create({ data: { name: 'QA Finance Class', programId: program.id } }); ids.classes.push(cls.id);
     const section = await db.section.create({ data: { name: 'QA Finance Section', classId: cls.id } }); ids.sections.push(section.id);
     const structure = await db.feeStructure.create({ data: { name: 'QA Finance Structure', academicYearId: year.id, programId: program.id, classId: cls.id, totalAmount: 100 } }); ids.structures.push(structure.id);
@@ -55,30 +55,30 @@ async function main() {
     const detail = await db.feePaymentDetails.create({ data: { feePaymentHeaderId: header.id, feeComponentId: component.id, nameSnapshot: component.name, originalAmount: 100, discountApplicable: false, isMandatory: true, discountAmount: 0, finalAmount: 100, totalAmountToBePaid: 100, amountPaid: 0, paymentDate: new Date() } }); ids.details.push(detail.id);
     const service = new StudentService(db);
     const key = '11111111-1111-4111-8111-111111111111';
-    await service.recordStudentFeePayment(student.id, { amount: 40, paymentDate: '2026-10-10', idempotencyKey: key }, actorA.id);
+    await service.recordStudentFeePayment(student.id, { amount: '40', paymentDate: '2026-10-10', idempotencyKey: key }, actorA.id);
     const posted = await db.$transaction(async (tx: any) => ({ payment: await tx.feePayment.findUnique({ where: { idempotencyKey: key } }), log: await tx.financialLog.findMany({ where: { sourceType: 'FEE_PAYMENT' } }), header: await tx.feePaymentHeader.findUnique({ where: { id: header.id } }), detail: await tx.feePaymentDetails.findUnique({ where: { id: detail.id } }) }));
     ids.payments.push(posted.payment.id); ids.logs.push(posted.log[0].id);
     assert.equal(posted.payment.amount.toString(), '40'); assert.equal(posted.payment.userId, actorA.id); assert.equal(posted.payment.schoolId, schoolA.id); assert.equal(posted.log.length, 1); assert.equal(posted.log[0].flowType, 'INCOME'); assert.equal(posted.log[0].sourceId, posted.payment.id); assert.equal(posted.header.totalPaidAmount.toString(), '40'); assert.equal(posted.detail.amountPaid.toString(), '40');
-    await service.recordStudentFeePayment(student.id, { amount: 40, paymentDate: '2026-10-10', idempotencyKey: key }, actorA.id);
+    await service.recordStudentFeePayment(student.id, { amount: '40', paymentDate: '2026-10-10', idempotencyKey: key }, actorA.id);
     assert.equal((await db.feePayment.count({ where: { idempotencyKey: key } })), 1); assert.equal((await db.financialLog.count({ where: { sourceId: posted.payment.id } })), 1);
-    await assert.rejects(() => service.recordStudentFeePayment(student.id, { amount: 50, idempotencyKey: key }, actorA.id), ConflictException);
+    await assert.rejects(() => service.recordStudentFeePayment(student.id, { amount: '50', idempotencyKey: key }, actorA.id), ConflictException);
     const concurrentKey = '44444444-4444-4444-8444-444444444444';
     await Promise.all([
-      service.recordStudentFeePayment(student.id, { amount: 10, idempotencyKey: concurrentKey }, actorA.id),
-      service.recordStudentFeePayment(student.id, { amount: 10, idempotencyKey: concurrentKey }, actorA.id),
+      service.recordStudentFeePayment(student.id, { amount: '10', idempotencyKey: concurrentKey }, actorA.id),
+      service.recordStudentFeePayment(student.id, { amount: '10', idempotencyKey: concurrentKey }, actorA.id),
     ]);
     assert.equal(await db.feePayment.count({ where: { idempotencyKey: concurrentKey } }), 1);
     const concurrentPayment = await db.feePayment.findUnique({ where: { idempotencyKey: concurrentKey } });
     assert.equal(await db.financialLog.count({ where: { sourceType: 'FEE_PAYMENT', sourceId: concurrentPayment.id } }), 1);
-    await assert.rejects(() => service.recordStudentFeePayment(student.id, { amount: 10, idempotencyKey: '22222222-2222-4222-8222-222222222222' }, actorB.id), NotFoundException);
-    await assert.rejects(() => service.recordStudentFeePayment(student.id, { amount: 100, idempotencyKey: '33333333-3333-4333-8333-333333333333' }, actorA.id));
+    await assert.rejects(() => service.recordStudentFeePayment(student.id, { amount: '10', idempotencyKey: '22222222-2222-4222-8222-222222222222' }, actorB.id), NotFoundException);
+    await assert.rejects(() => service.recordStudentFeePayment(student.id, { amount: '100', idempotencyKey: '33333333-3333-4333-8333-333333333333' }, actorA.id));
     assert.equal((await db.feePayment.count({ where: { studentId: student.id } })), 2); assert.equal((await db.financialLog.count({ where: { sourceType: 'FEE_PAYMENT', sourceId: posted.payment.id } })), 1);
     const beforeFailure = await db.$transaction(async (tx: any) => ({ header: await tx.feePaymentHeader.findUnique({ where: { id: header.id } }), detail: await tx.feePaymentDetails.findUnique({ where: { id: detail.id } }), payments: await tx.feePayment.count({ where: { studentId: student.id } }), logs: await tx.financialLog.count({ where: { sourceType: 'FEE_PAYMENT' } }) }));
     const failingService = new FinancialLogFailureStudentService(db);
-    await assert.rejects(() => failingService.recordStudentFeePayment(student.id, { amount: 5, idempotencyKey: '55555555-5555-4555-8555-555555555555' }, actorA.id), /intentional FinancialLog failure/);
+    await assert.rejects(() => failingService.recordStudentFeePayment(student.id, { amount: '5', idempotencyKey: '55555555-5555-4555-8555-555555555555' }, actorA.id), /intentional FinancialLog failure/);
     const afterFailure = await db.$transaction(async (tx: any) => ({ header: await tx.feePaymentHeader.findUnique({ where: { id: header.id } }), detail: await tx.feePaymentDetails.findUnique({ where: { id: detail.id } }), payment: await tx.feePayment.findUnique({ where: { idempotencyKey: '55555555-5555-4555-8555-555555555555' } }), payments: await tx.feePayment.count({ where: { studentId: student.id } }), logs: await tx.financialLog.count({ where: { sourceType: 'FEE_PAYMENT' } }) }));
     assert.equal(afterFailure.header.totalPaidAmount.toString(), beforeFailure.header.totalPaidAmount.toString()); assert.equal(afterFailure.detail.amountPaid.toString(), beforeFailure.detail.amountPaid.toString()); assert.equal(afterFailure.payment, null); assert.equal(afterFailure.payments, beforeFailure.payments); assert.equal(afterFailure.logs, beforeFailure.logs);
-    await service.recordStudentFeePayment(student.id, { amount: 5, idempotencyKey: '66666666-6666-4666-8666-666666666666' }, actorA.id);
+    await service.recordStudentFeePayment(student.id, { amount: '5', idempotencyKey: '66666666-6666-4666-8666-666666666666' }, actorA.id);
     assert.equal(await db.feePayment.count({ where: { studentId: student.id } }), beforeFailure.payments + 1);
     console.log('FINANCIAL_PAYMENT_INTEGRATION_PASS');
   } finally { await cleanup(); await db.$disconnect(); }

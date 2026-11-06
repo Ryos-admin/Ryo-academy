@@ -60,8 +60,8 @@ async function main() {
     const year = await db.academicYear.create({ data: { name: "QA Soft Delete Year", startDate: new Date("2026-06-01"), endDate: new Date("2027-03-31"), schoolId: schoolA.id } });
     const otherYear = await db.academicYear.create({ data: { name: "QA Other School Year", startDate: new Date("2026-06-01"), endDate: new Date("2027-03-31"), schoolId: schoolB.id } });
     created.years.push(year.id, otherYear.id);
-    const program = await db.program.create({ data: { name: "QA Program", academicYearId: year.id, startTime: "08:00", endTime: "15:00", daysOfWeek: ["MON", "TUE"] } });
-    const otherProgram = await db.program.create({ data: { name: "QA Other Program", academicYearId: otherYear.id, startTime: "08:00", endTime: "15:00", daysOfWeek: ["MON"] } });
+    const program = await db.program.create({ data: { name: "QA Program", academicYearId: year.id, startTime: "08:00", endTime: "15:00", daysOfWeek: ["MONDAY", "TUESDAY"] } });
+    const otherProgram = await db.program.create({ data: { name: "QA Other Program", academicYearId: otherYear.id, startTime: "08:00", endTime: "15:00", daysOfWeek: ["MONDAY"] } });
     created.programs.push(program.id, otherProgram.id);
     const cls = await db.class.create({ data: { name: "QA Class", programId: program.id } });
     const otherClass = await db.class.create({ data: { name: "QA Other Class", programId: otherProgram.id } });

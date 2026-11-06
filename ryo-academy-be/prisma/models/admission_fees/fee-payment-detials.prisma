@@ -8,6 +8,7 @@ model FeePaymentDetails {
     nameSnapshot String
 
     isActive Boolean @default(true)
+    isIncluded Boolean @default(true)
 
     originalAmount Decimal
     discountApplicable Boolean
@@ -17,9 +18,12 @@ model FeePaymentDetails {
     totalAmountToBePaid Decimal
     amountPaid Decimal
     paymentDate DateTime
+    concession AdmissionFeeConcession?
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
+    detailAttributions FeePaymentDetailAttribution[] @relation("DetailAttributions")
 
     @@unique([feePaymentHeaderId, feeComponentId])
+    @@unique([id, feePaymentHeaderId], name: "uq_detail_id_header")
     @@index([feePaymentHeaderId, feeComponentId])
 }

@@ -1,0 +1,71 @@
+enum InstallmentScheduleType {
+  TEMPLATE
+  CUSTOM
+}
+
+enum InstallmentRowStatus {
+  PENDING
+  PAID
+  PAID_EARLY
+  SUPERSEDED
+}
+
+model AdmissionInstallmentSchedule {
+  id                 String                  @id @default(uuid())
+  schoolId           String
+  admissionId        String
+  feePaymentHeaderId String                  @unique
+  templateId         String?
+  scheduleType       InstallmentScheduleType
+  totalAmount        Decimal                 @db.Decimal(12, 2)
+  installmentCount   Int
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  school             School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  admission          Admission               @relation(fields: [admissionId], references: [id], onDelete: Restrict)
+  feePaymentHeader   FeePaymentHeader        @relation(fields: [feePaymentHeaderId], references: [id], onDelete: Restrict)
+  template           InstallmentTemplate?    @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  installments       AdmissionInstallment[]
+  lineageEvents      InstallmentLineageEvent[]
+
+  @@unique([feePaymentHeaderId, admissionId], name: "uq_schedule_header_admission")
+  @@unique([id, feePaymentHeaderId], name: "uq_schedule_id_header")
+  @@index([schoolId])
+  @@index([admissionId])
+  @@index([feePaymentHeaderId])
+  @@index([templateId])
+}
+
+model AdmissionInstallment {
+  id                 String                  @id @default(uuid())
+  scheduleId         String
+  feePaymentHeaderId String
+  sequence           Int
+  subSequence        Int                     @default(0)
+  offsetAmount       Decimal                 @db.Decimal(12, 2)
+  rootInstallmentId  String?
+  label              String
+  amount             Decimal                 @db.Decimal(12, 2)
+  dueDate            DateTime
+  status             InstallmentRowStatus    @default(PENDING)
+  paidAt             DateTime?
+  supersededAt       DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  schedule           AdmissionInstallmentSchedule @relation(fields: [scheduleId], references: [id], onDelete: Restrict)
+  feePaymentHeader   FeePaymentHeader             @relation(fields: [feePaymentHeaderId], references: [id], onDelete: Restrict)
+  allocations        FeePaymentInstallmentAllocation[]
+  sourceTransferEdges InstallmentLineageTransferEdge[] @relation("SourceTransferEdges")
+  resultTransferEdges InstallmentLineageTransferEdge[] @relation("ResultTransferEdges")
+
+  @@unique([id, scheduleId], name: "uq_installment_id_schedule")
+  @@unique([id, feePaymentHeaderId], name: "uq_installment_id_header")
+  @@unique([scheduleId, sequence, subSequence], name: "uq_schedule_seq_subseq")
+  @@index([scheduleId, sequence, offsetAmount], map: "AdmissionInstallment_scheduleId_seq_offset_idx")
+  @@index([scheduleId, status])
+  @@index([feePaymentHeaderId])
+  @@index([rootInstallmentId])
+  @@index([dueDate])
+}

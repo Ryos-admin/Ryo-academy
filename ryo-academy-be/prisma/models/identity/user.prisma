@@ -30,6 +30,11 @@ model User {
   createdExpenses Expense[] @relation("ExpenseCreatedBy")
   deletedExpenses Expense[] @relation("ExpenseDeletedBy")
   feePayments FeePayment[] @relation("FeePaymentActor")
+  deletedFeeStructures FeeStructure[] @relation("FeeStructureDeletedBy")
+  deletedFeeComponents FeeComponent[] @relation("FeeComponentDeletedBy")
+  appliedConcessions AdmissionFeeConcession[] @relation("ConcessionAppliedBy")
+  concessionRevisions AdmissionFeeConcessionRevision[] @relation("ConcessionRevisionActor")
+  paymentReversals PaymentReversalEvent[] @relation("ReversalActor")
   @@index([isActive])
   @@index([deletedById])
 }

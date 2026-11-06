@@ -12,4 +12,9 @@ model School {
   financialLogs FinancialLog[]
   expenses Expense[]
   feePayments FeePayment[]
+  concessionCategories FeeConcessionCategory[]
+  admissionConcessions AdmissionFeeConcession[]
+  installmentTemplates InstallmentTemplate[]
+  installmentSchedules AdmissionInstallmentSchedule[]
+  paymentReversals PaymentReversalEvent[]
 }

@@ -26,7 +26,11 @@ describe('StaffService lifecycle', () => {
 
     await service.updateStatus('staff-1', false, 'actor-1');
 
-    expect(tx.teachingAssignment.updateMany).toHaveBeenCalledWith({
+    expect(tx.teachingAssignment.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { staffId: 'staff-1', deletedAt: null, historicalStaffId: null },
+      data: { historicalStaffId: 'staff-1' },
+    });
+    expect(tx.teachingAssignment.updateMany).toHaveBeenNthCalledWith(2, {
       where: { staffId: 'staff-1', deletedAt: null },
       data: { staffId: null },
     });
@@ -35,6 +39,30 @@ describe('StaffService lifecycle', () => {
       data: { isActive: false, deletedAt: expect.any(Date), deletedById: 'actor-1' },
     });
     expect(tx.staff.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: false, isActive: false, deletedAt: expect.any(Date) }) }));
+  });
+
+  it('does not overwrite an existing historicalStaffId', async () => {
+    // Setup staff record (no need to embed historicalStaffId on staff; the logic is in TeachingAssignment)
+    db.staff.findFirst.mockResolvedValue({ id: 'staff-1', userId: 'user-1', status: true, isActive: true, deletedAt: null, user: { schoolId: 'school-1' } });
+    db.user.findUnique.mockResolvedValue({ schoolId: 'school-1' });
+    const tx = {
+      teachingAssignment: { updateMany: jest.fn() },
+      user: { update: jest.fn() },
+      staff: { update: jest.fn().mockResolvedValue({ id: 'staff-1', isActive: false }) },
+    };
+    db.$transaction.mockImplementation((cb: any) => cb(tx));
+    const service = new StaffService(db, password, users);
+
+    await service.updateStatus('staff-1', false, 'actor-1');
+
+    expect(tx.teachingAssignment.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { staffId: 'staff-1', deletedAt: null, historicalStaffId: null },
+      data: { historicalStaffId: 'staff-1' },
+    });
+    expect(tx.teachingAssignment.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { staffId: 'staff-1', deletedAt: null },
+      data: { staffId: null },
+    });
   });
 
   it('does not rerun the cascade for an already inactive staff record', async () => {

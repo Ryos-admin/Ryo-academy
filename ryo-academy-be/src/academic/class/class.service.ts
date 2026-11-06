@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException, ForbiddenException } from "@nestjs/common";
 import { CreateClassDto } from "./dto/create-class.dto.js";
 import { DatabaseService } from "../../database/database.service.js";
 import { UpdateClassDto } from "./dto/update-class.dto.js";
@@ -103,10 +103,71 @@ export class ClassService {
         }
     }
 
-    async remove(id: string) {
-        await this.findClassById(id);
-        return this.databaseService.class.update({ where: { id }, data: { isActive: false, deletedAt: new Date() } });
+    async remove(id: string, actorUserId: string) {
+    // Verify actor and school ownership
+    const actor = await this.databaseService.user.findUnique({
+      where: { id: actorUserId },
+      select: { schoolId: true },
+    });
+    if (!actor?.schoolId) throw new ForbiddenException('A school-scoped user is required');
+
+    // Load class with its school via program → academicYear
+    const classWithSchool = await this.databaseService.class.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        programId: true,
+        isActive: true,
+        deletedAt: true,
+        program: {
+          select: {
+            academicYear: { select: { schoolId: true } },
+          },
+        },
+      },
+    });
+    if (!classWithSchool || classWithSchool.isActive === false || classWithSchool.deletedAt) {
+      throw new NotFoundException(`Class with id "${id}" not found`);
+    }
+    const classSchoolId = classWithSchool.program?.academicYear?.schoolId;
+    if (classSchoolId !== actor.schoolId) throw new ForbiddenException('Cross-school deletion not allowed');
+
+    // Guard: active DRAFT or CONFIRMED admissions
+    const blockingAdmission = await this.databaseService.admission.findFirst({
+      where: {
+        classId: id,
+        isActive: true,
+        deletedAt: null,
+        admissionStatus: { in: ['DRAFT', 'CONFIRMED'] },
+      },
+      select: { id: true },
+    });
+    if (blockingAdmission) {
+      throw new ConflictException('Class cannot be deleted while active admissions exist.');
     }
 
+    // Guard: submitted attendance logs
+    const blockingAttendance = await this.databaseService.attendanceLogMaster.findFirst({
+      where: {
+        classId: id,
+        isActive: true,
+        deletedAt: null,
+        status: 'SUBMITTED',
+      },
+      select: { id: true },
+    });
+    if (blockingAttendance) {
+      throw new ConflictException('Class cannot be deleted while submitted attendance records exist.');
+    }
+
+    // Soft-delete with actor attribution
+    return this.databaseService.class.update({
+      where: { id },
+      data: { isActive: false, deletedAt: new Date(), deletedById: actorUserId },
+    });
+  }
 
 }
+
+
+

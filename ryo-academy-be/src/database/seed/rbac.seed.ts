@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '../../../generated/prisma/client.js';
+import { PrismaClient, DayOfWeek } from '../../../generated/prisma/client.js';
 
 const ROLES = {
   COLLEGE_ADMIN: 'COLLEGE_ADMIN',
@@ -16,6 +16,7 @@ const PERMISSIONS = {
   FEES_READ: 'fees:read',
   FEES_CREATE: 'fees:create',
   FEES_UPDATE: 'fees:update',
+  FEES_REVERSE: 'fees:reverse',
   EXPENSE_CREATE: 'expense:create',
   EXPENSE_DELETE: 'expense:delete',
   CLASS_READ: 'class:read',
@@ -37,6 +38,11 @@ const PERMISSIONS = {
   SUBJECT_CREATE: 'subject:create',
   SUBJECT_UPDATE: 'subject:update',
   TIMETABLE_READ: 'timetable:read',
+  INSTALLMENT_TEMPLATE_READ: 'installment-template:read',
+  INSTALLMENT_TEMPLATE_CREATE: 'installment-template:create',
+  INSTALLMENT_TEMPLATE_DEACTIVATE: 'installment-template:deactivate',
+  INSTALLMENT_SCHEDULE_READ: 'installment-schedule:read',
+  INSTALLMENT_SCHEDULE_MANAGE: 'installment-schedule:manage',
 } as const;
 
 const ROLE_DESCRIPTIONS = {
@@ -52,6 +58,7 @@ const PERMISSION_DESCRIPTIONS: Record<(typeof PERMISSIONS)[keyof typeof PERMISSI
   [PERMISSIONS.FEES_READ]: 'View fees.',
   [PERMISSIONS.FEES_CREATE]: 'Create fee records.',
   [PERMISSIONS.FEES_UPDATE]: 'Update fee records.',
+  [PERMISSIONS.FEES_REVERSE]: 'Reverse previously recorded student fee payments.',
   [PERMISSIONS.EXPENSE_CREATE]: 'Create cash expenses.',
   [PERMISSIONS.EXPENSE_DELETE]: 'Reverse cash expenses by soft deletion.',
   [PERMISSIONS.CLASS_READ]: 'View classes.',
@@ -73,10 +80,17 @@ const PERMISSION_DESCRIPTIONS: Record<(typeof PERMISSIONS)[keyof typeof PERMISSI
   [PERMISSIONS.SUBJECT_CREATE]: 'Create Subject.',
   [PERMISSIONS.SUBJECT_UPDATE]: 'Update Subject.',
   [PERMISSIONS.TIMETABLE_READ]: 'View timetables.',
+  [PERMISSIONS.INSTALLMENT_TEMPLATE_READ]: 'View installment templates.',
+  [PERMISSIONS.INSTALLMENT_TEMPLATE_CREATE]: 'Create installment templates.',
+  [PERMISSIONS.INSTALLMENT_TEMPLATE_DEACTIVATE]: 'Deactivate installment templates.',
+  [PERMISSIONS.INSTALLMENT_SCHEDULE_READ]: 'View admission installment schedules.',
+  [PERMISSIONS.INSTALLMENT_SCHEDULE_MANAGE]: 'Manage and customize admission installment schedules.',
 };
 
 const ROLE_PERMISSIONS = {
-  [ROLES.COLLEGE_ADMIN]: Object.values(PERMISSIONS),
+  [ROLES.COLLEGE_ADMIN]: Object.values(PERMISSIONS).filter(
+    (p) => p !== PERMISSIONS.INSTALLMENT_SCHEDULE_MANAGE,
+  ),
   [ROLES.OFFICE_ADMIN]: [
     PERMISSIONS.ADMISSION_READ,
     PERMISSIONS.ADMISSION_CREATE,
@@ -100,6 +114,9 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.SUBJECT_CREATE,
     PERMISSIONS.SUBJECT_UPDATE,
     PERMISSIONS.TIMETABLE_READ,
+    PERMISSIONS.INSTALLMENT_TEMPLATE_READ,
+    PERMISSIONS.INSTALLMENT_SCHEDULE_READ,
+    PERMISSIONS.INSTALLMENT_SCHEDULE_MANAGE,
   ],
   [ROLES.STAFF]: [
     PERMISSIONS.STUDENT_READ,
@@ -256,7 +273,13 @@ async function seedAcademicFoundation(): Promise<void> {
       name: 'Day Care Program',
       academicYearId: academicYear.id,
       isPrimary: true,
-      daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+      daysOfWeek: [
+        DayOfWeek.MONDAY,
+        DayOfWeek.TUESDAY,
+        DayOfWeek.WEDNESDAY,
+        DayOfWeek.THURSDAY,
+        DayOfWeek.FRIDAY,
+      ],
       startTime: '08:00',
       endTime: '17:00',
     },
@@ -276,7 +299,13 @@ async function seedAcademicFoundation(): Promise<void> {
       name: 'Karate Program',
       academicYearId: academicYear.id,
       isPrimary: false,
-      daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+      daysOfWeek: [
+        DayOfWeek.MONDAY,
+        DayOfWeek.TUESDAY,
+        DayOfWeek.WEDNESDAY,
+        DayOfWeek.THURSDAY,
+        DayOfWeek.FRIDAY,
+      ],
       startTime: '17:00',
       endTime: '18:00',
     },

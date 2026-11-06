@@ -1,0 +1,18 @@
+model FeeConcessionCategory {
+  id String @id @default(uuid())
+  schoolId String
+  school School @relation(fields: [schoolId], references: [id])
+  name String
+  code String
+  description String?
+  isActive Boolean @default(true)
+  deletedAt DateTime?
+  deletedById String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  concessions AdmissionFeeConcession[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId, isActive])
+}

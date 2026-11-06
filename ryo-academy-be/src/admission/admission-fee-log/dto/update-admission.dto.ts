@@ -11,194 +11,57 @@ import {
   IsOptional,
   IsPostalCode,
   IsString,
+  IsArray,
+  ArrayNotEmpty,
+  IsUUID,
 } from 'class-validator';
 import { Gender, Relation } from '../../../../generated/prisma/enums.js';
+import { IsMoneyString } from '../../../common/money/money.util.js';
 
 export class UpdateFeePaymentDetailsDto {
-  @ApiProperty({
-    description: 'ID of the admission associated with the fee payment',
-    example: 'admission-123',
-    type: String,
-  })
-  @IsString()
-  @IsNotEmpty()
-  id!: string;
-
-  @ApiProperty({
-    description:
-      'ID of the fee payment header associated with the fee payment detail',
-    example: 'fee-payment-header-123',
-    type: String,
-  })
-  @IsString()
-  @IsNotEmpty()
-  feePaymentHeaderId!: string;
-
-  @ApiProperty({
-    description:
-      'ID of the fee component associated with the fee payment detail',
-    example: 'fee-component-123',
-    type: String,
-  })
-  @IsString()
-  @IsNotEmpty()
-  feeComponentId!: string;
-
-  @ApiProperty({
-    description: 'Original amount of the fee component before any discounts',
-    example: 1000.0,
-    type: Number,
-  })
-  @IsNumber()
-  @IsNotEmpty()
-  originalAmount!: number;
-
-  @ApiProperty({
-    description: 'Discount amount of the fee component before any discounts',
-    example: 100.0,
-    type: Number,
-  })
-  @IsNotEmpty()
-  @IsNumber()
-  discountAmount!: number;
-
-  @ApiProperty({
-    description: 'Discount applicable of the fee component',
-    type: Boolean,
-    example: true,
-  })
-  @IsNotEmpty()
-  @IsBoolean()
-  discountApplicable!: boolean;
-
-  @ApiProperty({
-    description: 'Is mandate from the fee component',
-    example: false,
-    type: Boolean,
-  })
-  @IsNotEmpty()
-  @IsBoolean()
-  isMandatory!: boolean;
-
-  @ApiProperty({
-    description: 'Total Payment Amount againist this component',
-    example: 1000,
-    type: Number,
-  })
-  @IsNotEmpty()
-  @IsNumber()
-  amountPaid!: number;
-
-  @ApiProperty({
-    description: 'last payment date',
-    type: Date,
-    example: '10-02-2001',
-  })
-  @IsNotEmpty()
-  @IsDate()
-  paymentDate!: Date;
+  @ApiProperty({ description: 'ID of the admission associated with the fee payment', example: 'admission-123', type: String })
+  @IsString() @IsNotEmpty() id!: string;
+  @ApiProperty({ description: 'ID of the fee payment header associated with the fee payment detail', example: 'fee-payment-header-123', type: String })
+  @IsString() @IsNotEmpty() feePaymentHeaderId!: string;
+  @ApiProperty({ description: 'ID of the fee component associated with the fee payment detail', example: 'fee-component-123', type: String })
+  @IsString() @IsNotEmpty() feeComponentId!: string;
+  @ApiProperty({ description: 'Original amount of the fee component before any discounts', example: '1000.00', type: String })
+  @IsMoneyString() @IsNotEmpty() originalAmount!: string;
+  @ApiProperty({ description: 'Discount amount of the fee component before any discounts', example: '100.00', type: String })
+  @IsNotEmpty() @IsMoneyString() discountAmount!: string;
+  @ApiProperty({ description: 'Discount applicable of the fee component', type: Boolean, example: true })
+  @IsNotEmpty() @IsBoolean() discountApplicable!: boolean;
+  @ApiProperty({ description: 'Is mandate from the fee component', example: false, type: Boolean })
+  @IsNotEmpty() @IsBoolean() isMandatory!: boolean;
+  @ApiProperty({ description: 'Total Payment Amount againist this component', example: '1000.00', type: String })
+  @IsNotEmpty() @IsMoneyString() amountPaid!: string;
+  @ApiProperty({ description: 'last payment date', type: Date, example: '10-02-2001' })
+  @IsNotEmpty() @IsDate() paymentDate!: Date;
 }
 
 export class UpdateFeePaymentHeaderDto {
-  @ApiProperty({
-    description: 'ID of the admission associated with the fee payment',
-    example: 'admission-123',
-    type: String,
-  })
-  @IsString()
-  @IsNotEmpty()
-  id!: string;
-
-  @ApiProperty({
-    description: 'ID of the academic year for the admission',
-    example: '2023-24',
-    type: String,
-  })
-  @IsString()
-  @IsNotEmpty()
-  academicYearId!: string;
-
-  @ApiProperty({
-    description: 'ID of the admission associated with the fee payment',
-    example: 'admission-123',
-    type: String,
-  })
-  @IsString()
-  @IsNotEmpty()
-  admissionId!: string;
-
-  @ApiProperty({
-    description:
-      'ID of the fee payment master id associated with the fee payment',
-    example: 'fee-payment-master-123',
-    type: String,
-  })
-  @IsString()
-  @IsNotEmpty()
-  feeStructureId!: string;
-
-  @ApiProperty({
-    description: 'Gross amount of the fee payment',
-    example: 1000.0,
-    type: Number,
-  })
-  @IsNumber()
-  @IsNotEmpty()
-  grossAmount!: number;
-
-  @ApiProperty({
-    description: 'Discount amount applied to the fee payment',
-    example: 100.0,
-    type: Number,
-  })
-  @IsNumber()
-  @IsNotEmpty()
-  discountAmount!: number;
-
-  @ApiProperty({
-    description: 'Net amount after discount for the fee payment',
-    example: 900.0,
-    type: Number,
-  })
-  @IsNumber()
-  @IsNotEmpty()
-  netAmount!: number;
-
-  @ApiProperty({
-    description: 'Total amount paid for the fee payment',
-    example: 900.0,
-    type: Number,
-  })
-  @IsNumber()
-  @IsNotEmpty()
-  totalPaidAmount!: number;
-
-  @ApiProperty({
-    description: 'Total amount due for the fee payment',
-    example: 100.0,
-    type: Number,
-  })
-  @IsNumber()
-  @IsNotEmpty()
-  totalDueAmount!: number;
-
-  @ApiProperty({
-    description: 'Total fee amount for the fee payment',
-    example: 1000.0,
-    type: Number,
-  })
-  @IsNumber()
-  @IsNotEmpty()
-  totalFeeAmount!: number;
-
-  @ApiProperty({
-    description: 'List of fee payment details associated with the fee payment',
-    example: '[]',
-    type: () => [UpdateFeePaymentDetailsDto],
-  })
-  @IsNotEmpty()
-  @IsObject()
-  feePaymentDetails!: UpdateFeePaymentDetailsDto[];
+  @ApiProperty({ description: 'ID of the admission associated with the fee payment', example: 'admission-123', type: String })
+  @IsString() @IsNotEmpty() id!: string;
+  @ApiProperty({ description: 'ID of the academic year for the admission', example: '2023-24', type: String })
+  @IsString() @IsNotEmpty() academicYearId!: string;
+  @ApiProperty({ description: 'ID of the admission associated with the fee payment', example: 'admission-123', type: String })
+  @IsString() @IsNotEmpty() admissionId!: string;
+  @ApiProperty({ description: 'ID of the fee payment master id associated with the fee payment', example: 'fee-payment-master-123', type: String })
+  @IsString() @IsNotEmpty() feeStructureId!: string;
+  @ApiProperty({ description: 'Gross amount of the fee payment', example: '1000.00', type: String })
+  @IsMoneyString() @IsNotEmpty() grossAmount!: string;
+  @ApiProperty({ description: 'Discount amount applied to the fee payment', example: '100.00', type: String })
+  @IsMoneyString() @IsNotEmpty() discountAmount!: string;
+  @ApiProperty({ description: 'Net amount after discount for the fee payment', example: '900.00', type: String })
+  @IsMoneyString() @IsNotEmpty() netAmount!: string;
+  @ApiProperty({ description: 'Total amount paid for the fee payment', example: '900.00', type: String })
+  @IsMoneyString() @IsNotEmpty() totalPaidAmount!: string;
+  @ApiProperty({ description: 'Total amount due for the fee payment', example: '100.00', type: String })
+  @IsMoneyString() @IsNotEmpty() totalDueAmount!: string;
+  @ApiProperty({ description: 'Total fee amount for the fee payment', example: '1000.00', type: String })
+  @IsMoneyString() @IsNotEmpty() totalFeeAmount!: string;
+  @ApiProperty({ description: 'List of fee payment details associated with the fee payment', example: '[]', type: () => [UpdateFeePaymentDetailsDto] })
+  @IsNotEmpty() @IsObject() feePaymentDetails!: UpdateFeePaymentDetailsDto[];
 }
 
 export class UpdateAdmissionDto {
@@ -385,12 +248,16 @@ export class UpdateAdmissionDto {
   @IsPostalCode('any')
   postalCode?: string;
 
-  @ApiProperty({
-    description: 'Fee payment header for the admission record',
-    type: () => [UpdateFeePaymentHeaderDto],
-    required: false,
-  })
+  @ApiProperty({ description: 'Fee payment header for the admission record', type: () => [UpdateFeePaymentHeaderDto], required: false })
   @IsOptional()
   @IsObject()
   feePaymentHeaders?: UpdateFeePaymentHeaderDto;
+
+}
+
+export class UpdateAdmissionFeeConfigurationDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID('4', { each: true })
+  selectedFeeComponentIds!: string[];
 }

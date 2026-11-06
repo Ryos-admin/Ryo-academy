@@ -1,36 +1,37 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString } from "class-validator";
+import { IsBoolean, IsOptional, IsString } from "class-validator";
+import { IsMoneyString } from "../../../common/money/money.util.js";
 
 export class UpdateFeeComponentDto {
 
-    @ApiProperty({
+    @ApiPropertyOptional({
         description: 'Name of the fee component, e.g., "Tuition Fee"',
         example: 'Tuition Fee',
         type: String,
     })
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    name!: string;
+    name?: string;
 
-    @ApiProperty({
+    @ApiPropertyOptional({
         description: 'Description of the fee component',
         example: 'This fee component covers the tuition fees for the academic year',
         type: String,
     })
+    @IsOptional()
     @IsString()
     description?: string;
 
-    @ApiProperty({
+    @ApiPropertyOptional({
         description: 'Amount for the fee component',
-        example: 5000,
-        type: Number,
+        example: "5000.00",
+        type: String,
     })
-    @IsNumber()
-    @IsPositive()
-    @IsNotEmpty()
-    amount!: number;
+    @IsOptional()
+    @IsMoneyString()
+    amount?: string;
 
-    @ApiProperty({
+    @ApiPropertyOptional({
         description: 'Indicates whether a discount is applicable to this fee component',
         example: true,
         type: Boolean,
