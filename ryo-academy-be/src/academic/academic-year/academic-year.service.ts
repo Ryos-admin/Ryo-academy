@@ -140,6 +140,14 @@ export class AcademicYearService {
   async findOne(id: string) {
     const academicYear = await this.databaseService.academicYear.findUnique({
       where: { id, isActive: true, deletedAt: null },
+      include: {
+        school: {
+          select: {
+            name: true,
+            schoolCode: true,
+          },
+        },
+      },
     });
     if (!academicYear) {
       throw new NotFoundException(`Academic year with id "${id}" not found`);

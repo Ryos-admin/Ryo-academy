@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Lock,
   Plus,
   Settings2,
   Tag,
@@ -58,6 +59,12 @@ import { useClasses } from "@/lib/classes-api";
 import { usePrograms } from "@/lib/programs-api";
 import { useSections, useSectionsByClass } from "@/lib/sections-api";
 import { feeAmount } from "@/lib/fees-api";
+import {
+  formatFeeMinorUnits,
+  formatFeeMoney,
+  parseFeeMoneyMinorUnits,
+  sumFeeMoneyMinorUnits,
+} from "@/lib/fee-money";
 type AdmissionFeeDetailView = Omit<FeeConfigurationDetail, "name" | "concession"> & {
   name: string;
   concession: ConcessionComponentItem["concession"];
@@ -529,7 +536,7 @@ export function BasicDetail({
                 <strong>
                   {["appliedOn", "joinedOn", "dateOfBirth"].includes(key)
                     ? date(String(value))
-                    : String(value ?? "—")}
+                    : String(value ?? "-")}
                 </strong>
               </div>
             ))}
@@ -827,6 +834,18 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
     feePreview.data.feeStructure.programId === form.programId &&
     feePreview.data.feeStructure.classId === form.classId);
   const previewComponents = previewMatchesLookup ? feePreview.data?.components ?? [] : [];
+  const selectedComponents = previewComponents.filter((component) =>
+    selectedFeeComponentIds.includes(component.id)
+  );
+  const selectedPreviewTotal =
+    selectedComponents.length > 0 &&
+    selectedComponents.every(
+      (component) => parseFeeMoneyMinorUnits(component.originalAmount) !== null
+    )
+      ? sumFeeMoneyMinorUnits(
+          selectedComponents.map((component) => component.originalAmount)
+        )
+      : null;
   const previewMessage = hasFeeLookupCriteria
     ? feePreview.isLoading || feePreview.isFetching
       ? "Loading fee components…"
@@ -894,108 +913,258 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
         title={editing ? "Edit admission" : "New admission"}
         description="Capture the student, guardian, and academic placement details."
       />
-      <form onSubmit={submit} className="panel space-y-5">
-        <h2>Academic placement</h2>
-        <AdmissionSelectors form={form} setForm={setForm} editing={editing} />
-        {!editing && previewMessage && <p className="field-error" role="alert">{previewMessage}</p>}
-        {!editing && previewMatchesLookup && previewComponents.length > 0 && feePreview.data && <div className="panel space-y-2"><h2>Fee components</h2><p>Applicable fee structure: <strong>{feePreview.data.feeStructure.name}</strong> <span className="text-muted-foreground">({feePreview.data.feeStructure.id})</span></p>{feePreview.data.feeStructure.description && <p>{feePreview.data.feeStructure.description}</p>}{previewComponents.map((component) => <label key={component.id} className="flex items-center gap-2"><input type="checkbox" checked={selectedFeeComponentIds.includes(component.id)} disabled={component.locked || component.isMandatory} onChange={(event) => setSelectedFeeComponentIds((current) => toggleFeeSelection(current, component.id, component.locked || component.isMandatory, event.target.checked))} /><span>{component.name} — {component.originalAmount}{component.isMandatory ? " (Mandatory)" : ""} · {component.isDiscountApplicable ? "Discount applicable" : "No discount"}</span></label>)}</div>}
-        <h2>Student / applicant</h2>
-        <div className="form-grid">
-          <FieldValue
-            label="Student name"
-            value={form.studentName}
-            onChange={update("studentName")}
-          />
-          <AdmissionSelectField
-            name="gender"
-            label="Gender"
-            options={[
-              ["MALE", "Male"],
-              ["FEMALE", "Female"],
-              ["OTHER", "Other"],
-            ]}
-            value={form.gender}
-            onChange={(value) =>
-              setForm((current) => ({ ...current, gender: value }))
-            }
-          />
-          <FieldValue
-            label="Date of birth"
-            type="date"
-            value={form.dateOfBirth}
-            onChange={update("dateOfBirth")}
-          />
-        </div>
-        <h2>Parent / guardian</h2>
-        <div className="form-grid">
-          <FieldValue
-            label="Parent name"
-            value={form.parentName}
-            onChange={update("parentName")}
-          />
-          <AdmissionSelectField
-            name="parentRelation"
-            label="Relation"
-            options={[
-              ["FATHER", "Father"],
-              ["MOTHER", "Mother"],
-              ["GUARDIAN", "Guardian"],
-            ]}
-            value={form.parentRelation}
-            onChange={(value) =>
-              setForm((current) => ({ ...current, parentRelation: value }))
-            }
-          />
-          <FieldValue
-            label="Parent phone"
-            value={form.parentPhone}
-            onChange={update("parentPhone")}
-          />
-          <FieldValue
-            label="Alternate phone"
-            value={form.parentAlternatePhone}
-            onChange={update("parentAlternatePhone")}
-          />
-          <FieldValue
-            label="Parent email"
-            type="email"
-            value={form.parentEmail}
-            onChange={update("parentEmail")}
-          />
-        </div>
-        <h2>Address</h2>
-        <div className="form-grid">
-          <FieldValue
-            label="Address line 1"
-            value={form.addressLine1}
-            onChange={update("addressLine1")}
-          />
-          <FieldValue
-            label="Address line 2"
-            value={form.addressLine2}
-            onChange={update("addressLine2")}
-          />
-          <FieldValue
-            label="City"
-            value={form.city}
-            onChange={update("city")}
-          />
-          <FieldValue
-            label="State"
-            value={form.state}
-            onChange={update("state")}
-          />
-          <FieldValue
-            label="Country"
-            value={form.country}
-            onChange={update("country")}
-          />
-          <FieldValue
-            label="Postal code"
-            value={form.postalCode}
-            onChange={update("postalCode")}
-          />
-        </div>
+      <form onSubmit={submit} className="panel space-y-6">
+        {/* 1. Academic Placement */}
+        <section className="space-y-4">
+          <h2>Academic placement</h2>
+          <AdmissionSelectors form={form} setForm={setForm} editing={editing} />
+        </section>
+
+        {/* 2. Student / Applicant Information */}
+        <section className="space-y-4">
+          <h2>Student / applicant</h2>
+          <div className="form-grid">
+            <FieldValue
+              label="Student name"
+              value={form.studentName}
+              onChange={update("studentName")}
+            />
+            <AdmissionSelectField
+              name="gender"
+              label="Gender"
+              options={[
+                ["MALE", "Male"],
+                ["FEMALE", "Female"],
+                ["OTHER", "Other"],
+              ]}
+              value={form.gender}
+              onChange={(value) =>
+                setForm((current) => ({ ...current, gender: value }))
+              }
+            />
+            <FieldValue
+              label="Date of birth"
+              type="date"
+              value={form.dateOfBirth}
+              onChange={update("dateOfBirth")}
+            />
+          </div>
+        </section>
+
+        {/* 3. Parent / Guardian & Address Information */}
+        <section className="space-y-4">
+          <h2>Parent / guardian</h2>
+          <div className="form-grid">
+            <FieldValue
+              label="Parent name"
+              value={form.parentName}
+              onChange={update("parentName")}
+            />
+            <AdmissionSelectField
+              name="parentRelation"
+              label="Relation"
+              options={[
+                ["FATHER", "Father"],
+                ["MOTHER", "Mother"],
+                ["GUARDIAN", "Guardian"],
+              ]}
+              value={form.parentRelation}
+              onChange={(value) =>
+                setForm((current) => ({ ...current, parentRelation: value }))
+              }
+            />
+            <FieldValue
+              label="Parent phone"
+              value={form.parentPhone}
+              onChange={update("parentPhone")}
+            />
+            <FieldValue
+              label="Alternate phone"
+              value={form.parentAlternatePhone}
+              onChange={update("parentAlternatePhone")}
+            />
+            <FieldValue
+              label="Parent email"
+              type="email"
+              value={form.parentEmail}
+              onChange={update("parentEmail")}
+            />
+          </div>
+
+          <h2>Address</h2>
+          <div className="form-grid">
+            <FieldValue
+              label="Address line 1"
+              value={form.addressLine1}
+              onChange={update("addressLine1")}
+            />
+            <FieldValue
+              label="Address line 2"
+              value={form.addressLine2}
+              onChange={update("addressLine2")}
+            />
+            <FieldValue
+              label="City"
+              value={form.city}
+              onChange={update("city")}
+            />
+            <FieldValue
+              label="State"
+              value={form.state}
+              onChange={update("state")}
+            />
+            <FieldValue
+              label="Country"
+              value={form.country}
+              onChange={update("country")}
+            />
+            <FieldValue
+              label="Postal code"
+              value={form.postalCode}
+              onChange={update("postalCode")}
+            />
+          </div>
+        </section>
+
+        {/* 4. Fee Structure & Component Selection (Create Mode Only) */}
+        {!editing && (
+          <section className="space-y-3">
+            <h2>Fee Structure & Component Selection</h2>
+            {!hasFeeLookupCriteria && (
+              <p className="text-sm text-muted-foreground">
+                Select an academic year, program, and class above to preview applicable fees.
+              </p>
+            )}
+            {previewMessage && (
+              <p className="field-error" role="alert">
+                {previewMessage}
+              </p>
+            )}
+            {previewMatchesLookup && previewComponents.length > 0 && feePreview.data && (
+              <div className="table-card">
+                <div className="p-4 border-b border-border bg-muted/30">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <span className="text-xs uppercase font-semibold text-muted-foreground tracking-wider">
+                        Applicable Fee Structure
+                      </span>
+                      <h3 className="text-base font-semibold text-foreground">
+                        {feePreview.data.feeStructure.name}{" "}
+                        <span className="text-sm font-normal text-muted-foreground">
+                          ({feePreview.data.feeStructure.id})
+                        </span>
+                      </h3>
+                      {feePreview.data.feeStructure.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {feePreview.data.feeStructure.description}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-left sm:text-right">
+                      <span className="text-xs text-muted-foreground block">
+                        Master Baseline Total
+                      </span>
+                      <span className="font-semibold text-foreground">
+                        {formatFeeMoney(feePreview.data.feeStructure.totalAmount)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th className="w-12 text-center">Include</th>
+                        <th>Fee Component</th>
+                        <th>Classification</th>
+                        <th>Discount Eligibility</th>
+                        <th className="text-right">Amount (INR)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewComponents.map((component) => {
+                        const isSelected = selectedFeeComponentIds.includes(component.id);
+                        const isLocked = component.locked || component.isMandatory;
+                        return (
+                          <tr
+                            key={component.id}
+                            className={!isSelected ? "opacity-60 bg-muted/20" : undefined}
+                          >
+                            <td className="text-center">
+                              <input
+                                type="checkbox"
+                                aria-label={component.name}
+                                checked={isSelected}
+                                disabled={isLocked}
+                                onChange={(event) =>
+                                  setSelectedFeeComponentIds((current) =>
+                                    toggleFeeSelection(
+                                      current,
+                                      component.id,
+                                      isLocked,
+                                      event.target.checked
+                                    )
+                                  )
+                                }
+                              />
+                            </td>
+                            <td>
+                              <div className="font-medium text-foreground">
+                                {component.name}
+                              </div>
+                              {component.description && (
+                                <small className="block text-xs text-muted-foreground mt-0.5">
+                                  {component.description}
+                                </small>
+                              )}
+                            </td>
+                            <td>
+                              {component.isMandatory ? (
+                                <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-secondary-foreground">
+                                  <Lock size={11} /> Mandatory
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                  Optional
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              {component.isDiscountApplicable ? (
+                                <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300">
+                                  Discount applicable
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-md bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+                                  No discount
+                                </span>
+                              )}
+                            </td>
+                            <td className="text-right font-medium">
+                              {formatFeeMoney(component.originalAmount)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="table-foot flex items-center justify-between p-3 border-t border-border bg-muted/20">
+                  <span className="text-xs text-muted-foreground">
+                    {selectedFeeComponentIds.length} of {previewComponents.length} components selected
+                  </span>
+                  {selectedPreviewTotal !== null && (
+                    <span className="text-sm font-semibold text-foreground">
+                      Selected Baseline Total: {formatFeeMinorUnits(selectedPreviewTotal)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* 5. Final Review and Admission Submission */}
         {error && (
           <p className="field-error" role="alert">
             {error}
@@ -1098,7 +1267,7 @@ export function AdmissionList({ session }: { session: User }) {
     );
   });
   const label = (id: string, values: Array<{ id: string; name: string }>) =>
-    values.find((value) => value.id === id)?.name || "—";
+    values.find((value) => value.id === id)?.name || "-";
   return (
     <>
       <PageHeader
@@ -1242,6 +1411,16 @@ export function AdmissionDetail({
   const concessionsLoaded = Boolean(concessionsQuery.data) && !concessionsQuery.isLoading && !concessionsQuery.isError;
   const canEditFeeConfiguration = canUpdateAdmission && query.data?.admissionStatus === "DRAFT" && feeConfigurationLoaded && !feeConfigurationQuery.isFetching;
   const canEditConcessions = canEditFeeConfiguration && concessionsLoaded && !concessionsQuery.isFetching;
+  const persistedSelectedIds = backendSelectedSnapshotIds();
+  const isSelectionDirty = canEditFeeConfiguration && (
+    selectedSnapshotIds.length !== persistedSelectedIds.length ||
+    selectedSnapshotIds.some((id) => !persistedSelectedIds.includes(id)) ||
+    persistedSelectedIds.some((id) => !selectedSnapshotIds.includes(id))
+  );
+  const pendingChangesCount = [
+    ...selectedSnapshotIds.filter((id) => !persistedSelectedIds.includes(id)),
+    ...persistedSelectedIds.filter((id) => !selectedSnapshotIds.includes(id)),
+  ].length;
   const payablePreviewError = selectedComp ? payableAmountError(payableAmount, selectedComp.originalAmount, selectedComp.discountApplicable) : null;
   useEffect(() => { if (!canEditConcessions) { setModalOpen(false); setSelectedComp(null); } }, [canEditConcessions]);
   const saveSelection = async () => {
@@ -1341,13 +1520,13 @@ export function AdmissionDetail({
     };
   });
   const feeDetails = config?.feePaymentHeader.feePaymentDetails || [];
-  const displayMoney = (value: string | number | null | undefined) => value == null ? "—" : `₹${String(value)}`;
+  const displayMoney = (value: string | number | null | undefined) => value == null ? "-" : `₹${String(value)}`;
   const displayMinor = (value: bigint) => { const sign = value < 0n ? "-" : ""; const abs = value < 0n ? -value : value; return `${sign}${abs / 100n}.${String(abs % 100n).padStart(2, "0")}`; };
   const originalMinor = selectedComp ? parsePayableMinor(String(selectedComp.originalAmount)) : null;
   const payableMinor = parsePayableMinor(payableAmount);
   const previewDiscount = payablePreviewError === null && originalMinor !== null && payableMinor !== null ? originalMinor - payableMinor : null;
   const label = (value: string, values: Array<{ id: string; name: string }>) =>
-    values.find((entry) => entry.id === value)?.name || "—";
+    values.find((entry) => entry.id === value)?.name || "-";
   const run = async (action: "confirm" | "cancel") => {
     if (
       !window.confirm(
@@ -1448,7 +1627,7 @@ export function AdmissionDetail({
           ].map(([key, value]) => (
             <div className="detail-field" key={key}>
               <span>{key}</span>
-              <strong>{String(value || "—")}</strong>
+              <strong>{String(value || "-")}</strong>
             </div>
           ))}
         </div>
@@ -1471,11 +1650,15 @@ export function AdmissionDetail({
             </p>
           </div>
           {item.admissionStatus === "CONFIRMED" ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
               <Check size={12} /> Obligations Frozen
             </span>
+          ) : item.admissionStatus === "CANCELLED" ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground border border-border">
+              <X size={12} /> Admission Cancelled
+            </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 border border-blue-200">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 dark:bg-blue-950/40 px-3 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
               <Tag size={12} /> Draft Concessions
             </span>
           )}
@@ -1521,42 +1704,91 @@ export function AdmissionDetail({
             <table>
               <thead>
                 <tr>
+                  <th className="w-12 text-center">Include</th>
                   <th>Fee Component</th>
-                  <th>Baseline Amount</th>
-                  <th>Eligibility</th>
+                  <th className="text-right">Original Baseline</th>
+                  <th>Inclusion Status</th>
                   <th>Applied Concession</th>
-                  <th>Net Payable</th>
-                  {canEditConcessions && <th>Actions</th>}
+                  <th className="text-right">Net Payable</th>
+                  {canEditConcessions && <th className="text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {displayComponents.map((comp) => (
-                  <tr key={comp.id}>
-                    <td>
-                      {canEditFeeConfiguration && comp.isActive ? <input aria-label={`Include ${comp.name}`} type="checkbox" checked={selectedSnapshotIds.includes(comp.id)} disabled={comp.isMandatory || updateFeeConfiguration.isPending} onChange={(event) => setSelectedSnapshotIds((current) => toggleFeeSelection(current, comp.id, comp.isMandatory, event.target.checked))} /> : <span className="text-xs text-muted-foreground">{comp.isActive ? comp.isIncluded ? "Included" : "Excluded" : "Inactive"}</span>}
-                      <strong>{comp.name}</strong>
-                      {comp.isMandatory && (
-                        <span className="ml-2 text-xs text-muted-foreground">(Mandatory)</span>
+                  <tr
+                    key={comp.id}
+                    className={!comp.isActive || !comp.isIncluded ? "bg-muted/30" : undefined}
+                  >
+                    <td className="text-center">
+                      {canEditFeeConfiguration && comp.isActive ? (
+                        <input
+                          aria-label={`Include ${comp.name}`}
+                          type="checkbox"
+                          checked={selectedSnapshotIds.includes(comp.id)}
+                          disabled={comp.isMandatory || updateFeeConfiguration.isPending}
+                          onChange={(event) =>
+                            setSelectedSnapshotIds((current) =>
+                              toggleFeeSelection(current, comp.id, comp.isMandatory, event.target.checked)
+                            )
+                          }
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground" aria-hidden="true">
+                          {comp.isActive ? (comp.isIncluded ? "✓" : "-") : "-"}
+                        </span>
                       )}
                     </td>
-                    <td>{displayMoney(comp.originalAmount)}</td>
                     <td>
-                      {comp.discountApplicable ? (
-                        <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-                          Eligible
+                      <div className="font-semibold text-foreground">{comp.name}</div>
+                      {comp.description ? (
+                        <div className="text-xs text-muted-foreground">{comp.description}</div>
+                      ) : null}
+                      {comp.isMandatory && (
+                        <span className="text-xs text-muted-foreground sm:hidden">(Mandatory)</span>
+                      )}
+                    </td>
+                    <td className="text-right font-medium text-foreground">
+                      {displayMoney(comp.originalAmount)}
+                    </td>
+                    <td>
+                      {!comp.isActive ? (
+                        <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                          Inactive
+                        </span>
+                      ) : comp.isMandatory ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-secondary-foreground">
+                          <Lock size={11} /> Mandatory
+                        </span>
+                      ) : comp.isIncluded ? (
+                        <span className="inline-flex items-center rounded-md bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                          Included
                         </span>
                       ) : (
-                        <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-                          Ineligible
+                        <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                          Excluded
                         </span>
                       )}
                     </td>
                     <td>
-                      {!comp.isActive ? <span className="text-xs text-muted-foreground">Inactive snapshot</span> : !comp.isIncluded ? <span className="text-xs text-muted-foreground">Excluded</span> : concessionsQuery.isError && !comp.concession ? <span className="text-xs text-muted-foreground">Concession status unavailable</span> : (concessionsQuery.isLoading || concessionsQuery.isFetching) && !comp.concession ? <span className="text-xs text-muted-foreground">Loading concession status…</span> : comp.concession ? (
+                      {!comp.isActive ? (
+                        <span className="text-xs text-muted-foreground">Inactive snapshot</span>
+                      ) : !comp.isIncluded ? (
+                        <span className="text-xs text-muted-foreground">Excluded</span>
+                      ) : concessionsQuery.isError && !comp.concession ? (
+                        <span className="text-xs text-muted-foreground">Concession status unavailable</span>
+                      ) : (concessionsQuery.isLoading || concessionsQuery.isFetching) && !comp.concession ? (
+                        <span className="text-xs text-muted-foreground">Loading concession status…</span>
+                      ) : comp.concession ? (
                         <div className="flex flex-col">
-                          {comp.concession.requiresReview && <span className="text-xs font-semibold text-amber-700" role="alert">Review required</span>}
+                          {comp.concession.requiresReview && (
+                            <span className="text-xs font-semibold text-amber-700" role="alert">
+                              Review required
+                            </span>
+                          )}
                           <span className="font-semibold text-emerald-700">
-                            {comp.concession.categoryName ?? "Payable concession"}{comp.concession.discountType && ` (${comp.concession.discountType === "PERCENTAGE" ? `${comp.concession.discountValue}%` : `₹${comp.concession.discountValue}`})`}
+                            {comp.concession.categoryName ?? "Payable concession"}
+                            {comp.concession.discountType &&
+                              ` (${comp.concession.discountType === "PERCENTAGE" ? `${comp.concession.discountValue}%` : `₹${comp.concession.discountValue}`})`}
                           </span>
                           <span className="text-xs text-muted-foreground">
                             - {displayMoney(comp.concession.calculatedDiscountAmount)}
@@ -1567,32 +1799,46 @@ export function AdmissionDetail({
                         <span className="text-muted-foreground text-sm">No concession</span>
                       )}
                     </td>
-                    <td>
-                      <strong className="text-foreground">{displayMoney(comp.totalAmountToBePaid)}</strong>
+                    <td className="text-right">
+                      <strong className="text-foreground">
+                        {displayMoney(comp.isActive && comp.isIncluded ? comp.totalAmountToBePaid : "0.00")}
+                      </strong>
                     </td>
                     {canEditConcessions && comp.isActive && (
-                      <td>
-                        {comp.concession ? (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveConcession(comp.concession!.id)}
-                            disabled={removeConcession.isPending}
-                            className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-semibold"
-                          >
-                            <Trash2 size={13} /> Remove
-                          </button>
-                        ) : comp.discountApplicable && comp.isIncluded ? (
-                          <button
-                            type="button"
-                            onClick={() => openAddConcessionModal(comp)}
-                            className="inline-flex items-center gap-1 rounded border border-border bg-card px-2.5 py-1 text-xs font-semibold text-primary hover:bg-accent"
-                          >
-                            <Plus size={13} /> Add Concession
-                          </button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">No discount</span>
-                        )}
-                        {comp.concession?.requiresReview && comp.isIncluded && <button type="button" onClick={() => openAddConcessionModal(comp)} className="ml-2 text-xs font-semibold text-primary">Resolve review</button>}
+                      <td className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {comp.concession ? (
+                            <>
+                              {comp.concession.requiresReview && comp.isIncluded && (
+                                <button
+                                  type="button"
+                                  onClick={() => openAddConcessionModal(comp)}
+                                  className="min-h-[44px] sm:min-h-0 py-2 sm:py-0 inline-flex items-center text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
+                                >
+                                  Resolve review
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveConcession(comp.concession!.id)}
+                                disabled={removeConcession.isPending}
+                                className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 p-2 sm:p-0 inline-flex items-center justify-center gap-1 text-xs text-red-600 hover:text-red-700 font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-600 rounded"
+                              >
+                                <Trash2 size={13} /> Remove
+                              </button>
+                            </>
+                          ) : comp.discountApplicable && comp.isIncluded ? (
+                            <button
+                              type="button"
+                              onClick={() => openAddConcessionModal(comp)}
+                              className="min-h-[44px] sm:min-h-[32px] inline-flex items-center gap-1 rounded border border-border bg-card px-2.5 py-1 text-xs font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                            >
+                              <Plus size={13} /> Add Concession
+                            </button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No discount</span>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -1600,8 +1846,58 @@ export function AdmissionDetail({
               </tbody>
             </table>
           </div>
-          {canEditFeeConfiguration && <AppButton type="button" onClick={saveSelection} disabled={updateFeeConfiguration.isPending || selectedSnapshotIds.length === 0}>{updateFeeConfiguration.isPending ? "Saving fee selection…" : "Save fee selection"}</AppButton>}
-          {feeConfigurationError && <p className="field-error" role="alert">{feeConfigurationError}</p>}
+          {canEditFeeConfiguration && (
+            <div
+              className={`table-foot flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 border-t border-border ${
+                isSelectionDirty ? "bg-amber-500/10" : "bg-muted/10"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {isSelectionDirty ? (
+                  <>
+                    <span className="inline-flex h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                    <span className="text-sm font-medium text-foreground">
+                      Unsaved selection changes: {pendingChangesCount} {pendingChangesCount === 1 ? "change" : "changes"} pending.
+                      {" "}Selected: {selectedSnapshotIds.length} included.
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    {selectedSnapshotIds.length} of {feeDetails.filter((d) => d.isActive).length} active components included in billing snapshot.
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {isSelectionDirty && (
+                  <AppButton
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      setSelectedSnapshotIds(backendSelectedSnapshotIds());
+                      setFeeConfigurationError("");
+                    }}
+                    disabled={updateFeeConfiguration.isPending}
+                  >
+                    Discard changes
+                  </AppButton>
+                )}
+                <AppButton
+                  type="button"
+                  onClick={saveSelection}
+                  disabled={updateFeeConfiguration.isPending || selectedSnapshotIds.length === 0}
+                >
+                  {updateFeeConfiguration.isPending ? "Saving fee selection…" : "Save fee selection"}
+                </AppButton>
+              </div>
+            </div>
+          )}
+          {feeConfigurationError && (
+            <div className="p-3 border-t border-border bg-destructive/10">
+              <p className="field-error" role="alert">
+                {feeConfigurationError}
+              </p>
+            </div>
+          )}
         </div>}
         </>}
       </section>
@@ -1682,14 +1978,14 @@ export function ParamBasicForm({
   );
 }
 function studentLabel(id: string, values: Array<{ id: string; name: string }>) {
-  return values.find((value) => value.id === id)?.name || "—";
+  return values.find((value) => value.id === id)?.name || "-";
 }
 
 /**
  * The Student.admission relation is required in the schema, but the backend
  * service still guards against a missing admission, so normalise it once here
  * instead of dereferencing it in every render. Unset ids fall through to
- * studentLabel() and render as "—".
+ * studentLabel() and render as "-".
  */
 const EMPTY_PLACEMENT = {
   id: "",
@@ -1927,7 +2223,7 @@ export function StudentDetail({ id }: { id: string }) {
           ].map(([key, value]) => (
             <div className="detail-field" key={key}>
               <span>{key}</span>
-              <strong>{String(value || "—")}</strong>
+              <strong>{String(value || "-")}</strong>
             </div>
           ))}
         </div>

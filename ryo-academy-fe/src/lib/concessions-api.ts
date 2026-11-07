@@ -71,6 +71,7 @@ export interface FeeConfigurationDetail {
   id: string;
   feeComponentId: string;
   name?: string;
+  description?: string | null;
   originalAmount: string | null;
   discountAmount: string | null;
   finalAmount: string | null;

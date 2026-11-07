@@ -137,6 +137,63 @@ describe("nested fee structure creation form", () => {
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ description: "Backend total: ₹30.00." }));
   });
 
+  it("renders table grid with headers, component descriptions, and live mandatory/optional subtotals", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await fillMaster(user);
+
+    expect(screen.getByRole("columnheader", { name: "#" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Component Name & Description" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Amount (INR)" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Mandatory" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Discount applicable" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Component name"), "Tuition Fee");
+    await user.type(screen.getByLabelText("Component description"), "Annual instruction charges");
+    await user.type(screen.getByLabelText("Amount (INR)"), "12000.00");
+
+    await user.click(screen.getByRole("button", { name: /add component/i }));
+    const names = screen.getAllByLabelText("Component name");
+    const descriptions = screen.getAllByLabelText("Component description");
+    const amounts = screen.getAllByLabelText("Amount (INR)");
+    const mandatoryBoxes = screen.getAllByLabelText("Mandatory");
+
+    await user.type(names[1], "Bus Transport");
+    await user.type(descriptions[1], "Optional route pickup");
+    await user.type(amounts[1], "3000.00");
+    await user.click(mandatoryBoxes[1]);
+
+    expect(screen.getByText("Mandatory:")).toBeInTheDocument();
+    expect(screen.getByText("₹12,000.00")).toBeInTheDocument();
+    expect(screen.getByText("Optional:")).toBeInTheDocument();
+    expect(screen.getByText("₹3,000.00")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Preview total: ₹15,000.00");
+
+    await user.click(screen.getByRole("button", { name: /create fee structure/i }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        feeComponents: [
+          {
+            name: "Tuition Fee",
+            description: "Annual instruction charges",
+            amount: "12000.00",
+            isMandatory: true,
+            discountApplicable: false,
+          },
+          {
+            name: "Bus Transport",
+            description: "Optional route pickup",
+            amount: "3000.00",
+            isMandatory: false,
+            discountApplicable: false,
+          },
+        ],
+      }),
+    );
+  });
+
   it("rejects exact duplicate names while allowing case and whitespace variants", async () => {
     const user = userEvent.setup();
     renderForm();

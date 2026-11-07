@@ -5370,3 +5370,103 @@ Status: Implemented and focused checks passed.
 - `npm run typecheck`: passed.
 - `git diff --check` on changed tracked paths and whitespace checks on the two untracked regression specs: passed.
 - No backend, schema, migration, database, seed, server, remote, HTTP, or browser operations were performed.
+
+# M6.1 — Admission Creation Fee Preview Redesign (Milestone 1)
+
+## Scope
+
+- Restructured the admission creation form layout into the required sequence: Academic Placement -> Student / Applicant Information -> Parent / Guardian & Address Information -> Fee Structure & Component Selection -> Final Review and Submission.
+- Upgraded the applicable fee preview from an unstructured list of checkboxes to a tabular data card.
+- Component rows now display primary component name, secondary description subtext, classification status (Mandatory locked badge vs Optional badge), discount eligibility indicator (Discount applicable vs No discount), and formatted INR currency amounts.
+- Implemented real-time client-side preview calculation using exact minor-unit summation (`sumFeeMoneyMinorUnits` and `formatFeeMinorUnits`), updating dynamically when optional components are toggled.
+- Preserved the admission creation contract: mandatory components remain locked and selected, optional components are toggleable, and the create payload submits strictly `selectedFeeComponentIds` containing source fee component master IDs (`FeeComponent.id`).
+- Updated admission fee preview regression coverage to verify table structure, secondary descriptions, badges, formatted currency, and live minor-unit baseline calculation.
+
+## Files Changed
+
+- `src/pages/admissions-students-pages.tsx`
+- `src/pages/__tests__/admission-fee-preview.test.tsx`
+- `docs/frontend-backend-migration-changelog.md`
+
+## Verification
+
+- `npm test -- --run src/pages/__tests__/admission-fee-preview.test.tsx src/pages/__tests__/payable-concession.test.ts src/lib/__tests__/admissions-api.test.tsx`: 3 files, 64 tests passed.
+- `git diff --check` on modified paths: passed.
+- No backend, schema, migration, database, seed, server, remote, HTTP, or browser operations were performed.
+
+# M6.2 — Admission Detail Fee & Concession Cockpit (Milestone 2)
+
+## Scope
+
+- Redesigned the fee configuration and concession section of `AdmissionDetail` into an interactive 7-column financial cockpit:
+  1. Inclusion checkbox / toggle status.
+  2. Fee Component name and description.
+  3. Original baseline amount.
+  4. Inclusion status badge (Mandatory locked, Included active, Excluded active, Inactive snapshot).
+  5. Applied concession details with review-required notification.
+  6. Net payable amount.
+  7. Available row actions (Add Concession, Resolve Review, Remove Concession).
+- Added a dynamic dirty-state action bar in the table footer that detects unsaved selection toggles, displays the pending change count, provides "Discard changes" to restore persisted state, and retains "Save fee selection".
+- Preserved the DRAFT selection PATCH contract: submits strictly selected snapshot detail IDs (`FeePaymentDetails.id`) via `useUpdateAdmissionFeeConfiguration`. On failure, reverts local selection to the backend-confirmed state.
+- Enhanced lifecycle visual indicators: CONFIRMED admissions display an "Obligations Frozen" badge and transition to a read-only ledger with mutations hidden; CANCELLED admissions display an "Admission Cancelled" badge and read-only history.
+- Preserved the M2.3 payable concession contract: dialog accepts strictly `payableAmount`, supports the zero-payable boundary where discount applicability permits, provides distinct "Reapply concession" vs "Acknowledge no discount" paths for review resolution, and keeps DELETE as an independent operation.
+- Documented backend integration limitation: historical inactive snapshots (`isActive: false`) are filtered out by current backend GET queries and therefore cannot currently be displayed.
+- Added regression tests covering dirty-state display and discard, mandatory locks in DRAFT, read-only confirmed state, and read-only cancelled state.
+
+## Files Changed
+
+- `src/pages/admissions-students-pages.tsx`
+- `src/pages/__tests__/admission-fee-preview.test.tsx`
+- `docs/frontend-backend-migration-changelog.md`
+
+## Verification
+
+- `npm test -- --run src/pages/__tests__/admission-fee-preview.test.tsx src/pages/__tests__/payable-concession.test.ts src/lib/__tests__/admissions-api.test.tsx src/lib/__tests__/concessions-api.test.ts`: 4 files, 75 tests passed.
+- `git diff --check` on modified paths: passed.
+- No backend, schema, migration, database, seed, server, remote, HTTP, or browser operations were performed.
+
+## Milestone 2 Verification Audit
+
+- Rendered component description beneath component name in `AdmissionDetail` ledger using the existing optional `description` response field.
+- Verified and aligned excluded component financial display: excluded components retain original baseline amount for reference, display zero net contribution (`₹0.00`) in the Net Payable column, and do not contribute to gross, discount, net payable, due, or payment allocations.
+- Added regression tests in `src/pages/__tests__/admission-fee-preview.test.tsx`:
+  - `renders component description and verifies excluded component financial contribution is zero`
+  - `executes DELETE concession independently from no-discount acknowledgement`
+- Updated `FeeConfigurationDetail` interface in `src/lib/concessions-api.ts` with optional `description?: string | null;`.
+- Regression verification: 4 files, 77 tests passed.
+
+# M6.3 — Fee Structure Master Creation Grid (Milestone 3)
+
+## Scope
+
+- Redesigned the fee components section of Fee Structure Master creation (`FeeForm` in `src/pages/fee-pages.tsx`) from bulky, misaligned cards into a compact, table-first data grid (Option B1).
+- Structured table columns:
+  1. `#` row index.
+  2. `Component Name & Description`: primary component name input with secondary optional description input underneath.
+  3. `Amount (INR)`: right-aligned currency input with fixed `₹` symbol prefix.
+  4. `Mandatory`: centered checkbox, defaults to checked.
+  5. `Discount Applicable`: centered checkbox, defaults to unchecked.
+  6. `Actions`: row remove button with trash icon.
+- Added live financial calculations in the table footer:
+  - Mandatory Components Subtotal.
+  - Optional Components Subtotal.
+  - Total Master Structure Amount preview (using exact minor-unit calculations).
+- Preserved existing React Hook Form `useFieldArray` validation and lifecycle behavior:
+  - Mandatory requirement of at least one fee component.
+  - Unique component names within the fee structure.
+  - Positive decimal currency amounts with at most two decimal places.
+  - Payload contract with `useCreateFeeStructure`: submits `{ name, description, academicYearId, programId, classId, feeComponents: [{ name, description, amount, isMandatory, discountApplicable }] }`.
+- Added regression test in `src/pages/__tests__/fee-structure-form.test.tsx` verifying grid layout, headers, secondary descriptions, subtotals, and payload submission.
+
+## Files Changed
+
+- `src/pages/fee-pages.tsx`
+- `src/pages/__tests__/fee-structure-form.test.tsx`
+- `docs/frontend-backend-migration-changelog.md`
+
+## Verification
+
+- `npm test -- --run src/pages/__tests__/fee-structure-form.test.tsx src/pages/__tests__/admission-fee-preview.test.tsx src/pages/__tests__/payable-concession.test.ts src/lib/__tests__/fees-api.test.ts src/lib/__tests__/fee-money.test.ts src/lib/__tests__/admissions-api.test.tsx src/lib/__tests__/concessions-api.test.ts`: 7 files, 125 tests passed.
+- `git diff --check` on modified paths: passed.
+- Zero TypeScript errors in modified files.
+- No backend, database, Prisma, migration, or API contract modifications.

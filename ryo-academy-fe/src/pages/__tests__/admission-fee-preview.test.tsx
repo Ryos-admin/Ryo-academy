@@ -158,8 +158,16 @@ describe("applicable fee preview in admission creation", () => {
 
     expect(await screen.findByText("Standard Fees")).toBeInTheDocument();
     expect(screen.getByText((_, element) => element?.textContent === "(master-year-1)")).toBeInTheDocument();
-    expect(screen.getByText("Tuition — 1200.00 (Mandatory) · Discount applicable")).toBeInTheDocument();
-    expect(screen.getByText("Library — 200.50 · No discount")).toBeInTheDocument();
+    expect(screen.getByText("Tuition")).toBeInTheDocument();
+    expect(screen.getByText("Library")).toBeInTheDocument();
+    expect(screen.getByText("Library services")).toBeInTheDocument();
+    expect(screen.getByText("Mandatory")).toBeInTheDocument();
+    expect(screen.getByText("Optional")).toBeInTheDocument();
+    expect(screen.getByText("Discount applicable")).toBeInTheDocument();
+    expect(screen.getByText("No discount")).toBeInTheDocument();
+    expect(screen.getByText("₹1,200.00")).toBeInTheDocument();
+    expect(screen.getByText("₹200.50")).toBeInTheDocument();
+    expect(screen.getByText(/Selected Baseline Total: ₹1,400.50/)).toBeInTheDocument();
     const tuition = screen.getByRole("checkbox", { name: /Tuition/ });
     const library = screen.getByRole("checkbox", { name: /Library/ });
     expect(tuition).toBeChecked();
@@ -168,8 +176,10 @@ describe("applicable fee preview in admission creation", () => {
     expect(library).toBeEnabled();
     await user.click(library);
     expect(library).not.toBeChecked();
+    expect(screen.getByText(/Selected Baseline Total: ₹1,200.00/)).toBeInTheDocument();
     await user.click(library);
     expect(library).toBeChecked();
+    expect(screen.getByText(/Selected Baseline Total: ₹1,400.50/)).toBeInTheDocument();
   });
 
   it("submits selected source IDs only and omits master and monetary fields", async () => {
@@ -351,7 +361,7 @@ describe("applicable fee preview in admission creation", () => {
       render(<AdmissionDetail id="admission-1" session={updateSession} />);
       const row = screen.getByText("Tuition snapshot").closest("tr");
       expect(row).not.toBeNull();
-      expect(within(row!).getByText("—")).toBeInTheDocument();
+      expect(within(row!).getByText("-")).toBeInTheDocument();
       expect(within(row!).queryByText("₹95.00")).not.toBeInTheDocument();
     });
 
@@ -567,6 +577,116 @@ describe("applicable fee preview in admission creation", () => {
       await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Could not remove concession", description: "DELETE rejected" })));
       expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: "Concession removed" }));
       confirm.mockRestore();
+    });
+
+    it("displays dirty-state bar on component selection change and restores on Discard", async () => {
+      mocks.feeConfiguration = feeConfiguration([
+        { id: "snapshot-1", feeComponentId: "source-1", name: "Tuition snapshot", originalAmount: "100.00", discountAmount: "0.00", finalAmount: "100.00", totalAmountToBePaid: "100.00", amountPaid: "0.00", isMandatory: false, discountApplicable: true, isActive: true, isIncluded: true, concession: null },
+        { id: "snapshot-2", feeComponentId: "source-2", name: "Excluded snapshot", originalAmount: "20.00", discountAmount: "0.00", finalAmount: "20.00", totalAmountToBePaid: "20.00", amountPaid: "0.00", isMandatory: false, discountApplicable: false, isActive: true, isIncluded: false, concession: null },
+      ]);
+      const user = userEvent.setup();
+      render(<AdmissionDetail id="admission-1" session={updateSession} />);
+      expect(screen.queryByRole("button", { name: "Discard changes" })).not.toBeInTheDocument();
+
+      const excluded = screen.getByRole("checkbox", { name: "Include Excluded snapshot" });
+      await user.click(excluded);
+      expect(excluded).toBeChecked();
+      expect(screen.getByText(/Unsaved selection changes: 1 change pending/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Discard changes" })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Discard changes" }));
+      expect(excluded).not.toBeChecked();
+      expect(screen.queryByRole("button", { name: "Discard changes" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/Unsaved selection changes/)).not.toBeInTheDocument();
+    });
+
+    it("locks mandatory components from being deselected in DRAFT admission", () => {
+      mocks.feeConfiguration = feeConfiguration([
+        { id: "snapshot-mandatory", feeComponentId: "source-mandatory", name: "Mandatory fee", originalAmount: "500.00", discountAmount: "0.00", finalAmount: "500.00", totalAmountToBePaid: "500.00", amountPaid: "0.00", isMandatory: true, discountApplicable: false, isActive: true, isIncluded: true, concession: null },
+      ]);
+      render(<AdmissionDetail id="admission-1" session={updateSession} />);
+      const mandatoryCheckbox = screen.getByRole("checkbox", { name: "Include Mandatory fee" });
+      expect(mandatoryCheckbox).toBeChecked();
+      expect(mandatoryCheckbox).toBeDisabled();
+      expect(screen.getByText("Mandatory")).toBeInTheDocument();
+    });
+
+    it("renders confirmed admission as read-only with obligations frozen", () => {
+      mocks.admission = { ...admissionDetail(), admissionStatus: "CONFIRMED" };
+      render(<AdmissionDetail id="admission-1" session={updateSession} />);
+      expect(screen.getByText("Obligations Frozen")).toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: /Include/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Save fee selection" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Add Concession" })).not.toBeInTheDocument();
+    });
+
+    it("renders cancelled admission as read-only with admission cancelled badge", () => {
+      mocks.admission = { ...admissionDetail(), admissionStatus: "CANCELLED" };
+      render(<AdmissionDetail id="admission-1" session={updateSession} />);
+      expect(screen.getByText("Admission Cancelled")).toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: /Include/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Save fee selection" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Add Concession" })).not.toBeInTheDocument();
+    });
+    it("executes DELETE concession independently from no-discount acknowledgement", async () => {
+      mocks.concessions = concessionBreakdown({ id: "concession-1", requiresReview: false, categoryName: "Sibling discount", calculatedDiscountAmount: "10.00" });
+      mocks.removeConcession.mockResolvedValueOnce(undefined);
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+      const user = userEvent.setup();
+      render(<AdmissionDetail id="admission-1" session={updateSession} />);
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      await waitFor(() => expect(mocks.removeConcession).toHaveBeenCalledWith("concession-1"));
+      expect(mocks.updateConcession).not.toHaveBeenCalled();
+      confirm.mockRestore();
+    });
+
+    it("renders component description and verifies excluded component financial contribution is zero", () => {
+      mocks.feeConfiguration = feeConfiguration([
+        {
+          id: "snapshot-1",
+          feeComponentId: "source-1",
+          name: "Tuition snapshot",
+          description: "Annual tuition and curriculum fees",
+          originalAmount: "100.00",
+          discountAmount: "0.00",
+          finalAmount: "100.00",
+          totalAmountToBePaid: "100.00",
+          amountPaid: "0.00",
+          isMandatory: true,
+          discountApplicable: true,
+          isActive: true,
+          isIncluded: true,
+          concession: null,
+        },
+        {
+          id: "snapshot-2",
+          feeComponentId: "source-2",
+          name: "Transport snapshot",
+          description: "Optional bus transport service",
+          originalAmount: "50.00",
+          discountAmount: "0.00",
+          finalAmount: "50.00",
+          totalAmountToBePaid: "50.00",
+          amountPaid: "0.00",
+          isMandatory: false,
+          discountApplicable: false,
+          isActive: true,
+          isIncluded: false,
+          concession: null,
+        },
+      ]);
+      render(<AdmissionDetail id="admission-1" session={updateSession} />);
+
+      expect(screen.getByText("Annual tuition and curriculum fees")).toBeInTheDocument();
+      expect(screen.getByText("Optional bus transport service")).toBeInTheDocument();
+
+      const transportRow = screen.getByText("Transport snapshot").closest("tr")!;
+      expect(within(transportRow).getByText("₹50.00")).toBeInTheDocument();
+      expect(within(transportRow).getByText("₹0.00")).toBeInTheDocument();
+      expect(within(transportRow).getAllByText("Excluded")).toHaveLength(2);
+
+      const tuitionRow = screen.getByText("Tuition snapshot").closest("tr")!;
+      expect(within(tuitionRow).getAllByText("₹100.00")).toHaveLength(2);
     });
   });
 });

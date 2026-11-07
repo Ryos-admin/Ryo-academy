@@ -7,6 +7,10 @@ export type AcademicWeekday = "SUNDAY" | "MONDAY" | "TUESDAY" | "WEDNESDAY" | "T
 export interface AcademicYear {
   id: string;
   schoolId: string;
+  school?: {
+    name: string;
+    schoolCode: string;
+  } | null;
   name: string;
   startDate: string;
   endDate: string;

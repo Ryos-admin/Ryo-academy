@@ -163,9 +163,9 @@ export class FeeStructureService {
         throw new ConflictException("Fee structure already deleted.");
 
       await this.assertNoHistoricalReferences(tx, id);
-      // if (hasAcademicYearStarted(feeStructure.academicYear.startDate)) {
-      //   throw new ConflictException('Fee structure changes are blocked on or after the academic-year start date.');
-      // }
+      if (hasAcademicYearStarted(feeStructure.academicYear.startDate)) {
+        throw new ConflictException('Fee structure changes are blocked on or after the academic-year start date.');
+      }
 
       return tx.feeStructure.update({
         where: { id },

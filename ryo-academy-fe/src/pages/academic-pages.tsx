@@ -113,6 +113,7 @@ import {
   date,
   titleCase,
 } from "@/pages/page-primitives";
+import { transformSelect } from "@/lib/utils";
 export type SetupResource =
   | "academicYears"
   | "programs"
@@ -340,7 +341,7 @@ export function AcademicYearsList() {
                     <td>{dateOnly(row.endDate)}</td>
                     <td className="row-actions">
                       <Link
-                        href={`/academic-years/${row.id}/edit`}
+                        href={`/academic-years/${row.id}`}
                         className="icon-button"
                         title="Edit academic year"
                       >
@@ -398,7 +399,9 @@ export function AcademicYearForm({
   useEffect(() => {
     if (query.data)
       form.reset({
-        schoolId: query.data.schoolId,
+        schoolId: query.data.school
+          ? `${query.data.school.name} (${query.data.school.schoolCode})`
+          : query.data.schoolId || "",
         name: query.data.name,
         startDate: dateOnly(query.data.startDate),
         endDate: dateOnly(query.data.endDate),
@@ -454,7 +457,7 @@ export function AcademicYearForm({
     <>
       <button
         className="back-link page-back"
-        onClick={() => setLocation("/academic-years")}
+        onClick={() => setLocation(`/academic-years/${id}`)}
       >
         <ArrowLeft size={15} />
         Back to Academic Years
@@ -479,21 +482,34 @@ export function AcademicYearForm({
         )}
       >
         <div className="form-grid">
-          {/* <Field form={form} name="schoolId" label="School ID" disabled={editing} /> */}
-          {editing && (
-            <p className="field-help">
-              School ID cannot be changed after creation.
-            </p>
-          )}
-          <Field form={form} name="name" label="Academic year name" />
-
-          <MultiSelectField
+          <>
+            <Field
+              form={form}
+              name="schoolId"
+              label="School Name"
+              disabled={editing}
+            />
+            {editing && (
+              <p className="text-xs text-muted-foreground">
+                Academic year cannot be changed during program editing.
+              </p>
+            )}
+          </>
+          <Field
             form={form}
-            name="weeklyOffDays"
-            label="Weekly off days"
-            options={weekdayOptions}
-            placeholder="Select days"
+            name="name"
+            label="Academic year name"
+            disabled={editing}
           />
+          {!editing && (
+            <MultiSelectField
+              form={form}
+              name="weeklyOffDays"
+              label="Weekly off days"
+              options={weekdayOptions}
+              placeholder="Select days"
+            />
+          )}
           <Field form={form} name="startDate" label="Start date" type="date" />
           <Field form={form} name="endDate" label="End date" type="date" />
         </div>
@@ -586,8 +602,8 @@ export function AcademicYearDetail({ id }: { id: string }) {
           </div>
           <div className="detail-fields">
             <div className="detail-field">
-              <span>School ID</span>
-              <strong>{item.schoolId}</strong>
+              <span>School Name</span>
+              <strong>{item.school ? `${item.school.name} (${item.school.schoolCode})` : (item.schoolId || "-")}</strong>
             </div>
             <div className="detail-field">
               <span>Name</span>
@@ -1111,18 +1127,20 @@ export function AcademicCalendarForm({ id }: { id?: string }) {
         )}
       >
         <div className="form-grid">
-          <SelectField
-            form={form}
-            name="academicYearId"
-            label="Academic year"
-            disabled={editing}
-            options={(years.data || []).map((year) => [year.id, year.name])}
-          />
-          {editing && (
-            <p className="field-help">
-              Academic year cannot be changed during calendar editing.
-            </p>
-          )}
+          <>
+            <SelectField
+              form={form}
+              name="academicYearId"
+              label="Academic year"
+              disabled={editing}
+              options={(years.data || []).map((year) => [year.id, year.name])}
+            />
+            {editing && (
+              <p className="text-xs text-muted-foreground">
+                Academic year cannot be changed during program editing.
+              </p>
+            )}
+          </>
           <Field form={form} name="date" label="Date" type="date" />
           <SelectField
             form={form}
@@ -1497,10 +1515,10 @@ export function ProgramForm({ id }: { id?: string }) {
   const form = useForm<Record<string, unknown>>({
     resolver: zodResolver(programSchema),
     defaultValues: {
-      name: "Regular Day Programme",
-      academicYearId: "",
-      primary: "true",
-      daysOfWeek: defaultDaysOfWeek,
+      //   name: "",
+      //   academicYearId: "",
+      //   primary: "true",
+      //   daysOfWeek: defaultDaysOfWeek,
       startTime: "09:00",
       endTime: "16:00",
     },
@@ -1598,19 +1616,23 @@ export function ProgramForm({ id }: { id?: string }) {
         )}
       >
         <div className="form-grid">
+          {/* {JSON.stringify(transformSelect(years.data || [], "academicYear"))} */}
+
           <Field form={form} name="name" label="Programme / shift name" />
-          <SelectField
-            form={form}
-            name="academicYearId"
-            label="Academic year"
-            disabled={editing}
-            options={(years.data || []).map((year) => [year.id, year.name])}
-          />
-          {editing && (
-            <p className="field-help">
-              Academic year cannot be changed during program editing.
-            </p>
-          )}
+          <>
+            <SelectField
+              form={form}
+              name="academicYearId"
+              label="Academic year"
+              disabled={editing}
+              options={transformSelect(years.data || [], "academicYear")}
+            />
+            {editing && (
+              <p className="text-xs text-muted-foreground">
+                Academic year cannot be changed during program editing.
+              </p>
+            )}
+          </>
           <SelectField
             form={form}
             name="primary"
@@ -1968,7 +1990,7 @@ export function ClassForm({ session }: { id?: string; session: User }) {
       form.reset({
         name: query.data.name,
         programId: query.data.programId,
-        academicYearId: query.data.academicYearId,
+        academicYearId: query.data?.program?.academicYearId,
       });
   }, [query.data, form]);
   if (!hasPermission(session, editing ? "CLASS_UPDATE" : "CLASS_CREATE"))
@@ -2035,17 +2057,14 @@ export function ClassForm({ session }: { id?: string; session: User }) {
         )}
       >
         <div className="form-grid">
-          {JSON.stringify(query.data)}
-          {JSON.stringify(classId)}
+          {/* {JSON.stringify(query.data)}
+          {JSON.stringify(classId)} */}
           {/* {JSON.stringify(programsOptions)} */}
           <SelectField
             form={form}
             name="academicYearId"
             label="Academic Year"
-            options={(academicYears.data || []).map((year) => [
-              year.id,
-              year.name,
-            ])}
+            options={transformSelect(academicYears.data || [], "academicYear")}
             onChange={(e) => {
               // academicYearChange(e?.target.value);
               setProgramsOptions(
@@ -2054,7 +2073,7 @@ export function ClassForm({ session }: { id?: string; session: User }) {
                 ) || [],
               );
             }}
-            disabled={editing}
+            disabled={!editing}
           />
           <SelectField
             form={form}
@@ -2072,7 +2091,7 @@ export function ClassForm({ session }: { id?: string; session: User }) {
           <AppButton
             type="button"
             variant="ghost"
-            onClick={() => setLocation(id ? `/classes/${classId}` : "/classes")}
+            onClick={() => setLocation(editing ? `/classes/${classId}` : "/classes")}
           >
             Cancel
           </AppButton>
@@ -2349,7 +2368,7 @@ export function SectionList({ session }: { session: User }) {
                       {hasPermission(session, "CLASS_UPDATE") && (
                         <>
                           <Link
-                            href={`/sections/${row.id}/edit`}
+                            href={`/sections/${row.id}`}
                             className="icon-button"
                             title="Edit section"
                           >
@@ -2385,7 +2404,8 @@ export function SectionList({ session }: { session: User }) {
   );
 }
 
-export function SectionForm({ id, session }: { id?: string; session: User }) {
+export function SectionForm({ session }: { session: User }) {
+  const id = useParams()?.id;
   const editing = Boolean(id);
   const sections = useSections();
   const classes = useClasses();
@@ -2472,17 +2492,24 @@ export function SectionForm({ id, session }: { id?: string; session: User }) {
         )}
       >
         <div className="form-grid">
+          <div>
+            <SelectField
+              form={form}
+              name="classId"
+              label="Parent class"
+              options={(classes.data || []).map((schoolClass) => [
+                schoolClass.id,
+                schoolClass.name,
+              ])}
+              disabled={editing}
+            />
+            {editing && (
+              <p className="text-xs text-muted-foreground">
+                Class cannot be changed during section editing.
+              </p>
+            )}
+          </div>
           <Field form={form} name="name" label="Section name" />
-          <SelectField
-            form={form}
-            name="classId"
-            label="Parent class"
-            options={(classes.data || []).map((schoolClass) => [
-              schoolClass.id,
-              schoolClass.name,
-            ])}
-            disabled={editing}
-          />
         </div>
         <div className="form-actions">
           <AppButton
