@@ -482,11 +482,17 @@ export function AcademicYearForm({
         )}
       >
         <div className="form-grid">
-          <>
+          <Field
+            form={form}
+            name="schoolId"
+            label="School Name"
+            disabled={editing}
+          />
+          <div>
             <Field
               form={form}
-              name="schoolId"
-              label="School Name"
+              name="name"
+              label="Academic year name"
               disabled={editing}
             />
             {editing && (
@@ -494,13 +500,7 @@ export function AcademicYearForm({
                 Academic year cannot be changed during program editing.
               </p>
             )}
-          </>
-          <Field
-            form={form}
-            name="name"
-            label="Academic year name"
-            disabled={editing}
-          />
+          </div>
           {!editing && (
             <MultiSelectField
               form={form}
@@ -603,7 +603,11 @@ export function AcademicYearDetail({ id }: { id: string }) {
           <div className="detail-fields">
             <div className="detail-field">
               <span>School Name</span>
-              <strong>{item.school ? `${item.school.name} (${item.school.schoolCode})` : (item.schoolId || "-")}</strong>
+              <strong>
+                {item.school
+                  ? `${item.school.name} (${item.school.schoolCode})`
+                  : item.schoolId || "-"}
+              </strong>
             </div>
             <div className="detail-field">
               <span>Name</span>
@@ -2091,7 +2095,9 @@ export function ClassForm({ session }: { id?: string; session: User }) {
           <AppButton
             type="button"
             variant="ghost"
-            onClick={() => setLocation(editing ? `/classes/${classId}` : "/classes")}
+            onClick={() =>
+              setLocation(editing ? `/classes/${classId}` : "/classes")
+            }
           >
             Cancel
           </AppButton>

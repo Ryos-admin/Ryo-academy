@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertQaDatabase } from '../src/test/assert-qa-database.js';
 import {
   ConflictException,
   ForbiddenException,
@@ -11,6 +12,7 @@ import { InstallmentAllocationService } from '../src/admission/installment/insta
 import { HistoricalOffsetBackfillService } from '../src/admission/installment/historical-offset-backfill.service.js';
 import {
   AdmissionStatus,
+  FeePricingVersion,
   FinancialFlowType,
   FinancialLogType,
   InstallmentRowStatus,
@@ -31,6 +33,7 @@ assert.equal(target.pathname, '/ryo_qa');
 async function main() {
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any);
   await db.$connect();
+  await assertQaDatabase(db);
 
   const allocationService = new InstallmentAllocationService();
   const studentService = new StudentService(db, allocationService);
@@ -190,6 +193,7 @@ async function main() {
 
       const header = await db.feePaymentHeader.create({
         data: {
+          pricingVersion: FeePricingVersion.LEGACY,
           admissionId: adm.id,
           academicYearId: yearAId,
           feeStructureId: fs.id,
@@ -1702,6 +1706,7 @@ async function main() {
       DELETE FROM "InstallmentLineageTransferEdge" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
       DELETE FROM "InstallmentLineageEvent" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
       DELETE FROM "FeePaymentInstallmentAllocation" WHERE "feePaymentHeaderId" IN (SELECT id FROM "FeePaymentHeader" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')));
+      DELETE FROM "FeePaymentDetailAttribution" WHERE "feePaymentId" IN (SELECT id FROM "FeePayment" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
       DELETE FROM "FeePayment" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}');
       DELETE FROM "AdmissionInstallment" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
       DELETE FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}');

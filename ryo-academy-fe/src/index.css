@@ -88,34 +88,34 @@
   --sidebar: 215 35% 18%;
   --sidebar-foreground: 210 25% 91%;
   --sidebar-border: 215 27% 27%;
-  --sidebar-primary: 16 76% 59%;
+  --sidebar-primary: 16 74% 45%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 215 29% 25%;
   --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-ring: 16 76% 59%;
+  --sidebar-ring: 16 74% 45%;
   --popover: 0 0% 100%;
   --popover-foreground: 215 30% 17%;
   --popover-border: 214 20% 87%;
-  --primary: 16 76% 59%;
+  --primary: 16 74% 45%;
   --primary-foreground: 0 0% 100%;
   --secondary: 203 43% 92%;
   --secondary-foreground: 210 50% 24%;
   --muted: 210 28% 94%;
-  --muted-foreground: 215 14% 48%;
+  --muted-foreground: 215 16% 40%;
   --accent: 43 92% 63%;
   --accent-foreground: 34 52% 19%;
   --destructive: 1 64% 52%;
   --destructive-foreground: 0 0% 100%;
   --input: 214 20% 83%;
-  --ring: 16 76% 59%;
-  --chart-1: 16 76% 59%;
+  --ring: 16 74% 45%;
+  --chart-1: 16 74% 45%;
   --chart-2: 194 53% 42%;
   --chart-3: 43 92% 63%;
   --chart-4: 215 35% 34%;
   --chart-5: 142 34% 48%;
   --app-font-sans: "DM Sans", sans-serif;
   --app-font-serif: "Fraunces", Georgia, serif;
-  --app-font-mono: "DM Sans", monospace;
+  --app-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --radius: 0.7rem;
   --shadow-2xs: 0px 1px 2px 0px hsl(215 30% 17% / 0.04);
   --shadow-xs: 0px 1px 3px 0px hsl(215 30% 17% / 0.05);
@@ -191,8 +191,8 @@
 }
 
 .dark {
-  --button-outline: rgba(255, 255, 255, 0.1);
-  --badge-outline: rgba(255, 255, 255, 0.05);
+  --button-outline: rgba(255, 255, 255, 0.15);
+  --badge-outline: rgba(255, 255, 255, 0.1);
 
   --opaque-button-border-intensity: 9; /* In terms of percentages */
 
@@ -200,40 +200,40 @@
   --elevate-1: rgba(255, 255, 255, 0.04);
   --elevate-2: rgba(255, 255, 255, 0.09);
 
-  --background: 210 32% 97%;
-  --foreground: 215 30% 17%;
-  --border: 214 20% 87%;
-  --card: 0 0% 100%;
-  --card-foreground: 215 30% 17%;
-  --card-border: 214 20% 89%;
-  --sidebar: 215 35% 18%;
-  --sidebar-foreground: 210 25% 91%;
-  --sidebar-border: 215 27% 27%;
-  --sidebar-primary: 16 76% 59%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 215 29% 25%;
-  --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-ring: 16 76% 59%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 215 30% 17%;
-  --popover-border: 214 20% 87%;
-  --primary: 16 76% 59%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 203 43% 92%;
-  --secondary-foreground: 210 50% 24%;
-  --muted: 210 28% 94%;
-  --muted-foreground: 215 14% 48%;
-  --accent: 43 92% 63%;
-  --accent-foreground: 34 52% 19%;
-  --destructive: 1 64% 52%;
+  --background: 215 28% 10%;
+  --foreground: 210 25% 94%;
+  --border: 215 20% 20%;
+  --card: 215 28% 14%;
+  --card-foreground: 210 25% 94%;
+  --card-border: 215 20% 22%;
+  --sidebar: 215 32% 8%;
+  --sidebar-foreground: 210 25% 92%;
+  --sidebar-border: 215 20% 16%;
+  --sidebar-primary: 16 80% 60%;
+  --sidebar-primary-foreground: 215 35% 12%;
+  --sidebar-accent: 215 26% 16%;
+  --sidebar-accent-foreground: 210 25% 94%;
+  --sidebar-ring: 16 80% 60%;
+  --popover: 215 28% 14%;
+  --popover-foreground: 210 25% 94%;
+  --popover-border: 215 20% 22%;
+  --primary: 16 80% 60%;
+  --primary-foreground: 215 35% 12%;
+  --secondary: 215 24% 20%;
+  --secondary-foreground: 210 25% 90%;
+  --muted: 215 20% 18%;
+  --muted-foreground: 215 14% 65%;
+  --accent: 43 90% 55%;
+  --accent-foreground: 215 35% 12%;
+  --destructive: 1 65% 58%;
   --destructive-foreground: 0 0% 100%;
-  --input: 214 20% 83%;
-  --ring: 16 76% 59%;
-  --chart-1: 16 76% 59%;
-  --chart-2: 194 53% 42%;
-  --chart-3: 43 92% 63%;
-  --chart-4: 215 35% 34%;
-  --chart-5: 142 34% 48%;
+  --input: 215 20% 26%;
+  --ring: 16 80% 60%;
+  --chart-1: 16 80% 60%;
+  --chart-2: 194 53% 55%;
+  --chart-3: 43 90% 55%;
+  --chart-4: 215 35% 50%;
+  --chart-5: 142 34% 58%;
 
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
@@ -345,9 +345,17 @@
     display: inline-block;
     box-shadow: 0 0 0 3px rgba(213, 172, 77, 0.14);
   }
+  .live-dot-red {
+    background: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+  }
+  .live-dot-amber {
+    background: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+  }
   .nav-label {
     padding: 0 10px;
-    color: rgba(225, 234, 241, 0.36);
+    color: rgba(225, 234, 241, 0.60);
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -555,8 +563,8 @@
   }
   .eyebrow {
     color: hsl(var(--primary));
-    font-size: 10px;
-    letter-spacing: 0.15em;
+    font-size: 11px;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     font-weight: 700;
   }
@@ -874,6 +882,11 @@
     border-radius: 8px;
     padding: 0 12px;
     color: hsl(var(--muted-foreground));
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .search-box:focus-within {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 2px hsl(var(--ring) / 0.2);
   }
   .search-box input {
     width: 100%;
@@ -894,6 +907,11 @@
     border-radius: 8px;
     padding: 0 10px;
     gap: 5px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .filter-box:focus-within {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 2px hsl(var(--ring) / 0.2);
   }
   .filter-box span {
     color: hsl(var(--muted-foreground));
@@ -1564,7 +1582,7 @@
     animation: rise 0.35s ease both;
   }
 }
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .sidebar {
     width: 222px;
     flex-basis: 222px;
@@ -1586,7 +1604,7 @@
     grid-template-columns: 1fr;
   }
 }
-@media (max-width: 700px) {
+@media (max-width: 768px) {
   .sidebar {
     position: fixed;
     left: 0;
@@ -2054,7 +2072,7 @@
     font-size: 12px;
   }
 }
-@media (max-width: 700px) {
+@media (max-width: 768px) {
   .hierarchy-banner {
     gap: 5px;
     font-size: 10px;
@@ -2072,5 +2090,14 @@
   }
   .attendance-select-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .table-sticky-col {
+    position: sticky;
+    left: 0;
+    background: hsl(var(--card));
+    z-index: 2;
   }
 }

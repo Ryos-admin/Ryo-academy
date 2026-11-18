@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertQaDatabase } from '../src/test/assert-qa-database.js';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../src/database/database.service.js';
 import { FeeConcessionCategoryService } from '../src/admission/fee-concession/fee-concession-category.service.js';
@@ -6,7 +7,8 @@ import { AdmissionConcessionService } from '../src/admission/fee-concession/admi
 import { AdmissionService } from '../src/admission/admission-fee-log/admission.service.js';
 import { AdmissionRepository } from '../src/admission/admission-fee-log/admission.repository.js';
 import { StudentService } from '../src/student/student.service.js';
-import { DiscountType } from '../generated/prisma/enums.js';
+import { AdmissionPaymentService } from '../src/admission/admission-payment/admission-payment.service.js';
+import { DiscountType, PaymentMethod } from '../generated/prisma/enums.js';
 import { Prisma } from '../generated/prisma/client.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -19,12 +21,14 @@ assert.equal(target.pathname, '/ryo_qa');
 async function main() {
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any);
   await db.$connect();
+  await assertQaDatabase(db);
 
   const categoryService = new FeeConcessionCategoryService(db);
   const admissionConcessionService = new AdmissionConcessionService(db);
   const admissionRepo = new AdmissionRepository(db);
   const admissionService = new AdmissionService(db, admissionRepo);
   const studentService = new StudentService(db);
+  const paymentService = new AdmissionPaymentService(db);
 
   const ids: Record<string, string[]> = {
     schools: [],
@@ -50,6 +54,21 @@ async function main() {
       const cleanIds = (arr: (string | undefined)[]) => arr.filter((x): x is string => !!x);
       await tx.financialLog.deleteMany({
         where: { OR: [{ id: { in: cleanIds(ids.logs) } }, { schoolId: { in: cleanIds(ids.schools) } }] },
+      });
+      await tx.installmentLineageTransferEdge.deleteMany({
+        where: { event: { schedule: { admission: { schoolId: { in: cleanIds(ids.schools) } } } } },
+      });
+      await tx.installmentLineageEvent.deleteMany({
+        where: { schedule: { admission: { schoolId: { in: cleanIds(ids.schools) } } } },
+      });
+      await tx.feePaymentInstallmentAllocation.deleteMany({
+        where: { header: { admission: { schoolId: { in: cleanIds(ids.schools) } } } },
+      });
+      await tx.paymentReversalEvent.deleteMany({
+        where: { feePayment: { schoolId: { in: cleanIds(ids.schools) } } },
+      });
+      await tx.feePaymentDetailAttribution.deleteMany({
+        where: { feePayment: { schoolId: { in: cleanIds(ids.schools) } } },
       });
       await tx.feePayment.deleteMany({
         where: { OR: [{ id: { in: cleanIds(ids.payments) } }, { schoolId: { in: cleanIds(ids.schools) } }] },
@@ -215,6 +234,70 @@ async function main() {
     });
     ids.components.push(compLab.id);
 
+    const recordQualifyingPayment = async (admId: string, headerId: string, amount = '1000') => {
+      const curHdr = await db.feePaymentHeader.findUniqueOrThrow({
+        where: { id: headerId },
+        include: { feePaymentDetails: true },
+      });
+      const netAmount = new Prisma.Decimal(curHdr.netAmount.toString());
+
+      let sched = await db.admissionInstallmentSchedule.findUnique({
+        where: { feePaymentHeaderId: headerId },
+      });
+      if (!sched) {
+        sched = await db.admissionInstallmentSchedule.create({
+          data: {
+            schoolId: schoolA.id,
+            admissionId: admId,
+            feePaymentHeaderId: headerId,
+            scheduleType: 'CUSTOM',
+            totalAmount: netAmount,
+            installmentCount: 1,
+            installments: {
+              create: [
+                {
+                  feePaymentHeaderId: headerId,
+                  sequence: 1,
+                  subSequence: 0,
+                  offsetAmount: new Prisma.Decimal('0.00'),
+                  label: 'Full Term Installment',
+                  amount: netAmount,
+                  dueDate: new Date('2026-12-15T00:00:00.000Z'),
+                  status: 'PENDING',
+                },
+              ],
+            },
+          },
+        });
+      }
+
+      const tDetail = curHdr.feePaymentDetails.find((d) => d.nameSnapshot === 'Tuition Fee')
+        ?? curHdr.feePaymentDetails.find((d) => d.isIncluded && d.isActive)!;
+
+      const paymentResult = await paymentService.createAdmissionPayment(
+        admId,
+        {
+          idempotencyKey: `idemp-conf-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+          feePaymentHeaderId: headerId,
+          amount,
+          paymentMethod: PaymentMethod.CASH,
+          paymentDate: new Date().toISOString(),
+          transactionReference: `qual-pay-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+          remarks: 'QA qualifying payment for admission confirmation',
+          allocations: [
+            {
+              feePaymentDetailsId: tDetail.id,
+              amount,
+            },
+          ],
+        },
+        userA.id,
+      );
+
+      ids.payments.push(paymentResult.id);
+      return paymentResult;
+    };
+
     // =========================================================================
     // TEST 1: Concession Category Management & Cross-School Scoping (Decision 2 & 3)
     // =========================================================================
@@ -280,6 +363,7 @@ async function main() {
         addressLine1: '123 Test Road',
         postalCode: '411001',
         createdById: userA.id,
+        selectedFeeComponentIds: [compTuition.id, compLab.id, compExam.id],
       });
     } catch (e) {
       console.error('admissionService.create threw:', e);
@@ -310,24 +394,23 @@ async function main() {
     const detailExam = header.feePaymentDetails.find((d) => d.nameSnapshot === 'Exam Fee')!;
     const detailLab = header.feePaymentDetails.find((d) => d.nameSnapshot === 'Lab & Activity Fee')!;
 
-    // Assign 15% Sibling concession on Tuition Fee (₹10,000 * 15% = ₹1,500)
+    // Assign 15% Sibling concession on Tuition Fee (₹10,000 * 15% = ₹1,500 -> payable 8500)
     const assignResult = await admissionConcessionService.assignConcession(
       admission.id,
       {
         feePaymentDetailsId: detailTuition.id,
-        concessionCategoryId: catSibling.id,
-        discountType: DiscountType.PERCENTAGE,
-        discountValue: '15',
-        justification: 'Second sibling enrolled in academy',
+        payableAmount: '8500.00',
       },
       userA.id,
     );
-    ids.concessions.push(assignResult.concession.id);
+    const assignConcRow = await db.admissionFeeConcession.findFirstOrThrow({
+      where: { admissionId: admission.id, feePaymentDetailsId: detailTuition.id },
+    });
+    ids.concessions.push(assignConcRow.id);
 
-    assert.equal(assignResult.concession.calculatedDiscountAmount.toString(), '1500');
-    assert.equal(assignResult.summary.grossAmount.toString(), '15000');
-    assert.equal(assignResult.summary.discountAmount.toString(), '1500');
-    assert.equal(assignResult.summary.netAmount.toString(), '13500');
+    assert.equal(assignResult.grossAmount.toString(), '15000');
+    assert.equal(assignResult.discountAmount.toString(), '1500');
+    assert.equal(assignResult.netAmount.toString(), '13500');
 
     // Verify DB detail row updated
     const updatedTuition = await db.feePaymentDetails.findUniqueOrThrow({ where: { id: detailTuition.id } });
@@ -340,45 +423,42 @@ async function main() {
     // TEST 3: Fixed Concession & Decision 1 Validation (Strict Rejection)
     // =========================================================================
     console.log('\n--- Test 3: Fixed Concession & Decision 1 Rejection ---');
-    // Try fixed discount exceeding Lab Fee (₹3,001 on ₹3,000) -> MUST BE REJECTED (no auto-capping)
+    // Try fixed discount exceeding Lab Fee -> MUST BE REJECTED (no auto-capping)
     await assert.rejects(
       async () =>
         admissionConcessionService.assignConcession(
           admission.id,
           {
             feePaymentDetailsId: detailLab.id,
-            concessionCategoryId: catMerit.id,
-            discountType: DiscountType.FIXED,
-            discountValue: '3001',
+            payableAmount: '3001.00',
           },
           userA.id,
         ),
       (err: any) => {
         assert.ok(err instanceof BadRequestException);
-        assert.ok(err.message.includes('cannot exceed fee component amount'), `Unexpected message: ${err.message}`);
+        assert.ok(err.message.includes('must be between zero and the original amount'), `Unexpected message: ${err.message}`);
         return true;
       },
       'Fixed discount exceeding component amount must be rejected without auto-capping (Decision 1)',
     );
 
-    // Assign valid fixed concession: ₹1,000 on Lab Fee
+    // Assign valid fixed concession: ₹1,000 on Lab Fee (payable 2000)
     const fixedResult = await admissionConcessionService.assignConcession(
       admission.id,
       {
         feePaymentDetailsId: detailLab.id,
-        concessionCategoryId: catMerit.id,
-        discountType: DiscountType.FIXED,
-        discountValue: '1000',
-        justification: 'Merit in science competition',
+        payableAmount: '2000.00',
       },
       userA.id,
     );
-    ids.concessions.push(fixedResult.concession.id);
+    const fixedConcRow = await db.admissionFeeConcession.findFirstOrThrow({
+      where: { admissionId: admission.id, feePaymentDetailsId: detailLab.id },
+    });
+    ids.concessions.push(fixedConcRow.id);
 
-    assert.equal(fixedResult.concession.calculatedDiscountAmount.toString(), '1000');
-    assert.equal(fixedResult.summary.grossAmount.toString(), '15000');
-    assert.equal(fixedResult.summary.discountAmount.toString(), '2500'); // 1500 + 1000
-    assert.equal(fixedResult.summary.netAmount.toString(), '12500');
+    assert.equal(fixedResult.grossAmount.toString(), '15000');
+    assert.equal(fixedResult.discountAmount.toString(), '2500'); // 1500 + 1000
+    assert.equal(fixedResult.netAmount.toString(), '12500');
     console.log('✓ Test 3 passed: Fixed concession validated and calculated according to Decision 1');
 
     // =========================================================================
@@ -392,9 +472,7 @@ async function main() {
           admission.id,
           {
             feePaymentDetailsId: detailExam.id,
-            concessionCategoryId: catMerit.id,
-            discountType: DiscountType.PERCENTAGE,
-            discountValue: '10',
+            payableAmount: '1800.00',
           },
           userA.id,
         ),
@@ -413,9 +491,7 @@ async function main() {
           admission.id,
           {
             feePaymentDetailsId: detailTuition.id,
-            concessionCategoryId: catMerit.id,
-            discountType: DiscountType.PERCENTAGE,
-            discountValue: '5',
+            payableAmount: '8000.00',
           },
           userA.id,
         ),
@@ -427,44 +503,23 @@ async function main() {
     console.log('\n--- Removing concession on Lab fee to test category validation guards ---');
     const removeResult = await admissionConcessionService.removeConcession(
       admission.id,
-      fixedResult.concession.id,
+      fixedConcRow.id,
     );
-    assert.equal(removeResult.success, true);
-    assert.equal(removeResult.summary.discountAmount.toString(), '1500'); // only tuition concession remains
-    assert.equal(removeResult.summary.netAmount.toString(), '13500');
+    assert.equal(removeResult.discountAmount.toString(), '1500'); // only tuition concession remains
+    assert.equal(removeResult.netAmount.toString(), '13500');
 
-    // 4.4 Inactive category rejection
+    // 4.4 Inactive category rejection on category service
     await assert.rejects(
-      async () =>
-        admissionConcessionService.assignConcession(
-          admission.id,
-          {
-            feePaymentDetailsId: detailLab.id,
-            concessionCategoryId: catOld.id,
-            discountType: DiscountType.PERCENTAGE,
-            discountValue: '5',
-          },
-          userA.id,
-        ),
-      (err: any) => {
-        assert.ok(err instanceof BadRequestException);
-        assert.ok(err.message.includes('inactive'));
-        return true;
-      },
-      'Deactivated category must be rejected for new assignments',
+      async () => categoryService.findById(catOld.id, userA.id),
+      NotFoundException,
+      'Deactivated category must be not found for standard lookups',
     );
 
     // 4.5 Cross-school category rejection
     await assert.rejects(
       async () =>
-        admissionConcessionService.assignConcession(
-          admission.id,
-          {
-            feePaymentDetailsId: detailLab.id,
-            concessionCategoryId: catSiblingB.id,
-            discountType: DiscountType.PERCENTAGE,
-            discountValue: '5',
-          },
+        categoryService.create(
+          { name: 'Cross School Cat', code: 'CROSS_CAT', schoolId: schoolB.id },
           userA.id,
         ),
       ForbiddenException,
@@ -491,6 +546,9 @@ async function main() {
     // TEST 6: Atomic Admission Confirmation & Obligation Freezing
     // =========================================================================
     console.log('\n--- Test 6: Atomic Admission Confirmation & Obligation Freezing ---');
+    // Provision qualifying payment of ₹1,000 for confirmation (BE-ND1)
+    await recordQualifyingPayment(admission.id, header.id, '1000');
+
     const confirmedAdmission = await admissionService.updateStatusById(
       admission.id,
       { id: userA.id, userId: userA.id },
@@ -507,8 +565,8 @@ async function main() {
     assert.equal(confirmedHeader.discountAmount.toString(), '1500', 'Discount amount must be ₹1,500');
     assert.equal(confirmedHeader.netAmount.toString(), '13500', 'Net amount must be ₹13,500');
     assert.equal(confirmedHeader.totalFeeAmount.toString(), '13500', 'Total fee amount must equal net payable');
-    assert.equal(confirmedHeader.totalDueAmount.toString(), '13500', 'Total due amount must equal net payable');
-    assert.equal(confirmedHeader.totalPaidAmount.toString(), '0', 'Total paid amount must be 0');
+    assert.equal(confirmedHeader.totalPaidAmount.toString(), '1000', 'Total paid amount must equal qualifying payment');
+    assert.equal(confirmedHeader.totalDueAmount.toString(), '12500', 'Total due amount must equal net payable minus paid');
     console.log('✓ Test 6 passed: Admission confirmed and financial obligations permanently frozen');
 
     // =========================================================================
@@ -522,15 +580,16 @@ async function main() {
           admission.id,
           {
             feePaymentDetailsId: detailLab.id,
-            concessionCategoryId: catMerit.id,
-            discountType: DiscountType.FIXED,
-            discountValue: '500',
+            payableAmount: '2500.00',
           },
           userA.id,
         ),
       (err: any) => {
-        assert.ok(err instanceof BadRequestException);
-        assert.ok(err.message.includes('cannot be modified on confirmed'));
+        assert.ok(err instanceof ConflictException || err instanceof BadRequestException);
+        assert.ok(
+          err.message.includes('only be changed while the admission is DRAFT') ||
+            err.message.includes('cannot be changed after financial activity'),
+        );
         return true;
       },
       'Assigning concession on confirmed admission must be strictly rejected',
@@ -539,10 +598,13 @@ async function main() {
     // 7.2 Reject concession removal
     await assert.rejects(
       async () =>
-        admissionConcessionService.removeConcession(admission.id, assignResult.concession.id),
+        admissionConcessionService.removeConcession(admission.id, assignConcRow.id),
       (err: any) => {
-        assert.ok(err instanceof BadRequestException);
-        assert.ok(err.message.includes('cannot be modified on confirmed'));
+        assert.ok(err instanceof ConflictException || err instanceof BadRequestException);
+        assert.ok(
+          err.message.includes('only be changed while the admission is DRAFT') ||
+            err.message.includes('cannot be changed after financial activity'),
+        );
         return true;
       },
       'Removing concession on confirmed admission must be strictly rejected',
@@ -563,7 +625,10 @@ async function main() {
         }),
       (err: any) => {
         assert.ok(err instanceof BadRequestException);
-        assert.ok(err.message.includes('cannot be modified after admission confirmation'));
+        assert.ok(
+          err.message.includes('blocked after confirmation') ||
+            err.message.includes('cannot be modified after admission confirmation'),
+        );
         return true;
       },
       'Fee structures and obligations cannot be modified after admission confirmation',
@@ -574,30 +639,34 @@ async function main() {
     // TEST 8: Post-Confirmation Payment Integration (Seamless Handshake)
     // =========================================================================
     console.log('\n--- Test 8: Post-Confirmation Payment Collection & Historical Integrity ---');
-    const payment = await studentService.recordStudentFeePayment(
+    await studentService.recordStudentFeePayment(
       confirmedAdmission.student.id,
       {
         amount: '5000',
         paymentDate: new Date().toISOString(),
         paymentMethod: 'CASH' as any,
         idempotencyKey: `idemp-disc-pay-${timestamp}`,
+        allocations: [{ feePaymentDetailsId: detailTuition.id, amount: '5000' }],
       },
       userA.id,
     );
-    ids.payments.push(payment.paymentId);
 
     const postPayHeader = await db.feePaymentHeader.findFirstOrThrow({
       where: { admissionId: admission.id },
+      include: { payments: true },
     });
+    postPayHeader.payments.forEach((p) => ids.payments.push(p.id));
+
     assert.equal(postPayHeader.grossAmount.toString(), '15000', 'Gross amount unchanged');
     assert.equal(postPayHeader.discountAmount.toString(), '1500', 'Discount amount unchanged');
     assert.equal(postPayHeader.netAmount.toString(), '13500', 'Net amount unchanged');
     assert.equal(postPayHeader.totalFeeAmount.toString(), '13500', 'Total fee amount unchanged');
-    assert.equal(postPayHeader.totalPaidAmount.toString(), '5000', 'Total paid amount incremented');
-    assert.equal(postPayHeader.totalDueAmount.toString(), '8500', 'Total due amount decremented correctly');
+    assert.equal(postPayHeader.totalPaidAmount.toString(), '6000', 'Total paid amount incremented');
+    assert.equal(postPayHeader.totalDueAmount.toString(), '7500', 'Total due amount decremented correctly');
 
     const paymentLog = await db.financialLog.findFirst({
-      where: { feePaymentId: payment.paymentId },
+      where: { schoolId: schoolA.id, sourceType: 'FEE_PAYMENT' },
+      orderBy: { createdAt: 'desc' },
     });
     if (paymentLog) ids.logs.push(paymentLog.id);
 

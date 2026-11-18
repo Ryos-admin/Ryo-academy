@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { DatabaseService } from "../../database/database.service.js";
 import { CreateFeePaymentHeaderDto } from "./dto/create-admission.dto.js";
 import { UpdateAdmissionDto, UpdateFeePaymentHeaderDto } from "./dto/update-admission.dto.js";
 import { isNotEmpty } from "class-validator";
 import { error } from "console";
 import { parseMoney } from "../../common/money/money.util.js";
+import { FeePricingVersion } from "../../../generated/prisma/enums.js";
 
 @Injectable()
 export class AdmissionRepository {
@@ -12,7 +13,7 @@ export class AdmissionRepository {
 
   async findActiveFeeStructures(
     scope: { academicYearId: string; programId: string; classId: string },
-    client: Pick<DatabaseService, 'feeStructure'> = this.databaseService,
+    client: Pick<DatabaseService, "feeStructure"> = this.databaseService,
   ) {
     return client.feeStructure.findMany({
       where: {
@@ -24,7 +25,7 @@ export class AdmissionRepository {
       include: {
         feeComponents: {
           where: { isActive: true },
-          orderBy: { name: 'asc' },
+          orderBy: { name: "asc" },
         },
       },
     });
@@ -94,10 +95,16 @@ export class AdmissionRepository {
     });
 
     const academicSeq = this.generateAdmissionSeries(
-      academicYear.id,
+      academicYear.name,
       schoolDet.schoolCode,
       academicYrCount,
     );
+
+    if (academicSeq.length === 0) {
+      throw new BadRequestException(
+        "Error in generating admission number, kindly check the given school / academic year / Program / Classes.",
+      );
+    }
 
     return { academicSeq, classCount, schoolCode: academicYear.schoolId };
   }
@@ -131,26 +138,53 @@ export class AdmissionRepository {
         feePaymentHeader = await tx.feePaymentHeader.update({
           where: { id: dto.id, feeStructureId: dto.feeStructureId },
           data: {
-            ...(dto.grossAmount !== undefined && { grossAmount: parseMoney(dto.grossAmount, 'grossAmount') }),
-            ...(dto.discountAmount !== undefined && { discountAmount: parseMoney(dto.discountAmount, 'discountAmount') }),
-            ...(dto.netAmount !== undefined && { netAmount: parseMoney(dto.netAmount, 'netAmount') }),
-            ...(dto.totalPaidAmount !== undefined && { totalPaidAmount: parseMoney(dto.totalPaidAmount, 'totalPaidAmount') }),
-            ...(dto.totalDueAmount !== undefined && { totalDueAmount: parseMoney(dto.totalDueAmount, 'totalDueAmount') }),
-            ...(dto.totalFeeAmount !== undefined && { totalFeeAmount: parseMoney(dto.totalFeeAmount, 'totalFeeAmount') }),
+            ...(dto.grossAmount !== undefined && {
+              grossAmount: parseMoney(dto.grossAmount, "grossAmount"),
+            }),
+            ...(dto.discountAmount !== undefined && {
+              discountAmount: parseMoney(dto.discountAmount, "discountAmount"),
+            }),
+            ...(dto.netAmount !== undefined && {
+              netAmount: parseMoney(dto.netAmount, "netAmount"),
+            }),
+            ...(dto.totalPaidAmount !== undefined && {
+              totalPaidAmount: parseMoney(dto.totalPaidAmount, "totalPaidAmount"),
+            }),
+            ...(dto.totalDueAmount !== undefined && {
+              totalDueAmount: parseMoney(dto.totalDueAmount, "totalDueAmount"),
+            }),
+            ...(dto.totalFeeAmount !== undefined && {
+              totalFeeAmount: parseMoney(dto.totalFeeAmount, "totalFeeAmount"),
+            }),
           },
         });
       } else {
+        if (dto.academicYearId) {
+          if (typeof tx.$queryRaw === "function") {
+            await tx.$queryRaw`SELECT "id" FROM "AcademicYear" WHERE "id" = ${dto.academicYearId} FOR SHARE`;
+          }
+          if (typeof tx.academicYear?.findUnique === "function") {
+            const ay = await tx.academicYear.findUnique({
+              where: { id: dto.academicYearId },
+              select: { id: true, isActive: true, deletedAt: true },
+            });
+            if (!ay || !ay.isActive || ay.deletedAt !== null) {
+              throw new ConflictException("Academic year does not exist or is inactive");
+            }
+          }
+        }
         feePaymentHeader = await tx.feePaymentHeader.create({
           data: {
             admissionId: dto.admissionId,
             academicYearId: dto.academicYearId || "",
             feeStructureId: dto?.feeStructureId || "",
-            discountAmount: parseMoney(dto?.discountAmount ?? '0', 'discountAmount'),
-            grossAmount: parseMoney(dto?.grossAmount ?? '0', 'grossAmount'),
-            netAmount: parseMoney(dto?.netAmount ?? '0', 'netAmount'),
-            totalPaidAmount: parseMoney(dto?.totalPaidAmount ?? '0', 'totalPaidAmount'),
-            totalDueAmount: parseMoney(dto?.totalDueAmount ?? '0', 'totalDueAmount'),
-            totalFeeAmount: parseMoney(dto?.totalFeeAmount ?? '0', 'totalFeeAmount'),
+            pricingVersion: FeePricingVersion.V0_SNAPSHOTTED,
+            discountAmount: parseMoney(dto?.discountAmount ?? "0", "discountAmount"),
+            grossAmount: parseMoney(dto?.grossAmount ?? "0", "grossAmount"),
+            netAmount: parseMoney(dto?.netAmount ?? "0", "netAmount"),
+            totalPaidAmount: parseMoney(dto?.totalPaidAmount ?? "0", "totalPaidAmount"),
+            totalDueAmount: parseMoney(dto?.totalDueAmount ?? "0", "totalDueAmount"),
+            totalFeeAmount: parseMoney(dto?.totalFeeAmount ?? "0", "totalFeeAmount"),
           },
         });
       }
@@ -167,9 +201,9 @@ export class AdmissionRepository {
             where: { id },
             data: {
               ...detail,
-              originalAmount: parseMoney(detail.originalAmount, 'originalAmount'),
-              discountAmount: parseMoney(detail.discountAmount, 'discountAmount'),
-              amountPaid: parseMoney(detail.amountPaid, 'amountPaid'),
+              originalAmount: parseMoney(detail.originalAmount, "originalAmount"),
+              discountAmount: parseMoney(detail.discountAmount, "discountAmount"),
+              amountPaid: parseMoney(detail.amountPaid, "amountPaid"),
               feePaymentHeaderId: feePaymentHeader.id,
             },
           });
@@ -184,11 +218,14 @@ export class AdmissionRepository {
                 ...rest,
                 feePaymentHeaderId: feePaymentHeader.id,
                 nameSnapshot: rest.nameSnapshot ?? "",
-                originalAmount: parseMoney(rest.originalAmount, 'originalAmount'),
-                discountAmount: parseMoney(rest.discountAmount, 'discountAmount'),
-                amountPaid: parseMoney(rest.amountPaid, 'amountPaid'),
-                finalAmount: parseMoney(rest.finalAmount ?? rest.originalAmount, 'finalAmount'),
-                totalAmountToBePaid: parseMoney(rest.totalAmountToBePaid ?? rest.originalAmount, 'totalAmountToBePaid'),
+                originalAmount: parseMoney(rest.originalAmount, "originalAmount"),
+                discountAmount: parseMoney(rest.discountAmount, "discountAmount"),
+                amountPaid: parseMoney(rest.amountPaid, "amountPaid"),
+                finalAmount: parseMoney(rest.finalAmount ?? rest.originalAmount, "finalAmount"),
+                totalAmountToBePaid: parseMoney(
+                  rest.totalAmountToBePaid ?? rest.originalAmount,
+                  "totalAmountToBePaid",
+                ),
               };
             }),
           });
@@ -203,10 +240,12 @@ export class AdmissionRepository {
   }
 
   private generateAdmissionSeries(academicYr: string, schoolCode: string, academicSeq: number) {
-    let tempAcademicYr = academicYr
-      .split("-")
-      .map((yr) => yr.slice(-2))
-      .join();
+    // console.log(academicYr, schoolCode, academicSeq);
+
+    let tempAcademicYr = academicYr.split("-").map((yr) => yr.slice(-2)).join("");
+
+    // console.log(tempAcademicYr,academicYr.split("-").map((yr) => yr.slice(2)).join(""), `${schoolCode}-${tempAcademicYr}-${String(academicSeq).padStart(6, "0")}`);
+
     return `${schoolCode}-${tempAcademicYr}-${String(academicSeq).padStart(6, "0")}`;
   }
 }

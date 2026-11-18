@@ -42,6 +42,8 @@ export const PERMISSIONS = {
 
   INSTALLMENT_SCHEDULE_READ: 'installment-schedule:read',
   INSTALLMENT_SCHEDULE_MANAGE: 'installment-schedule:manage',
+
+  SCHOOL_UPDATE: 'school:update',
 } as const;
 
 export type Permission =

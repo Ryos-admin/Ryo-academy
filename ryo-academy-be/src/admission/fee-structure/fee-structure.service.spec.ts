@@ -113,25 +113,42 @@ describe('FeeStructureService create', () => {
       .rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('blocks creation on the academic-year start date', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-05-31T18:30:00.000Z'));
+  it('allows creation in a DRAFT academic year with a past start date', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
     const { db, tx } = database();
     const service = new FeeStructureService(db as any);
-    await expect(service.create({ ...base, feeComponents: [{ name: 'Tuition', amount: '100.00' }] } as any))
-      .rejects.toBeInstanceOf(ConflictException);
-    expect(tx.feeStructure.create).not.toHaveBeenCalled();
+    await service.create({ ...base, feeComponents: [{ name: 'Tuition', amount: '100.00' }] } as any);
+    expect(tx.feeStructure.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows creation in a DRAFT academic year with a future start date', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-15T12:00:00.000Z'));
+    const { db, tx } = database();
+    const service = new FeeStructureService(db as any);
+    await service.create({ ...base, feeComponents: [{ name: 'Tuition', amount: '100.00' }] } as any);
+    expect(tx.feeStructure.create).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('FeeStructureService mutation guards', () => {
   afterEach(() => jest.useRealTimers());
 
-  it('blocks metadata update on the start date and never writes totalAmount independently', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-05-31T18:30:00.000Z'));
+  it('allows metadata update in DRAFT year with past start date and never writes totalAmount independently', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
     const { db, tx } = database();
     const service = new FeeStructureService(db as any);
-    await expect(service.update('fs-1', { name: 'New Name' } as any)).rejects.toBeInstanceOf(ConflictException);
-    expect(tx.feeStructure.update).not.toHaveBeenCalled();
+    await service.update('fs-1', { name: 'New Name', totalAmount: '999.00' } as any);
+    expect(tx.feeStructure.update).toHaveBeenCalledTimes(1);
+    expect(tx.feeStructure.update.mock.calls[0][0].data).toEqual({ name: 'New Name' });
+  });
+
+  it('allows metadata update in DRAFT year with future start date', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-15T12:00:00.000Z'));
+    const { db, tx } = database();
+    const service = new FeeStructureService(db as any);
+    await service.update('fs-1', { name: 'Future Name' } as any);
+    expect(tx.feeStructure.update).toHaveBeenCalledTimes(1);
+    expect(tx.feeStructure.update.mock.calls[0][0].data).toEqual({ name: 'Future Name' });
   });
 
   it('ignores a client total in an allowed metadata update', async () => {
@@ -177,32 +194,36 @@ describe('FeeStructureService mutation guards', () => {
     expect(tx.feeStructure.update.mock.calls[0][0].data).toEqual({ isActive: false });
   });
 
-  it('keeps PATCH deactivation blocked at the academic-year start without writes', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-05-31T18:30:00.000Z'));
+  it('allows PATCH deactivation for an unused master in DRAFT year even after start date', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
     const { db, tx } = database();
     const service = new FeeStructureService(db as any);
 
-    await expect(service.update('fs-1', { isActive: false } as any)).rejects.toBeInstanceOf(ConflictException);
-    expect(tx.feePaymentHeader.findFirst).not.toHaveBeenCalled();
-    expect(tx.feePaymentDetails.findFirst).not.toHaveBeenCalled();
-    expect(tx.feeStructure.update).not.toHaveBeenCalled();
+    await service.update('fs-1', { isActive: false } as any);
+    expect(tx.feePaymentHeader.findFirst).toHaveBeenCalledWith({ where: { feeStructureId: 'fs-1' } });
+    expect(tx.feePaymentDetails.findFirst).toHaveBeenCalledWith({ where: { feeComponent: { feeStructureId: 'fs-1' } } });
+    expect(tx.feeStructure.update.mock.calls[0][0].data).toEqual({ isActive: false });
   });
 
-  it('does not apply the deactivation reference guard to isActive true and still rejects reactivation', async () => {
+  it('rejects any update including isActive true when master is consumed, and rejects reactivation when inactive', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-31T12:00:00.000Z'));
     const { db, tx } = database();
     tx.feePaymentHeader.findFirst.mockResolvedValue({ id: 'header-1' });
     const service = new FeeStructureService(db as any);
 
+    // Consumed: must reject
+    await expect(service.update('fs-1', { isActive: true } as any)).rejects.toBeInstanceOf(ConflictException);
+
+    // Unconsumed: allows isActive true
+    tx.feePaymentHeader.findFirst.mockResolvedValue(null);
     await service.update('fs-1', { isActive: true } as any);
-    expect(tx.feePaymentHeader.findFirst).not.toHaveBeenCalled();
     expect(tx.feeStructure.update.mock.calls[0][0].data).toEqual({ isActive: true });
 
+    // Inactive: rejects reactivation
     tx.feeStructure.findUnique.mockResolvedValueOnce({
       id: 'fs-1', isActive: false, deletedAt: new Date(), totalAmount: new Prisma.Decimal(100), academicYear: year,
     });
     await expect(service.update('fs-1', { isActive: true } as any)).rejects.toBeInstanceOf(ConflictException);
-    expect(tx.feeStructure.update).toHaveBeenCalledTimes(1);
   });
 
   it('retains the unfiltered used-master deletion guard', async () => {
@@ -226,12 +247,172 @@ describe('FeeStructureService mutation guards', () => {
     expect(tx.feeStructure.update).not.toHaveBeenCalled();
   });
 
-  it('blocks unused master deletion once the academic year has started', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-06-01T12:00:00.000Z'));
+  it('allows unused master deletion in DRAFT year regardless of start date', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
     const { db, tx } = database();
     const service = new FeeStructureService(db as any);
-    await expect(service.delete('fs-1', 'actor-1')).rejects.toBeInstanceOf(ConflictException);
+    await service.delete('fs-1', 'actor-1');
     expect(tx.feePaymentHeader.findFirst).toHaveBeenCalledWith({ where: { feeStructureId: 'fs-1' } });
-    expect(tx.feeStructure.update).not.toHaveBeenCalled();
+    expect(tx.feeStructure.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'fs-1' },
+        data: expect.objectContaining({ isActive: false }),
+      }),
+    );
+  });
+});
+
+describe('BE-ND2 Stage 2: GST and Configuration Freeze', () => {
+  beforeEach(() => jest.useFakeTimers().setSystemTime(new Date('2026-05-31T12:00:00.000Z')));
+  afterEach(() => jest.useRealTimers());
+
+  const validComponents = [{ name: 'Tuition', amount: '100.00' }];
+
+  describe('GST Percentage Validation', () => {
+    it.each(['0', '0.00', '18.00', '18.25', '100', '100.00'])(
+      'accepts valid GST percentage: %s on create',
+      async (gstPercentage) => {
+        const { db, tx } = database();
+        const service = new FeeStructureService(db as any);
+        await service.create({ ...base, feeComponents: validComponents, gstPercentage } as any);
+        expect(tx.feeStructure.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              gstPercentage: new Prisma.Decimal(gstPercentage),
+            }),
+          }),
+        );
+      },
+    );
+
+    it('defaults gstPercentage to 0.00 when omitted on create', async () => {
+      const { db, tx } = database();
+      const service = new FeeStructureService(db as any);
+      await service.create({ ...base, feeComponents: validComponents } as any);
+      expect(tx.feeStructure.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            gstPercentage: new Prisma.Decimal('0.00'),
+          }),
+        }),
+      );
+    });
+
+    it.each(['-1', '-0.01', '100.01', '105', '18.125', '18.999'])(
+      'rejects invalid GST percentage: %s on create with BadRequestException',
+      async (gstPercentage) => {
+        const { db } = database();
+        const service = new FeeStructureService(db as any);
+        await expect(
+          service.create({ ...base, feeComponents: validComponents, gstPercentage } as any),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      },
+    );
+
+    it.each(['0', '18.50', '100'])(
+      'accepts valid GST percentage: %s on update',
+      async (gstPercentage) => {
+        const { db, tx } = database();
+        const service = new FeeStructureService(db as any);
+        await service.update('fs-1', { gstPercentage } as any);
+        expect(tx.feeStructure.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              gstPercentage: new Prisma.Decimal(gstPercentage),
+            }),
+          }),
+        );
+      },
+    );
+
+    it.each(['-5', '100.5', '18.255'])(
+      'rejects invalid GST percentage: %s on update with BadRequestException',
+      async (gstPercentage) => {
+        const { db } = database();
+        const service = new FeeStructureService(db as any);
+        await expect(
+          service.update('fs-1', { gstPercentage } as any),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      },
+    );
+  });
+
+  describe('FeeStructure Consumption Freeze', () => {
+    it.each([
+      ['name', { name: 'Renamed' }],
+      ['description', { description: 'New description' }],
+      ['gstPercentage', { gstPercentage: '18.00' }],
+      ['isActive', { isActive: false }],
+    ])(
+      'blocks %s update when FeeStructure is consumed by admissions with 409 Conflict',
+      async (_field, dto) => {
+        const { db, tx } = database();
+        tx.feePaymentHeader.findFirst.mockResolvedValue({ id: 'fph-consumed-1' });
+        const service = new FeeStructureService(db as any);
+
+        await expect(service.update('fs-1', dto as any)).rejects.toBeInstanceOf(ConflictException);
+        expect(tx.feeStructure.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('allows updating name and GST percentage when FeeStructure is NOT consumed', async () => {
+      const { db, tx } = database();
+      tx.feePaymentHeader.findFirst.mockResolvedValue(null);
+      const service = new FeeStructureService(db as any);
+
+      await service.update('fs-1', { name: 'Updated Name', gstPercentage: '18.00' } as any);
+      expect(tx.feeStructure.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            name: 'Updated Name',
+            gstPercentage: new Prisma.Decimal('18.00'),
+          }),
+        }),
+      );
+    });
+
+    it('blocks deletion of consumed FeeStructure with 409 Conflict', async () => {
+      const { db, tx } = database();
+      tx.feePaymentHeader.findFirst.mockResolvedValue({ id: 'fph-consumed-1' });
+      const service = new FeeStructureService(db as any);
+
+      await expect(service.delete('fs-1', 'actor-admin')).rejects.toBeInstanceOf(ConflictException);
+      expect(tx.feeStructure.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('AcademicYear Lifecycle Freeze', () => {
+    it.each(['ACTIVE', 'CLOSED'])(
+      'blocks FeeStructure update when AcademicYear is in %s status',
+      async (ayStatus) => {
+        const { db, tx } = database();
+        tx.academicYear.findUnique.mockResolvedValue({
+          ...year,
+          status: ayStatus,
+        });
+        const service = new FeeStructureService(db as any);
+
+        await expect(service.update('fs-1', { name: 'New Name' } as any)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+        expect(tx.feeStructure.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ['past startDate', new Date('2026-06-15T12:00:00.000Z')],
+      ['future startDate', new Date('2026-01-15T12:00:00.000Z')],
+    ])('blocks mutation of consumed DRAFT FeeStructure regardless of dates (%s)', async (_label, fakeDate) => {
+      jest.useFakeTimers().setSystemTime(fakeDate);
+      const { db, tx } = database();
+      tx.feePaymentHeader.findFirst.mockResolvedValue({ id: 'consumed-header' });
+      const service = new FeeStructureService(db as any);
+
+      await expect(service.update('fs-1', { name: 'Attempted Change' } as any)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      await expect(service.delete('fs-1', 'actor-1')).rejects.toBeInstanceOf(ConflictException);
+      expect(tx.feeStructure.update).not.toHaveBeenCalled();
+    });
   });
 });

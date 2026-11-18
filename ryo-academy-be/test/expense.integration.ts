@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertQaDatabase } from '../src/test/assert-qa-database.js';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../src/database/database.service.js';
 import { ExpenseService } from '../src/finance/expense.service.js';
@@ -14,6 +15,7 @@ assert.equal(target.hostname, '127.0.0.1'); assert.equal(target.port, '55432'); 
 
 async function main() {
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any); await db.$connect();
+  await assertQaDatabase(db);
   const ids = { schools: [] as string[], users: [] as string[], expenses: [] as string[], logs: [] as string[] };
   const cleanup = async () => db.$transaction(async (tx: any) => {
     await tx.financialLog.deleteMany({ where: { schoolId: { in: ids.schools } } });

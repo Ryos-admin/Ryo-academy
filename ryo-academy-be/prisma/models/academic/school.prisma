@@ -5,7 +5,9 @@ model School {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  academicYears AcademicYear[]
+  academicYears AcademicYear[] @relation("SchoolAcademicYears")
+  activeAcademicYearId String?
+  activeAcademicYear   AcademicYear? @relation("SchoolActiveAcademicYear", fields: [activeAcademicYearId], references: [id], onDelete: SetNull)
   users        User[]
   admission     Admission[]
   isActive Boolean @default(true)
@@ -17,4 +19,6 @@ model School {
   installmentTemplates InstallmentTemplate[]
   installmentSchedules AdmissionInstallmentSchedule[]
   paymentReversals PaymentReversalEvent[]
+
+  @@index([activeAcademicYearId])
 }

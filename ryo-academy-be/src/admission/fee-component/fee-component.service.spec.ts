@@ -81,7 +81,7 @@ describe('FeeComponentService mutation consistency', () => {
     const { db, tx, state, service } = harness();
     await service.create({ feeStructureId: 'fs-1', name: 'Library', amount: '25.25' } as any);
     expect(db.$transaction).toHaveBeenCalledTimes(1);
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
     expect(state.total.toFixed()).toBe('125.25');
     expect(tx.feeStructure.update).toHaveBeenCalledTimes(1);
   });
@@ -165,27 +165,36 @@ describe('FeeComponentService mutation consistency', () => {
     expect(state.total.toFixed()).toBe('100');
   });
 
-  it('blocks existing-component edits during the year, including metadata-only edits', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-06-01T12:00:00.000Z'));
+  it('allows existing-component edits in DRAFT year with past start date', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
     const { tx, service } = harness();
-    await expect(service.update('component-1', { name: 'New name' } as any))
-      .rejects.toBeInstanceOf(ConflictException);
-    expect(tx.feeComponent.update).not.toHaveBeenCalled();
+    await service.update('component-1', { name: 'New name' } as any);
+    expect(tx.feeComponent.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'component-1' },
+        data: expect.objectContaining({ name: 'New name' }),
+      }),
+    );
   });
 
-  it.each([
-    ['during', '2026-06-01T12:00:00.000Z'],
-    ['after', '2027-05-31T18:30:00.000Z'],
-  ])('blocks component amount edits and soft deletion %s the academic year', async (_label, now) => {
-    jest.useFakeTimers().setSystemTime(new Date(now));
+  it('allows component amount edits and soft deletion in DRAFT year with past start date', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
     const editing = harness();
-    await expect(editing.service.update('component-1', { amount: '120.00' } as any))
-      .rejects.toBeInstanceOf(ConflictException);
-    expect(editing.tx.feeComponent.update).not.toHaveBeenCalled();
+    await editing.service.update('component-1', { amount: '120.00' } as any);
+    expect(editing.tx.feeComponent.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'component-1' },
+      }),
+    );
 
     const deleting = harness();
-    await expect(deleting.service.delete('component-1', 'actor-1')).rejects.toBeInstanceOf(ConflictException);
-    expect(deleting.tx.feeComponent.update).not.toHaveBeenCalled();
+    await deleting.service.delete('component-1', 'actor-1');
+    expect(deleting.tx.feeComponent.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'component-1' },
+        data: expect.objectContaining({ isActive: false }),
+      }),
+    );
   });
 
   it('recomputes after soft deletion while preserving the referenced-detail guard', async () => {
@@ -213,5 +222,81 @@ describe('FeeComponentService mutation consistency', () => {
   it('retains not-found behavior', async () => {
     const { service } = harness();
     await expect(service.update('missing', {} as any)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  describe('BE-ND2 Stage 2: FeeComponent Consumption and Lifecycle Freeze', () => {
+    it('blocks component creation when parent FeeStructure is consumed by admissions with 409 Conflict', async () => {
+      const h = harness();
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+
+      await expect(
+        h.service.create({ feeStructureId: 'fs-1', name: 'Activity Fee', amount: '50.00' } as any),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(h.tx.feeComponent.create).not.toHaveBeenCalled();
+      expect(h.tx.feeStructure.update).not.toHaveBeenCalled();
+    });
+
+    it('blocks component update when parent FeeStructure is consumed by admissions with 409 Conflict', async () => {
+      const h = harness();
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+
+      await expect(
+        h.service.update('component-1', { amount: '150.00' } as any),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(h.tx.feeComponent.update).not.toHaveBeenCalled();
+      expect(h.tx.feeStructure.update).not.toHaveBeenCalled();
+    });
+
+    it('blocks component deletion when parent FeeStructure is consumed by admissions with 409 Conflict', async () => {
+      const h = harness();
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+
+      await expect(
+        h.service.delete('component-1', 'actor-admin'),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(h.tx.feeComponent.update).not.toHaveBeenCalled();
+      expect(h.tx.feeStructure.update).not.toHaveBeenCalled();
+    });
+
+    it.each(['ACTIVE', 'CLOSED'])(
+      'blocks component mutations when AcademicYear is in %s status',
+      async (ayStatus) => {
+        const h = harness();
+        h.tx.$queryRaw = jest.fn().mockResolvedValue([{ id: 'fs-1', status: ayStatus }]);
+
+        await expect(
+          h.service.create({ feeStructureId: 'fs-1', name: 'Activity Fee', amount: '50.00' } as any),
+        ).rejects.toBeInstanceOf(ConflictException);
+
+        await expect(
+          h.service.update('component-1', { amount: '150.00' } as any),
+        ).rejects.toBeInstanceOf(ConflictException);
+
+        await expect(
+          h.service.delete('component-1', 'actor-admin'),
+        ).rejects.toBeInstanceOf(ConflictException);
+      },
+    );
+
+    it.each([
+      ['past startDate', new Date('2026-06-15T12:00:00.000Z')],
+      ['future startDate', new Date('2026-01-15T12:00:00.000Z')],
+    ])('blocks mutation of components in consumed DRAFT FeeStructure regardless of dates (%s)', async (_label, fakeDate) => {
+      jest.useFakeTimers().setSystemTime(fakeDate);
+      const h = harness();
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+
+      await expect(
+        h.service.create({ feeStructureId: 'fs-1', name: 'Activity Fee', amount: '50.00' } as any),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      await expect(
+        h.service.update('component-1', { amount: '150.00' } as any),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      await expect(
+        h.service.delete('component-1', 'actor-admin'),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
   });
 });

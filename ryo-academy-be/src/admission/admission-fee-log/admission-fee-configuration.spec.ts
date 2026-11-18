@@ -199,11 +199,12 @@ describe('selected-component admission creation', () => {
     expect(h.tx.admission.create).not.toHaveBeenCalled();
   });
 
-  it('allows a selected zero-amount component and keeps a zero header total', async () => {
+  it('rejects an admission when total payable fee amount is zero', async () => {
     const zeroMaster = { ...master, feeComponents: [{ ...components[0], amount: new Prisma.Decimal(0) }] };
     const h = build([zeroMaster]);
-    await h.service.create(dto(['tuition']));
-    expect(h.tx.feePaymentHeader.create.mock.calls[0][0].data.grossAmount.isZero()).toBe(true);
+    await expect(h.service.create(dto(['tuition']))).rejects.toBeInstanceOf(BadRequestException);
+    expect(h.tx.admission.create).not.toHaveBeenCalled();
+    expect(h.tx.feePaymentHeader.create).not.toHaveBeenCalled();
   });
 
   it('propagates a snapshot-write failure through the interactive transaction', async () => {
@@ -215,5 +216,69 @@ describe('selected-component admission creation', () => {
     expect(h.tx.feePaymentHeader.create).toHaveBeenCalledTimes(1);
     expect(h.committedWrites).toEqual([]);
     expect(h.detailRows).toEqual([]);
+  });
+});
+
+describe('updateFeeConfiguration transaction options', () => {
+  it('configures interactive transaction with { timeout: 10000, maxWait: 5000 }', async () => {
+    const detail = {
+      id: 'detail-1',
+      feePaymentHeaderId: 'header-1',
+      feeComponentId: 'comp-1',
+      originalAmount: new Prisma.Decimal('1000.00'),
+      discountAmount: new Prisma.Decimal('0.00'),
+      finalAmount: new Prisma.Decimal('1000.00'),
+      totalAmountToBePaid: new Prisma.Decimal('1000.00'),
+      amountPaid: new Prisma.Decimal('0.00'),
+      isIncluded: true,
+      isActive: true,
+      isMandatory: true,
+      concession: null,
+    };
+    const header = {
+      id: 'header-1',
+      pricingVersion: 'V0_SNAPSHOTTED',
+      grossAmount: new Prisma.Decimal('1000.00'),
+      discountAmount: new Prisma.Decimal('0.00'),
+      netAmount: new Prisma.Decimal('1000.00'),
+      totalFeeAmount: new Prisma.Decimal('1000.00'),
+      totalPaidAmount: new Prisma.Decimal('0.00'),
+      totalDueAmount: new Prisma.Decimal('1000.00'),
+      taxableAmount: new Prisma.Decimal('1000.00'),
+      gstAmount: new Prisma.Decimal('0.00'),
+      feePaymentDetails: [detail],
+    };
+    const admission = {
+      id: 'admission-1',
+      admissionStatus: 'DRAFT',
+      feePaymentHeaders: [header],
+    };
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      admission: { findUnique: jest.fn().mockResolvedValue(admission) },
+      feePaymentDetails: {
+        findMany: jest.fn().mockResolvedValue([detail]),
+        update: jest.fn().mockResolvedValue(detail),
+      },
+      feePayment: { count: jest.fn().mockResolvedValue(0) },
+      feePaymentInstallmentAllocation: { count: jest.fn().mockResolvedValue(0) },
+      paymentReversalEvent: { count: jest.fn().mockResolvedValue(0) },
+      feePaymentHeader: {
+        findUnique: jest.fn().mockResolvedValue(header),
+        update: jest.fn().mockResolvedValue(header),
+      },
+    };
+    const $transaction = jest.fn(async (cb: any, _options: any) => cb(tx));
+    const db = { $transaction } as any;
+    const service = new AdmissionService(db, {} as any);
+
+    await service.updateFeeConfiguration('admission-1', {
+      selectedFeeComponentIds: ['detail-1'],
+    });
+
+    expect($transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { timeout: 10000, maxWait: 5000 },
+    );
   });
 });

@@ -76,6 +76,17 @@ export class AttendanceService {
     );
     try {
       return await this.db.$transaction(async (tx) => {
+        const ayRows = await tx.$queryRaw<Array<{ id: string; isActive: boolean; deletedAt: Date | null }>>`
+          SELECT id, "isActive", "deletedAt"
+          FROM "AcademicYear"
+          WHERE id = ${dto.academicYearId}
+          FOR SHARE
+        `;
+        const ay = ayRows[0];
+        if (!ay || !ay.isActive || ay.deletedAt !== null) {
+          throw new ConflictException("Academic year does not exist or is inactive");
+        }
+
         const master = await tx.attendanceLogMaster.create({
           data: {
             academicYearId: dto.academicYearId,

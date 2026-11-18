@@ -9,8 +9,8 @@ model FeePaymentInstallmentAllocation {
   createdAt          DateTime                        @default(now())
   updatedAt          DateTime                        @updatedAt
 
-  feePayment         FeePayment                      @relation(fields: [feePaymentId], references: [id], onDelete: Restrict)
-  installment        AdmissionInstallment            @relation(fields: [installmentId], references: [id], onDelete: Restrict)
+  feePayment         FeePayment                      @relation(fields: [feePaymentId, feePaymentHeaderId], references: [id, feePaymentHeaderId], onDelete: Restrict)
+  installment        AdmissionInstallment            @relation(fields: [installmentId, feePaymentHeaderId], references: [id, feePaymentHeaderId], onDelete: Restrict)
   header             FeePaymentHeader                @relation(fields: [feePaymentHeaderId], references: [id], onDelete: Restrict)
   reversalAllocations InstallmentAllocationReversalEvent[]
 

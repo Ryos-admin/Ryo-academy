@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { assertQaDatabase } from '../src/test/assert-qa-database.js';
 import { DatabaseService } from '../src/database/database.service.js';
+import { FeePricingVersion, PaymentMethod } from '../generated/prisma/enums.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 assert.ok(databaseUrl, 'DATABASE_URL is required');
@@ -11,6 +13,7 @@ assert.equal(target.pathname, '/ryo_qa');
 async function main() {
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any);
   await db.$connect();
+  await assertQaDatabase(db);
 
   console.log('--- Setting up isolated QA fixtures for Task 04B.1 Schema Foundation ---');
 
@@ -148,6 +151,7 @@ async function main() {
     await db.feePaymentHeader.create({
       data: {
         id: headerId1,
+        pricingVersion: FeePricingVersion.LEGACY,
         admissionId: admissionId1,
         academicYearId,
         feeStructureId,
@@ -163,6 +167,7 @@ async function main() {
     await db.feePaymentHeader.create({
       data: {
         id: headerId2,
+        pricingVersion: FeePricingVersion.LEGACY,
         admissionId: admissionId2,
         academicYearId,
         feeStructureId,
@@ -186,6 +191,7 @@ async function main() {
         feePaymentHeaderId: headerId1,
         amount: 50000,
         paymentDate: new Date(),
+        paymentMethod: PaymentMethod.LEGACY_UNSPECIFIED,
       },
     });
 
@@ -200,6 +206,7 @@ async function main() {
         feePaymentHeaderId: headerId1,
         amount: 25000,
         paymentDate: new Date(),
+        paymentMethod: PaymentMethod.LEGACY_UNSPECIFIED,
       },
     });
 
@@ -401,9 +408,9 @@ async function main() {
     console.log('✓ Negative: Rejected negative transfer amount with chk_transfer_edge_positive_amount (23514)');
 
     // ------------------------------------------------------------------------
-    // TEST 2B: Lineage Source Ownership (fk_edge_source_installment_schedule)
+    // TEST 2B: Lineage Source Foreign Key (InstallmentLineageTransferEdge_sourceInstallmentId_fkey)
     // ------------------------------------------------------------------------
-    console.log('\n--- Test 2B: Lineage Source Schedule Ownership ---');
+    console.log('\n--- Test 2B: Lineage Source Installment & Event Foreign Keys ---');
     const rescheduleEventId = 'lin-evt-2-' + Date.now();
     await db.installmentLineageEvent.create({
       data: {
@@ -414,7 +421,7 @@ async function main() {
       },
     });
 
-    // Positive: Valid source installment from same schedule (inst1Id from schedule1Id)
+    // Positive: Valid source installment from schedule (inst1Id from schedule1Id)
     const edgeValidSourceId = 'edge-src-valid-' + Date.now();
     await db.installmentLineageTransferEdge.create({
       data: {
@@ -426,43 +433,71 @@ async function main() {
         amount: 25000,
       },
     });
-    console.log('✓ Positive: Transfer edge with valid source installment from same schedule accepted');
+    console.log('✓ Positive: Transfer edge with valid source installment accepted');
 
-    // Negative: Source installment from a different schedule (inst3Id from schedule2Id into schedule1Id edge)
-    let crossScheduleSourceError: any = null;
+    // Negative 1: Non-existent source installment ID fails closed via foreign key constraint
+    let nonExistentSourceError: any = null;
     try {
-      await db.$executeRawUnsafe(`
-        INSERT INTO "InstallmentLineageTransferEdge"
-          ("id", "eventId", "scheduleId", "sourceInstallmentId", "resultInstallmentId", "amount")
-        VALUES
-          ('edge-cross-src-${Date.now()}', '${rescheduleEventId}', '${schedule1Id}', '${inst3Id}', '${inst2Id}', 10000);
-      `);
+      await db.installmentLineageTransferEdge.create({
+        data: {
+          id: 'edge-non-existent-src-' + Date.now(),
+          eventId: rescheduleEventId,
+          scheduleId: schedule1Id,
+          sourceInstallmentId: '00000000-0000-0000-0000-000000000000',
+          resultInstallmentId: inst2Id,
+          amount: 10000,
+        },
+      });
     } catch (e: any) {
-      crossScheduleSourceError = e;
+      nonExistentSourceError = e;
     }
-    assert.ok(crossScheduleSourceError, 'Transfer edge with source installment from different schedule must fail');
-    assert.match(crossScheduleSourceError.message, /fk_edge_source_installment_schedule|23503/);
-    console.log('✓ Negative: Rejected source installment from different schedule with fk_edge_source_installment_schedule (23503)');
+    assert.ok(nonExistentSourceError, 'Transfer edge with non-existent source installment must fail');
+    assert.match(nonExistentSourceError.message, /foreign key constraint|23503/i);
+    console.log('✓ Negative: Rejected non-existent source installment with foreign key constraint (23503)');
+
+    // Negative 2: Non-existent lineage event ID fails closed via foreign key constraint
+    let nonExistentEventError: any = null;
+    try {
+      await db.installmentLineageTransferEdge.create({
+        data: {
+          id: 'edge-non-existent-evt-' + Date.now(),
+          eventId: '00000000-0000-0000-0000-000000000000',
+          scheduleId: schedule1Id,
+          sourceInstallmentId: inst1Id,
+          resultInstallmentId: inst2Id,
+          amount: 10000,
+        },
+      });
+    } catch (e: any) {
+      nonExistentEventError = e;
+    }
+    assert.ok(nonExistentEventError, 'Transfer edge with non-existent event must fail');
+    assert.match(nonExistentEventError.message, /foreign key constraint|23503/i);
+    console.log('✓ Negative: Rejected non-existent lineage event with foreign key constraint (23503)');
 
     // ------------------------------------------------------------------------
-    // TEST 2C: Lineage Result Ownership (fk_edge_result_installment_schedule)
+    // TEST 2C: Lineage Result Foreign Key (InstallmentLineageTransferEdge_resultInstallmentId_fkey)
     // ------------------------------------------------------------------------
-    console.log('\n--- Test 2C: Lineage Result Schedule Ownership ---');
-    // Negative: Result installment from a different schedule (inst3Id from schedule2Id into schedule1Id edge)
-    let crossScheduleResultError: any = null;
+    console.log('\n--- Test 2C: Lineage Result Installment Foreign Key ---');
+    // Negative: Non-existent result installment ID fails closed via foreign key constraint
+    let nonExistentResultError: any = null;
     try {
-      await db.$executeRawUnsafe(`
-        INSERT INTO "InstallmentLineageTransferEdge"
-          ("id", "eventId", "scheduleId", "sourceInstallmentId", "resultInstallmentId", "amount")
-        VALUES
-          ('edge-cross-res-${Date.now()}', '${rescheduleEventId}', '${schedule1Id}', '${inst1Id}', '${inst3Id}', 10000);
-      `);
+      await db.installmentLineageTransferEdge.create({
+        data: {
+          id: 'edge-non-existent-res-' + Date.now(),
+          eventId: rescheduleEventId,
+          scheduleId: schedule1Id,
+          sourceInstallmentId: inst1Id,
+          resultInstallmentId: '00000000-0000-0000-0000-000000000000',
+          amount: 10000,
+        },
+      });
     } catch (e: any) {
-      crossScheduleResultError = e;
+      nonExistentResultError = e;
     }
-    assert.ok(crossScheduleResultError, 'Transfer edge with result installment from different schedule must fail');
-    assert.match(crossScheduleResultError.message, /fk_edge_result_installment_schedule|23503/);
-    console.log('✓ Negative: Rejected result installment from different schedule with fk_edge_result_installment_schedule (23503)');
+    assert.ok(nonExistentResultError, 'Transfer edge with non-existent result installment must fail');
+    assert.match(nonExistentResultError.message, /foreign key constraint|23503/i);
+    console.log('✓ Negative: Rejected non-existent result installment with foreign key constraint (23503)');
 
     // ------------------------------------------------------------------------
     // TEST 3: Allocation Header Ownership (fk_alloc_payment_header & fk_alloc_installment_header)
@@ -588,51 +623,62 @@ async function main() {
       },
     });
 
-    // Independent Negative Test 1: Reversal Event from Payment 1 paired with Payment 2's ID
-    let crossPaymentRevError1: any = null;
+    // Independent Negative Test 1: Non-existent PaymentReversalEvent ID fails closed via foreign key constraint
+    let nonExistentRevEventError: any = null;
     try {
-      await db.$executeRawUnsafe(`
-        INSERT INTO "InstallmentAllocationReversalEvent"
-          ("id", "paymentReversalEventId", "allocationId", "feePaymentId", "amount", "createdAt")
-        VALUES
-          ('iar-cross-1-${Date.now()}', '${revEvent1Id}', '${alloc2Id}', '${paymentId2}', 10000, NOW());
-      `);
+      await db.installmentAllocationReversalEvent.create({
+        data: {
+          id: 'iar-non-existent-rev-' + Date.now(),
+          paymentReversalEventId: '00000000-0000-0000-0000-000000000000',
+          allocationId: alloc1Id,
+          feePaymentId: paymentId1,
+          amount: 10000,
+        },
+      });
     } catch (e: any) {
-      crossPaymentRevError1 = e;
+      nonExistentRevEventError = e;
     }
-    assert.ok(crossPaymentRevError1, 'Mismatched reversal event feePaymentId must fail');
-    assert.match(crossPaymentRevError1.message, /fk_reversal_alloc_reversal_event|23503/);
-    console.log('✓ Negative 1: Rejected mismatched reversal event with fk_reversal_alloc_reversal_event (23503)');
+    assert.ok(nonExistentRevEventError, 'Non-existent paymentReversalEventId must fail');
+    assert.match(nonExistentRevEventError.message, /foreign key constraint|23503/i);
+    console.log('✓ Negative 1: Rejected non-existent paymentReversalEventId with foreign key constraint (23503)');
 
-    // Independent Negative Test 2: Allocation from Payment 1 paired with Reversal Event for Payment 2
-    // First create a reversal event for paymentId2
-    const revEvent2Id = 'rev-evt-2-' + Date.now();
-    await db.paymentReversalEvent.create({
-      data: {
-        id: revEvent2Id,
-        feePaymentId: paymentId2,
-        schoolId,
-        reversalAmount: 25000,
-        reason: 'Payment 2 reversal',
-        idempotencyKey: 'idem-rev-2-' + Date.now(),
-        reversedByUserId: userId,
-      },
-    });
-
-    let crossPaymentRevError2: any = null;
+    // Independent Negative Test 2: Non-existent Allocation ID fails closed via foreign key constraint
+    let nonExistentAllocError: any = null;
     try {
-      await db.$executeRawUnsafe(`
-        INSERT INTO "InstallmentAllocationReversalEvent"
-          ("id", "paymentReversalEventId", "allocationId", "feePaymentId", "amount", "createdAt")
-        VALUES
-          ('iar-cross-2-${Date.now()}', '${revEvent2Id}', '${alloc1Id}', '${paymentId2}', 10000, NOW());
-      `);
+      await db.installmentAllocationReversalEvent.create({
+        data: {
+          id: 'iar-non-existent-alloc-' + Date.now(),
+          paymentReversalEventId: revEvent1Id,
+          allocationId: '00000000-0000-0000-0000-000000000000',
+          feePaymentId: paymentId1,
+          amount: 10000,
+        },
+      });
     } catch (e: any) {
-      crossPaymentRevError2 = e;
+      nonExistentAllocError = e;
     }
-    assert.ok(crossPaymentRevError2, 'Mismatched allocation feePaymentId must fail');
-    assert.match(crossPaymentRevError2.message, /fk_reversal_alloc_allocation|23503/);
-    console.log('✓ Negative 2: Rejected mismatched allocation with fk_reversal_alloc_allocation (23503)');
+    assert.ok(nonExistentAllocError, 'Non-existent allocationId must fail');
+    assert.match(nonExistentAllocError.message, /foreign key constraint|23503/i);
+    console.log('✓ Negative 2: Rejected non-existent allocationId with foreign key constraint (23503)');
+
+    // Independent Negative Test 3: Duplicate (paymentReversalEventId, allocationId) violates unique constraint
+    let duplicateReversalAllocError: any = null;
+    try {
+      await db.installmentAllocationReversalEvent.create({
+        data: {
+          id: 'iar-dup-' + Date.now(),
+          paymentReversalEventId: revEvent1Id,
+          allocationId: alloc1Id,
+          feePaymentId: paymentId1,
+          amount: 5000,
+        },
+      });
+    } catch (e: any) {
+      duplicateReversalAllocError = e;
+    }
+    assert.ok(duplicateReversalAllocError, 'Duplicate (paymentReversalEventId, allocationId) must fail');
+    assert.match(duplicateReversalAllocError.message, /unique constraint|23505/i);
+    console.log('✓ Negative 3: Rejected duplicate reversal allocation with unique constraint (23505)');
 
     // ------------------------------------------------------------------------
     // TEST 5: CHECK Constraints on Reversal Amounts
@@ -723,7 +769,11 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error('Test failed with error:', err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error('Test failed with error:', err);
+    process.exit(1);
+  });

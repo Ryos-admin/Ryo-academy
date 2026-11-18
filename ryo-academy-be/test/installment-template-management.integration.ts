@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertQaDatabase } from '../src/test/assert-qa-database.js';
 import {
   BadRequestException,
   ConflictException,
@@ -40,6 +41,7 @@ function createMockContext(handler: Function, userId: string): ExecutionContext 
 async function main() {
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any);
   await db.$connect();
+  await assertQaDatabase(db);
 
   const templateService = new InstallmentTemplateService(db);
   const calculatorService = new ScheduleCalculatorService();

@@ -486,7 +486,7 @@ export class PaymentReversalService {
       feePaymentId: string;
       schoolId: string;
       reason: string;
-      feePayment?: { studentId: string } | null;
+      feePayment?: { studentId: string | null } | null;
     },
     canonical: {
       paymentId: string;

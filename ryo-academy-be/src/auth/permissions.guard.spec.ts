@@ -60,4 +60,38 @@ describe('PermissionsGuard for attendance routes', () => {
       guard.canActivate(contextFor([PERMISSIONS.ATTENDANCE_READ], undefined)),
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
+
+  describe('PermissionsGuard for school configuration routes', () => {
+    it('allows a COLLEGE_ADMIN holding SCHOOL_UPDATE', async () => {
+      const guard = build([PERMISSIONS.SCHOOL_UPDATE], [
+        PERMISSIONS.SCHOOL_UPDATE,
+        PERMISSIONS.SHIFT_READ,
+        PERMISSIONS.SHIFT_UPDATE,
+      ]);
+      await expect(
+        guard.canActivate(contextFor([PERMISSIONS.SCHOOL_UPDATE], { userId: 'admin-1' })),
+      ).resolves.toBe(true);
+    });
+
+    it('rejects an OFFICE_ADMIN lacking SCHOOL_UPDATE', async () => {
+      const guard = build([PERMISSIONS.SCHOOL_UPDATE], [
+        PERMISSIONS.ADMISSION_READ,
+        PERMISSIONS.FEES_READ,
+        PERMISSIONS.SHIFT_UPDATE,
+      ]);
+      await expect(
+        guard.canActivate(contextFor([PERMISSIONS.SCHOOL_UPDATE], { userId: 'office-1' })),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('rejects a STAFF lacking SCHOOL_UPDATE', async () => {
+      const guard = build([PERMISSIONS.SCHOOL_UPDATE], [
+        PERMISSIONS.ATTENDANCE_READ,
+        PERMISSIONS.STUDENT_READ,
+      ]);
+      await expect(
+        guard.canActivate(contextFor([PERMISSIONS.SCHOOL_UPDATE], { userId: 'staff-1' })),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
 });

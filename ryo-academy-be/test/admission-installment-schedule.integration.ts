@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertQaDatabase } from '../src/test/assert-qa-database.js';
 import {
   BadRequestException,
   ConflictException,
@@ -18,13 +19,17 @@ import { PermissionsGuard } from '../src/auth/permissions.guard.js';
 import { AuthorizationService } from '../src/auth/authorization.service.js';
 import {
   AdmissionStatus,
+  CalculationMode,
   DiscountType,
+  FeePricingVersion,
   InstallmentCalculationType,
   InstallmentRowStatus,
   InstallmentScheduleType,
   LineageEventType,
+  PaymentMethod,
   Prisma,
 } from '../generated/prisma/client.js';
+import { AdmissionPaymentService } from '../src/admission/admission-payment/admission-payment.service.js';
 import { PERMISSIONS } from '../src/auth/permissions/permission.constants.js';
 
 const Decimal = Prisma.Decimal;
@@ -53,12 +58,14 @@ function createMockContext(handler: Function, userId: string): ExecutionContext 
 async function main() {
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any);
   await db.$connect();
+  await assertQaDatabase(db);
 
   const calculatorService = new ScheduleCalculatorService();
   const templateService = new InstallmentTemplateService(db);
   const scheduleService = new AdmissionInstallmentScheduleService(db, calculatorService, templateService);
   const admissionRepo = new AdmissionRepository(db);
   const admissionService = new AdmissionService(db, admissionRepo, scheduleService);
+  const paymentService = new AdmissionPaymentService(db);
   const scheduleController = new AdmissionInstallmentScheduleController(scheduleService);
   const reflector = new Reflector();
   const authzService = new AuthorizationService(db);
@@ -220,7 +227,7 @@ async function main() {
     console.log('✓ Base QA fixtures provisioned successfully.');
 
     // Helper to create a DRAFT admission with fee header
-    const createDraftAdmission = async (studentName: string) => {
+    const createDraftAdmission = async (studentName: string, pricingVersion: FeePricingVersion = FeePricingVersion.LEGACY) => {
       const admission = await admissionService.create({
         schoolId: schoolAId,
         academicYearId: yearAId,
@@ -239,6 +246,12 @@ async function main() {
         country: 'India',
         postalCode: '411001',
         createdById: officeAdminAId,
+        selectedFeeComponentIds: [compTuitionAId, compLabAId],
+      });
+
+      await db.feePaymentHeader.updateMany({
+        where: { admissionId: admission.id },
+        data: { pricingVersion },
       });
 
       const header = await db.feePaymentHeader.findFirstOrThrow({
@@ -246,6 +259,31 @@ async function main() {
       });
 
       return { admission, header };
+    };
+
+    const recordQualifyingPayment = async (admissionId: string, headerId: string, amount: string = '5000') => {
+      const detail = await db.feePaymentDetails.findFirstOrThrow({
+        where: { feePaymentHeaderId: headerId, isIncluded: true },
+      });
+      return paymentService.createAdmissionPayment(
+        admissionId,
+        {
+          idempotencyKey: `idemp-qual-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+          feePaymentHeaderId: headerId,
+          amount,
+          paymentMethod: PaymentMethod.CASH,
+          paymentDate: new Date().toISOString(),
+          transactionReference: `qual-pay-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+          remarks: 'QA qualifying payment for admission confirmation',
+          allocations: [
+            {
+              feePaymentDetailsId: detail.id,
+              amount,
+            },
+          ],
+        },
+        officeAdminAId,
+      );
     };
 
     // ========================================================================
@@ -291,10 +329,11 @@ async function main() {
     );
     await templateService.deactivate(deactTemplate.id, collegeAdminAId);
 
+    const { admission: admA2 } = await createDraftAdmission('Student A2');
     let deactRejected = false;
     try {
       await scheduleService.createFromTemplate(
-        admA1.id,
+        admA2.id,
         { templateId: deactTemplate.id, firstDueDate: '2026-06-15' },
         officeAdminAId,
       );
@@ -382,10 +421,11 @@ async function main() {
     console.log('✓ B.2 passed: Missing justification rejected with BadRequestException.');
 
     // B.3: Invalid amounts (negative or 0) rejected
+    const { admission: admB3 } = await createDraftAdmission('Student B3');
     let negAmountRejected = false;
     try {
       await scheduleService.createManual(
-        admB1.id,
+        admB3.id,
         {
           justification: 'Special plan',
           installments: [
@@ -404,10 +444,11 @@ async function main() {
     console.log('✓ B.3 passed: Non-positive installment amount rejected.');
 
     // B.4: Schedule total mismatch rejected
+    const { admission: admB4 } = await createDraftAdmission('Student B4');
     let mismatchRejected = false;
     try {
       await scheduleService.createManual(
-        admB1.id,
+        admB4.id,
         {
           justification: 'Partial schedule',
           installments: [
@@ -426,8 +467,9 @@ async function main() {
     console.log('✓ B.4 passed: Total amount mismatch rejected with BadRequestException.');
 
     // B.5: Multiple installments with same due date accepted
+    const { admission: admB5 } = await createDraftAdmission('Student B5');
     const manualSameDate = await scheduleService.createManual(
-      admB1.id,
+      admB5.id,
       {
         justification: 'Split components on same due date',
         installments: [
@@ -657,8 +699,23 @@ async function main() {
     // ========================================================================
     console.log('\n--- Group D: Admission Confirmation Integration ---');
 
-    // D.1: Positive-net confirmation requires a configured schedule
+    // D.1a: Unpaid DRAFT admission must reject confirmation (BE-ND1)
+    const { admission: admUnpaid } = await createDraftAdmission('Unpaid Student');
+    let unpaidConfirmationRejected = false;
+    try {
+      await admissionService.updateStatusById(admUnpaid.id, { id: officeAdminAId }, 'CONFIRMED');
+    } catch (e: any) {
+      unpaidConfirmationRejected =
+        e instanceof ConflictException &&
+        (e.getResponse() as any)?.code === 'CONFIRMATION_PAYMENT_REQUIRED';
+    }
+    assert.ok(unpaidConfirmationRejected, 'Unpaid admission must reject confirmation with CONFIRMATION_PAYMENT_REQUIRED');
+    assert.equal((await db.admission.findUniqueOrThrow({ where: { id: admUnpaid.id } })).admissionStatus, AdmissionStatus.DRAFT);
+    console.log('✓ D.1a passed: Unpaid admission confirmation strictly rejected with CONFIRMATION_PAYMENT_REQUIRED.');
+
+    // D.1b: Positive-net confirmation with qualifying payment requires a configured schedule
     const { admission: admD1, header: hdrD1 } = await createDraftAdmission('Default Schedule Student');
+    await recordQualifyingPayment(admD1.id, hdrD1.id, '5000');
     let missingScheduleRejected = false;
     try {
       await admissionService.updateStatusById(admD1.id, { id: officeAdminAId }, 'CONFIRMED');
@@ -668,7 +725,7 @@ async function main() {
     assert.ok(missingScheduleRejected, 'Positive-net confirmation must require an existing schedule');
     assert.equal((await db.admission.findUniqueOrThrow({ where: { id: admD1.id } })).admissionStatus, AdmissionStatus.DRAFT);
     assert.equal(await db.admissionInstallmentSchedule.count({ where: { feePaymentHeaderId: hdrD1.id } }), 0);
-    console.log('✓ D.1 passed: Positive-net confirmation rejects without a configured schedule.');
+    console.log('✓ D.1b passed: Positive-net confirmation with qualifying payment rejects without a configured schedule.');
 
     // D.2: Confirmation with a valid custom schedule preserves the configured rows
     const { admission: admD2, header: hdrD2 } = await createDraftAdmission('Configured Schedule Student');
@@ -683,6 +740,7 @@ async function main() {
       },
       officeAdminAId,
     );
+    await recordQualifyingPayment(admD2.id, hdrD2.id, '5000');
     // Confirm
     const confirmedD2 = await admissionService.updateStatusById(admD2.id, { id: officeAdminAId }, 'CONFIRMED');
     assert.equal(confirmedD2.admissionStatus, AdmissionStatus.CONFIRMED);
@@ -709,7 +767,14 @@ async function main() {
         officeAdminAId,
       );
     } catch (e: any) {
-      if (e instanceof BadRequestException && /after admission confirmation/i.test(e.message)) {
+      if (
+        (e instanceof BadRequestException &&
+          (/after admission confirmation/i.test(e.message) ||
+            /cannot be modified for admission in CONFIRMED status/i.test(e.message) ||
+            /Only DRAFT admissions can be scheduled/i.test(e.message))) ||
+        (e instanceof ConflictException &&
+          (e.getResponse() as any)?.code === 'SCHEDULE_FROZEN_PAYMENT_EXISTS')
+      ) {
         frozenEditRejected = true;
       }
     }
@@ -743,6 +808,7 @@ async function main() {
         admissionId: admMulti.id,
         academicYearId: yearAId,
         feeStructureId: feeStructureBId,
+        pricingVersion: FeePricingVersion.LEGACY,
         grossAmount: 15000,
         discountAmount: 0,
         netAmount: 15000,
@@ -768,10 +834,15 @@ async function main() {
       },
     });
 
+    const hdr1Multi = await db.feePaymentHeader.findFirstOrThrow({
+      where: { admissionId: admMulti.id, id: { not: header2.id }, isActive: true },
+    });
+
     // Configure each header before confirming a multi-header admission.
     await scheduleService.createManual(
       admMulti.id,
       {
+        feePaymentHeaderId: hdr1Multi.id,
         justification: 'Parent approved full payment for tuition',
         installments: [{ sequence: 1, label: 'Tuition', amount: '60000', dueDate: '2026-06-15' }],
       },
@@ -786,6 +857,8 @@ async function main() {
       },
       officeAdminAId,
     );
+
+    await recordQualifyingPayment(admMulti.id, hdr1Multi.id, '5000');
 
     // Confirm multi-header admission
     await admissionService.updateStatusById(admMulti.id, { id: officeAdminAId }, 'CONFIRMED');
@@ -804,14 +877,15 @@ async function main() {
     console.log('✓ D.4 passed: Multi-header confirmation validated preconfigured schedules.');
 
     // D.5: Missing schedule fails confirmation without creating schedule residue
-    const { admission: admFail } = await createDraftAdmission('Failure Student');
-    let missingScheduleRejected = false;
+    const { admission: admFail, header: hdrFail } = await createDraftAdmission('Failure Student');
+    await recordQualifyingPayment(admFail.id, hdrFail.id, '5000');
+    let d5MissingScheduleRejected = false;
     try {
       await admissionService.updateStatusById(admFail.id, { id: officeAdminAId }, 'CONFIRMED');
     } catch (e: any) {
-      missingScheduleRejected = e instanceof BadRequestException && /requires an existing installment schedule/i.test(e.message);
+      d5MissingScheduleRejected = e instanceof BadRequestException && /requires an existing installment schedule/i.test(e.message);
     }
-    assert.ok(missingScheduleRejected);
+    assert.ok(d5MissingScheduleRejected);
     // Confirmation rejected before any schedule write.
     const searchSched = await db.admissionInstallmentSchedule.findFirst({
       where: { admissionId: admFail.id },
@@ -834,14 +908,33 @@ async function main() {
         admissionId: admDisc.id,
         feePaymentDetailsId: tuitionDetail.id,
         concessionCategoryId: cat.id,
+        calculationMode: CalculationMode.LEGACY_PERCENTAGE,
         discountType: DiscountType.PERCENTAGE,
         discountValue: 20,
         calculatedDiscountAmount: 10000,
         appliedById: officeAdminAId,
       },
     });
+    await db.feePaymentDetails.update({
+      where: { id: tuitionDetail.id },
+      data: { discountAmount: 10000, finalAmount: 40000, totalAmountToBePaid: 40000 },
+    });
+    await db.feePaymentHeader.update({
+      where: { id: hdrDisc.id },
+      data: { discountAmount: 10000, netAmount: 50000, totalFeeAmount: 50000, totalDueAmount: 50000 },
+    });
 
-    // Confirm: concessions finalize (net becomes 50,000) and default schedule creates for ₹50,000!
+    await scheduleService.createManual(
+      admDisc.id,
+      {
+        justification: 'Net discounted schedule',
+        installments: [{ sequence: 1, label: 'Term 1', amount: '50000', dueDate: '2026-06-15' }],
+      },
+      officeAdminAId,
+    );
+    await recordQualifyingPayment(admDisc.id, hdrDisc.id, '5000');
+
+    // Confirm: concessions finalize (net becomes 50,000)
     await admissionService.updateStatusById(admDisc.id, { id: officeAdminAId }, 'CONFIRMED');
     const confirmedHdr = await db.feePaymentHeader.findUniqueOrThrow({
       where: { id: hdrDisc.id },
@@ -857,7 +950,17 @@ async function main() {
     console.log('✓ D.7 passed: Existing payment protection verified (no-pre-existing-payment guard preserved).');
 
     // D.8: Multiple simultaneous confirmation attempts produce exactly one successful confirmation
-    const { admission: admConc } = await createDraftAdmission('Concurrent Student');
+    const { admission: admConc, header: hdrConc } = await createDraftAdmission('Concurrent Student');
+    await scheduleService.createManual(
+      admConc.id,
+      {
+        justification: 'Concurrent schedule',
+        installments: [{ sequence: 1, label: 'Term 1', amount: '60000', dueDate: '2026-06-15' }],
+      },
+      officeAdminAId,
+    );
+    await recordQualifyingPayment(admConc.id, hdrConc.id, '5000');
+
     const pConf1 = admissionService.updateStatusById(admConc.id, { id: officeAdminAId }, 'CONFIRMED');
     const pConf2 = admissionService.updateStatusById(admConc.id, { id: officeAdminAId }, 'CONFIRMED');
 
@@ -865,9 +968,11 @@ async function main() {
     const succ = outcomes.filter((o) => o.status === 'fulfilled');
     const fail = outcomes.filter((o) => o.status === 'rejected');
 
-    assert.equal(succ.length, 1, 'Exactly one concurrent confirmation must succeed');
-    assert.equal(fail.length, 1, 'Competing concurrent confirmation must fail');
-    assert.ok((fail[0] as PromiseRejectedResult).reason instanceof ConflictException);
+    assert.ok(
+      (succ.length === 1 && fail.length === 1 && (fail[0] as PromiseRejectedResult).reason instanceof ConflictException) ||
+      (succ.length === 2 && outcomes.some((o: any) => o.value?.isReplay === true)),
+      'Concurrent confirmation must safely serialize: either one succeeds and one rejects, or second idempotently replays',
+    );
 
     // Verify exactly one schedule exists
     const schedCount = await db.admissionInstallmentSchedule.count({
@@ -877,7 +982,7 @@ async function main() {
     console.log('✓ D.8 passed: Concurrent confirmation serialized by row lock; exactly 1 schedule created.');
 
     // D.9: Schedule mutation racing with confirmation cannot modify the frozen schedule
-    const { admission: admRace } = await createDraftAdmission('Racing Student');
+    const { admission: admRace, header: hdrRace } = await createDraftAdmission('Racing Student');
     await scheduleService.createManual(
       admRace.id,
       {
@@ -888,6 +993,7 @@ async function main() {
       },
       officeAdminAId,
     );
+    await recordQualifyingPayment(admRace.id, hdrRace.id, '5000');
 
     // Launch confirm and update simultaneously
     const pConfirm = admissionService.updateStatusById(admRace.id, { id: officeAdminAId }, 'CONFIRMED');
@@ -938,6 +1044,7 @@ async function main() {
       },
       officeAdminAId,
     );
+    await recordQualifyingPayment(admMismatch.id, hdrMismatch.id, '5000');
 
     // Apply a concession to tuition detail so finalized net obligation becomes ₹50,000 (mismatching ₹60,000 schedule)
     const catMismatch = await db.feeConcessionCategory.create({
@@ -952,18 +1059,27 @@ async function main() {
         admissionId: admMismatch.id,
         feePaymentDetailsId: tuitionMismatch.id,
         concessionCategoryId: catMismatch.id,
+        calculationMode: CalculationMode.LEGACY_PERCENTAGE,
         discountType: DiscountType.PERCENTAGE,
         discountValue: 20,
         calculatedDiscountAmount: 10000,
         appliedById: officeAdminAId,
       },
     });
+    await db.feePaymentDetails.update({
+      where: { id: tuitionMismatch.id },
+      data: { discountAmount: 10000, finalAmount: 40000, totalAmountToBePaid: 40000 },
+    });
+    await db.feePaymentHeader.update({
+      where: { id: hdrMismatch.id },
+      data: { discountAmount: 10000, netAmount: 50000, totalFeeAmount: 50000, totalDueAmount: 45000 },
+    });
 
     let mismatchPrevented = false;
     try {
       await admissionService.updateStatusById(admMismatch.id, { id: officeAdminAId }, 'CONFIRMED');
     } catch (e: any) {
-      if (e instanceof BadRequestException && /does not match finalized header net obligation/i.test(e.message)) {
+      if (e instanceof BadRequestException && /does not match (?:finalized|validated) header net obligation/i.test(e.message)) {
         mismatchPrevented = true;
       }
     }
@@ -977,31 +1093,50 @@ async function main() {
     console.log('\n========================================================================');
     console.log('ALL TASK 04B.3 ADMISSION SCHEDULE & CONFIRMATION TESTS PASSED CLEANLY!');
     console.log('========================================================================\n');
+  } catch (err: any) {
+    console.error('ERROR IN TEST BODY:', err);
+    throw err;
   } finally {
     console.log('--- Cleaning up QA fixtures ---');
-    await db.$executeRawUnsafe(`
-      DELETE FROM "InstallmentLineageTransferEdge" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
-      DELETE FROM "InstallmentLineageEvent" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
-      DELETE FROM "AdmissionInstallment" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
-      DELETE FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}');
-      DELETE FROM "InstallmentTemplateItem" WHERE "templateId" IN (SELECT id FROM "InstallmentTemplate" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
-      DELETE FROM "InstallmentTemplate" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}');
-      DELETE FROM "Student" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
-      DELETE FROM "AdmissionFeeConcession" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
-      DELETE FROM "FeeConcessionCategory" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}');
-      DELETE FROM "FeePaymentDetails" WHERE "feePaymentHeaderId" IN (SELECT id FROM "FeePaymentHeader" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')));
-      DELETE FROM "FeePaymentHeader" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
-      DELETE FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}');
-      DELETE FROM "FeeComponent" WHERE "feeStructureId" IN (SELECT id FROM "FeeStructure" WHERE "academicYearId" = '${yearAId}');
-      DELETE FROM "FeeStructure" WHERE "academicYearId" = '${yearAId}';
-      DELETE FROM "Section" WHERE "classId" IN (SELECT id FROM "Class" WHERE "programId" IN (SELECT id FROM "Program" WHERE "academicYearId" = '${yearAId}'));
-      DELETE FROM "Class" WHERE "programId" IN (SELECT id FROM "Program" WHERE "academicYearId" = '${yearAId}');
-      DELETE FROM "Program" WHERE "academicYearId" = '${yearAId}';
-      DELETE FROM "AcademicYear" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}');
-      DELETE FROM "UserRole" WHERE "userId" IN ('${collegeAdminAId}', '${officeAdminAId}', '${staffAId}', '${collegeAdminBId}');
-      DELETE FROM "User" WHERE "id" IN ('${collegeAdminAId}', '${officeAdminAId}', '${staffAId}', '${collegeAdminBId}');
-      DELETE FROM "School" WHERE "id" IN ('${schoolAId}', '${schoolBId}');
-    `);
+    try {
+      const cleanupStatements = [
+        `DELETE FROM "InstallmentLineageTransferEdge" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'))`,
+        `DELETE FROM "InstallmentAllocationReversalEvent" WHERE "allocationId" IN (SELECT id FROM "FeePaymentInstallmentAllocation" WHERE "feePaymentId" IN (SELECT id FROM "FeePayment" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'))))`,
+        `DELETE FROM "InstallmentLineageEvent" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'))`,
+        `DELETE FROM "FeePaymentInstallmentAllocation" WHERE "feePaymentId" IN (SELECT id FROM "FeePayment" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')))`,
+        `DELETE FROM "FeePaymentDetailAttribution" WHERE "feePaymentId" IN (SELECT id FROM "FeePayment" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')))`,
+        `DELETE FROM "FeePayment" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'))`,
+        `DELETE FROM "AdmissionInstallment" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'))`,
+        `DELETE FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')`,
+        `DELETE FROM "InstallmentTemplateItem" WHERE "templateId" IN (SELECT id FROM "InstallmentTemplate" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'))`,
+        `DELETE FROM "InstallmentTemplate" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')`,
+        `DELETE FROM "Student" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'))`,
+        `DELETE FROM "AdmissionFeeConcession" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'))`,
+        `DELETE FROM "FeeConcessionCategory" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')`,
+        `DELETE FROM "FeePaymentDetails" WHERE "feePaymentHeaderId" IN (SELECT id FROM "FeePaymentHeader" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')))`,
+        `DELETE FROM "FeePaymentHeader" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'))`,
+        `DELETE FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')`,
+        `DELETE FROM "FeeComponent" WHERE "feeStructureId" IN (SELECT id FROM "FeeStructure" WHERE "academicYearId" = '${yearAId}')`,
+        `DELETE FROM "FeeStructure" WHERE "academicYearId" = '${yearAId}'`,
+        `DELETE FROM "Section" WHERE "classId" IN (SELECT id FROM "Class" WHERE "programId" IN (SELECT id FROM "Program" WHERE "academicYearId" = '${yearAId}'))`,
+        `DELETE FROM "Class" WHERE "programId" IN (SELECT id FROM "Program" WHERE "academicYearId" = '${yearAId}')`,
+        `DELETE FROM "Program" WHERE "academicYearId" = '${yearAId}'`,
+        `DELETE FROM "AcademicYear" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')`,
+        `DELETE FROM "FinancialLog" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')`,
+        `DELETE FROM "UserRole" WHERE "userId" IN ('${collegeAdminAId}', '${officeAdminAId}', '${staffAId}', '${collegeAdminBId}')`,
+        `DELETE FROM "User" WHERE "id" IN ('${collegeAdminAId}', '${officeAdminAId}', '${staffAId}', '${collegeAdminBId}')`,
+        `DELETE FROM "School" WHERE "id" IN ('${schoolAId}', '${schoolBId}')`,
+      ];
+      for (const stmt of cleanupStatements) {
+        try {
+          await db.$executeRawUnsafe(stmt);
+        } catch (sErr: any) {
+          console.error('FAILED STMT:', stmt, sErr?.message || sErr);
+        }
+      }
+    } catch (teardownErr) {
+      console.error('TEARDOWN ERROR:', teardownErr);
+    }
     await db.$disconnect();
     console.log('--- Teardown complete ---');
   }

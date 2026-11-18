@@ -76,6 +76,16 @@ export class FeeStructureDto {
     classId!: string;
 
     @ApiPropertyOptional({
+        description: 'GST percentage applicable to the fee structure (0.00 to 100.00)',
+        example: '18.00',
+        type: String,
+        default: '0.00',
+    })
+    @IsOptional()
+    @IsMoneyString()
+    gstPercentage?: string;
+
+    @ApiPropertyOptional({
         description: 'Deprecated client preview; the backend derives the persisted total from fee components.',
         example: '10000.00',
         type: String,

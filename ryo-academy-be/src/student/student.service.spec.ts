@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { StudentService } from './student.service.js';
 import { DatabaseService } from '../database/database.service.js';
 import { Prisma } from '../../generated/prisma/client.js';
+import { FeePricingVersion, PaymentMethod } from '../../generated/prisma/enums.js';
 import type { CreateStudentFeePaymentDto } from './dto/create-student-fee-payment.dto.js';
 
 const d = (n: number) => new Prisma.Decimal(String(n));
@@ -313,5 +314,47 @@ describe('StudentService.recordStudentFeePayment', () => {
     await expect(
       h.service.recordStudentFeePayment('stu-1', DTO("50000.00", 'same-key'), 'actor-1'),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects payment on a V0 pricing header when allocations are missing', async () => {
+    const v0Header = {
+      ...HEADER,
+      pricingVersion: FeePricingVersion.V0_SNAPSHOTTED,
+    };
+    const h = build([v0Header]);
+    await expect(
+      h.service.recordStudentFeePayment('stu-1', DTO("50000.00", 'v0-missing-alloc'), 'actor-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('delegates to AdmissionPaymentService when allocations and CASH are provided for V0 header', async () => {
+    const v0Header = {
+      ...HEADER,
+      pricingVersion: FeePricingVersion.V0_SNAPSHOTTED,
+    };
+    const mockV0Service = {
+      createAdmissionPayment: jest.fn().mockResolvedValue({ id: 'pay-v0-delegated' }),
+    };
+    const h = build([v0Header]);
+    (h.service as any).admissionPaymentService = mockV0Service;
+
+    const dto = {
+      ...DTO("50000.00", 'v0-delegated-key'),
+      paymentMethod: PaymentMethod.CASH,
+      paymentDate: '2026-11-09T18:00:00.000Z',
+      allocations: [{ feePaymentDetailsId: 'detail-1', amount: '50000.00' }],
+    };
+
+    const result = await h.service.recordStudentFeePayment('stu-1', dto as any, 'actor-1');
+    expect(result).toBeDefined();
+    expect(mockV0Service.createAdmissionPayment).toHaveBeenCalledWith(
+      'adm-1',
+      expect.objectContaining({
+        idempotencyKey: 'v0-delegated-key',
+        paymentMethod: PaymentMethod.CASH,
+      }),
+      'actor-1',
+      expect.anything()
+    );
   });
 });

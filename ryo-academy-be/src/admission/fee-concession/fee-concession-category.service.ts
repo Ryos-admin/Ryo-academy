@@ -112,6 +112,8 @@ export class FeeConcessionCategoryService {
     const resolvedSchoolId = await this.resolveSchoolId(actorUserId);
     const existing = await this.findById(id, actorUserId, resolvedSchoolId);
 
+console.log("123123");
+
     return this.databaseService.feeConcessionCategory.update({
       where: { id: existing.id },
       data: {

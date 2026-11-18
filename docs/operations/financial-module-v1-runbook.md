@@ -1,7 +1,7 @@
 # Ryo Academy ERP — Financial Module V1 Operational Runbook
 
-> **Operational Deployment, Migration & Incident Response Guide**  
-> **Status:** Production Standard  
+> **Operational Deployment, Migration & Incident Response Guide**
+> **Status:** Production Standard
 > **Target Audience:** DevOps Engineers, Database Administrators, Site Reliability Engineers, and Senior Backend Engineers.
 
 ---
@@ -78,8 +78,8 @@ Disable HTTP ingestion at the ingress/API gateway or application layer for all f
 #### Step 3: Drain In-Flight Transactions
 Verify no active long-running transactions exist on financial tables:
 ```sql
-SELECT pid, now() - query_start AS duration, query 
-FROM pg_stat_activity 
+SELECT pid, now() - query_start AS duration, query
+FROM pg_stat_activity
 WHERE state = 'active' AND query ILIKE '%AdmissionInstallment%' AND pid <> pg_backend_pid();
 ```
 
@@ -106,8 +106,8 @@ SELECT COUNT(*) FROM "AdmissionInstallment" WHERE "offsetAmount" IS NULL;
 #### Step 7: Verify Column Default Dropped
 Ensure the column has no default so any legacy writer attempting to omit `offsetAmount` fails fast:
 ```sql
-SELECT column_name, is_nullable, column_default 
-FROM information_schema.columns 
+SELECT column_name, is_nullable, column_default
+FROM information_schema.columns
 WHERE table_name = 'AdmissionInstallment' AND column_name = 'offsetAmount';
 ```
 - `is_nullable` must be `NO`.
@@ -187,7 +187,7 @@ WHERE "offsetAmount" IS NULL;
 
 ### 5.2 Header Aggregate vs Payment Reconciliations
 ```sql
-SELECT 
+SELECT
     h.id AS header_id,
     h."totalFeeAmount",
     h."totalPaidAmount",
@@ -198,7 +198,7 @@ FROM "FeePaymentHeader" h
 LEFT JOIN "FeePayment" p ON p."feePaymentHeaderId" = h.id AND p.status = 'COMPLETED'
 LEFT JOIN "FeePaymentDetails" d ON d."feePaymentHeaderId" = h.id
 GROUP BY h.id
-HAVING 
+HAVING
     h."totalPaidAmount" <> COALESCE(SUM(p.amount), 0)
     OR h."totalPaidAmount" <> COALESCE(SUM(d."amountPaid"), 0)
     OR h."totalDueAmount" <> (h."totalFeeAmount" - h."totalPaidAmount");
@@ -207,7 +207,7 @@ HAVING
 
 ### 5.3 Active Installment Leaves vs Header Obligation
 ```sql
-SELECT 
+SELECT
     s.id AS schedule_id,
     s."totalAmount" AS schedule_total,
     h."netAmount" AS header_net,
@@ -219,7 +219,7 @@ FROM "AdmissionInstallmentSchedule" s
 JOIN "FeePaymentHeader" h ON s."feePaymentHeaderId" = h.id
 JOIN "AdmissionInstallment" i ON i."scheduleId" = s.id AND i."supersededAt" IS NULL
 GROUP BY s.id, h.id
-HAVING 
+HAVING
     active_pending <> h."totalDueAmount"
     OR active_paid <> h."totalPaidAmount"
     OR s."totalAmount" <> h."netAmount";
@@ -228,7 +228,7 @@ HAVING
 
 ### 5.4 Detect Overlapping Installment Intervals
 ```sql
-SELECT 
+SELECT
     a."scheduleId",
     a.sequence,
     a.id AS inst_a_id,
@@ -238,12 +238,12 @@ SELECT
     b."offsetAmount" AS b_start,
     (b."offsetAmount" + b.amount) AS b_end
 FROM "AdmissionInstallment" a
-JOIN "AdmissionInstallment" b ON a."scheduleId" = b."scheduleId" 
-    AND a.sequence = b.sequence 
+JOIN "AdmissionInstallment" b ON a."scheduleId" = b."scheduleId"
+    AND a.sequence = b.sequence
     AND a.id <> b.id
-    AND a."supersededAt" IS NULL 
+    AND a."supersededAt" IS NULL
     AND b."supersededAt" IS NULL
-WHERE 
+WHERE
     a."offsetAmount" < (b."offsetAmount" + b.amount)
     AND (a."offsetAmount" + a.amount) > b."offsetAmount";
 -- MUST RETURN 0 ROWS
@@ -259,7 +259,7 @@ WHERE
 - **Resolution:**
   1. Inspect `FeePayment` matching `idempotencyKey`:
      ```sql
-     SELECT id, "studentId", amount, "idempotencyKey", "createdAt" 
+     SELECT id, "studentId", amount, "idempotencyKey", "createdAt"
      FROM "FeePayment" WHERE "idempotencyKey" = '<KEY>';
      ```
   2. Advise the client software to generate a fresh UUID v4 for distinct financial transactions.
@@ -284,7 +284,7 @@ WHERE
 - **Triage & Resolution Procedure:**
   1. **Identify the holding session:**
      ```sql
-     SELECT 
+     SELECT
          a.pid,
          a.usename,
          a.application_name,
@@ -295,7 +295,7 @@ WHERE
          now() - a.state_change AS state_change_age
      FROM pg_locks l
      JOIN pg_stat_activity a ON l.pid = a.pid
-     WHERE l.locktype = 'advisory' 
+     WHERE l.locktype = 'advisory'
        AND (l.classid::bigint << 32 | l.objid::bigint) = 55432001;
      ```
   2. **Establish whether the session is genuinely abandoned:**
@@ -312,3 +312,126 @@ WHERE
        ```
   4. **Operational Risk Warning:**
      - Terminating an active session (`pg_terminate_backend`) while a backfill or migration is actively running immediately aborts the active transaction, rolls back all in-flight changes, drops the connection, and logs an `ERR_BACKFILL_FAILED` exception. Never terminate without confirming the holding process is dead.
+
+
+---
+
+## 8. Operational Playbooks: Lifecycle, Confirmation & Freeze (BE-ND1 & BE-ND2)
+
+### Playbook 8.1: AcademicYear Activation Failed (`NO_QUALIFYING_FEE_STRUCTURE` - HTTP 409)
+- **Symptom:** Administrator attempts to activate an AcademicYear (`POST /academic-years/:id/activate`) and receives HTTP 409 with error code `NO_QUALIFYING_FEE_STRUCTURE`.
+- **Root Cause:** The qualifying FeeStructure predicate is not satisfied. The academic year lacks at least one complete active chain:
+  `AcademicYear` $\rightarrow$ `Program` (active) $\rightarrow$ `Class` (active) $\rightarrow$ `FeeStructure` (active) $\rightarrow$ `FeeComponent` (active, mandatory, amount $\ge 0$).
+- **Investigation SQL:**
+  ```sql
+  SELECT
+      ay.id AS "ayId", ay.status AS "ayStatus",
+      p.id AS "programId", p."isActive" AS "programActive",
+      c.id AS "classId", c."isActive" AS "classActive",
+      fs.id AS "feeStructureId", fs."isActive" AS "fsActive",
+      fc.id AS "feeComponentId", fc."isActive" AS "fcActive", fc."isMandatory", fc.amount
+  FROM "AcademicYear" ay
+  LEFT JOIN "Program" p ON p."academicYearId" = ay.id AND p."isActive" = true AND p."deletedAt" IS NULL
+  LEFT JOIN "Class" c ON c."programId" = p.id AND c."isActive" = true AND c."deletedAt" IS NULL
+  LEFT JOIN "FeeStructure" fs ON fs."academicYearId" = ay.id AND fs."programId" = p.id AND fs."classId" = c.id AND fs."isActive" = true AND fs."deletedAt" IS NULL
+  LEFT JOIN "FeeComponent" fc ON fc."feeStructureId" = fs.id AND fc."isActive" = true AND fc."deletedAt" IS NULL AND fc."isMandatory" = true
+  WHERE ay.id = '<ACADEMIC_YEAR_ID>';
+  ```
+- **Operational Resolution:**
+  1. Identify which link in the hierarchy is missing or inactive.
+  2. Create or activate the missing entity in `DRAFT` status:
+     - Ensure the Program belongs to the AcademicYear and is active.
+     - Ensure the Class belongs to the Program and is active.
+     - Ensure a FeeStructure is configured for that Program and Class with `isActive = true`.
+     - Ensure at least one active FeeComponent on that FeeStructure has `isMandatory = true` and `amount >= 0`.
+  3. Re-trigger activation via `COLLEGE_ADMIN`.
+
+### Playbook 8.2: AcademicYear Closure Blocked by `DRAFT` Admissions (HTTP 409)
+- **Symptom:** Administrator attempts to close an active AcademicYear (`POST /academic-years/:id/close`) and receives HTTP 409 `ConflictException: Academic year cannot be closed while N DRAFT admission(s) remain.`
+- **Root Cause:** Active academic years cannot be closed while unconfirmed admissions exist in `DRAFT` status.
+- **Investigation SQL:**
+  ```sql
+  SELECT id, "admissionNumber", "studentName", "admissionStatus", "createdAt"
+  FROM "Admission"
+  WHERE "academicYearId" = '<ACADEMIC_YEAR_ID>'
+    AND "admissionStatus" = 'DRAFT'
+    AND "deletedAt" IS NULL;
+  ```
+- **Operational Resolution:**
+  1. For each pending admission:
+     - If the student is enrolling: record an admission payment and confirm the admission (`POST /admission/:id/confirmed`).
+     - If the student is not enrolling: cancel the admission (`POST /admission/:id/cancelled`).
+  2. Once `SELECT count(*) FROM "Admission" WHERE "academicYearId" = '<AY_ID>' AND "admissionStatus" = 'DRAFT'` returns 0, re-run closure.
+
+### Playbook 8.3: Admission Confirmation Blocked by Missing Payment (`CONFIRMATION_PAYMENT_REQUIRED` - HTTP 409)
+- **Symptom:** School admin attempts to confirm an admission (`POST /admission/:id/confirmed`) and receives HTTP 409 with code `CONFIRMATION_PAYMENT_REQUIRED`.
+- **Root Cause:** BE-ND1 prerequisite requires at least one non-reversed persisted payment $> 0$ on an active header before confirmation.
+- **Investigation SQL:**
+  ```sql
+  SELECT
+      p.id AS "paymentId", p.amount, p."paymentMethod", p."createdAt",
+      r.id AS "reversalEventId", r."reversalAmount", r.reason
+  FROM "FeePayment" p
+  LEFT JOIN "PaymentReversalEvent" r ON r."feePaymentId" = p.id
+  WHERE p."admissionId" = '<ADMISSION_ID>';
+  ```
+- **Operational Resolution:**
+  1. If zero payments exist: record an initial admission fee payment (cash/offline) via `POST /admission-payments/admissions/:admissionId/payments`.
+  2. If all previous payments were reversed: record a new valid payment before confirming.
+  3. Confirmation will succeed once `qualifyingPayments.length >= 1`.
+
+### Playbook 8.4: Attempted Mutation on Consumed FeeStructure (`FEE_STRUCTURE_FROZEN` - HTTP 409)
+- **Symptom:** Admin attempts to edit a FeeStructure or its components and receives HTTP 409 `Fee structure is permanently frozen because it has been consumed by admissions`.
+- **Root Cause:** A persisted `FeePaymentHeader` exists referencing the FeeStructure. Consumption is permanent across cancellations and reversals.
+- **Investigation SQL:**
+  ```sql
+  SELECT h.id AS "headerId", h."admissionId", a."admissionStatus", h."netAmount", h."createdAt"
+  FROM "FeePaymentHeader" h
+  JOIN "Admission" a ON a.id = h."admissionId"
+  WHERE h."feeStructureId" = '<FEE_STRUCTURE_ID>';
+  ```
+- **Operational Policy:**
+  - **Do NOT delete or detach FeePaymentHeader records.** Doing so would corrupt the historical financial audit trail.
+  - If pricing changes are needed for future students: create a *new* FeeStructure with the updated amounts or GST percentage. Deactivate the old FeeStructure (`isActive = false`) so new admissions do not select it. Existing admissions retain their snapshotted pricing.
+
+### Playbook 8.5: Payment Reversal and Audit Trail Investigation without History Rewriting
+- **Symptom:** A payment was recorded in error (wrong receipt, duplicate entry, incorrect amount) and needs reversal.
+- **Operational Policy:**
+  - Payments are **never deleted**. All corrections are performed via append-only `PaymentReversalEvent` and `FinancialLog` entries.
+  - Reversals decrement `amountPaid` counters, restore installment statuses (e.g. back to `PENDING`), and adjust `totalPaidAmount` and `totalDueAmount` on `FeePaymentHeader`.
+  - Reversals require `COLLEGE_ADMIN` authorization and a non-empty `reason`.
+- **Investigation SQL:**
+  ```sql
+  SELECT
+      fl.id AS "logId", fl."flowType", fl.amount, fl.description, fl."occurredAt",
+      pre."reversalAmount", pre.reason, pre."reversedByUserId"
+  FROM "FinancialLog" fl
+  LEFT JOIN "PaymentReversalEvent" pre ON pre."feePaymentId" = fl."sourceId"
+  WHERE fl."sourceId" = '<PAYMENT_ID>';
+  ```
+
+### Playbook 8.6: Admission Fee Configuration & Concession Locking Troubleshooting
+- **Symptom:** Administrator cannot modify fee component selection or assign/update concessions in Admission Edit, receiving error `ADMISSION_FEE_LOCKED_FINANCIAL_ACTIVITY` or finding the controls disabled.
+- **Root Cause & Financial Guard Policy:**
+  - Under V1 financial policy, fee component selection and concessions are strictly locked if:
+    1. Admission is `CONFIRMED` or `CANCELLED`.
+    2. Any payments exist on the fee header (`feePayment.count > 0` or header/detail `amountPaid > 0`).
+    3. Any installment allocations exist (`feePaymentInstallmentAllocation.count > 0`).
+    4. Any payment reversal events exist (`paymentReversalEvent.count > 0`). Fully reversed admissions remain locked because payment audit history cannot be rewritten.
+- **Investigation SQL:**
+  ```sql
+  SELECT
+      a.id AS "admissionId",
+      a."admissionStatus",
+      h.id AS "headerId",
+      h."totalPaidAmount",
+      (SELECT COUNT(*) FROM "FeePayment" p WHERE p."feePaymentHeaderId" = h.id) AS "paymentsCount",
+      (SELECT COUNT(*) FROM "FeePaymentInstallmentAllocation" ia WHERE ia."feePaymentHeaderId" = h.id) AS "allocationsCount",
+      (SELECT COUNT(*) FROM "PaymentReversalEvent" r JOIN "FeePayment" fp ON fp.id = r."feePaymentId" WHERE fp."feePaymentHeaderId" = h.id) AS "reversalsCount"
+  FROM "Admission" a
+  JOIN "FeePaymentHeader" h ON h."admissionId" = a.id
+  WHERE a.id = '<ADMISSION_ID>';
+  ```
+- **Operational Resolution:**
+  - If `paymentsCount > 0`, `allocationsCount > 0`, or `reversalsCount > 0`, the fee snapshot is immutable by financial integrity design. Modifications to historical structures or concessions cannot be performed.
+  - If financial adjustments are required for confirmed students with payment activity, use official concession/waiver adjustments supported by downstream accounting or student ledger tools. Never bypass the database locks.

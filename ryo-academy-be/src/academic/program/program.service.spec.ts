@@ -3,9 +3,16 @@ import { ProgramService } from './program.service.js';
 import { DayOfWeek } from '../../../generated/prisma/client.js';
 
 describe('ProgramService.createPrgm', () => {
-  const db = {
+  const tx = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'ay-uuid-1' }]),
     academicYear: { findUnique: jest.fn() },
     program: { create: jest.fn() },
+  };
+
+  const db = {
+    $transaction: jest.fn((cb: any) => cb(tx)),
+    academicYear: tx.academicYear,
+    program: tx.program,
   } as any;
 
   let service: ProgramService;

@@ -74,6 +74,8 @@ export interface FeeConfigurationDetail {
   description?: string | null;
   originalAmount: string | null;
   discountAmount: string | null;
+  taxableAmount?: string | null;
+  gstAmount?: string | null;
   finalAmount: string | null;
   totalAmountToBePaid: string | null;
   amountPaid: string | null;
@@ -83,7 +85,7 @@ export interface FeeConfigurationDetail {
   isIncluded: boolean;
   concession: FeeConfigurationConcessionSummary | null;
 }
-export interface AdmissionFeeConfiguration { admissionId: string; feePaymentHeader: { id: string; grossAmount: string | null; discountAmount: string | null; netAmount: string | null; totalFeeAmount: string | null; totalPaidAmount: string | null; totalDueAmount: string | null; feePaymentDetails: FeeConfigurationDetail[] } }
+export interface AdmissionFeeConfiguration { admissionId: string; feePaymentHeader: { id: string; pricingVersion?: string; grossAmount: string | null; discountAmount: string | null; taxableAmount?: string | null; gstAmount?: string | null; netAmount: string | null; totalFeeAmount: string | null; totalPaidAmount: string | null; totalDueAmount: string | null; feePaymentDetails: FeeConfigurationDetail[] } }
 
 const authOptions = () => {
   const token = session.getAccessToken();

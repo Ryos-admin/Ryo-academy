@@ -43,6 +43,7 @@ const PERMISSIONS = {
   INSTALLMENT_TEMPLATE_DEACTIVATE: 'installment-template:deactivate',
   INSTALLMENT_SCHEDULE_READ: 'installment-schedule:read',
   INSTALLMENT_SCHEDULE_MANAGE: 'installment-schedule:manage',
+  SCHOOL_UPDATE: 'school:update',
 } as const;
 
 const ROLE_DESCRIPTIONS = {
@@ -85,6 +86,7 @@ const PERMISSION_DESCRIPTIONS: Record<(typeof PERMISSIONS)[keyof typeof PERMISSI
   [PERMISSIONS.INSTALLMENT_TEMPLATE_DEACTIVATE]: 'Deactivate installment templates.',
   [PERMISSIONS.INSTALLMENT_SCHEDULE_READ]: 'View admission installment schedules.',
   [PERMISSIONS.INSTALLMENT_SCHEDULE_MANAGE]: 'Manage and customize admission installment schedules.',
+  [PERMISSIONS.SCHOOL_UPDATE]: 'Configure school-wide settings including active academic year.',
 };
 
 const ROLE_PERMISSIONS = {

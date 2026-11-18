@@ -6,6 +6,7 @@ import {
   AdmissionStatus,
   DayOfWeek,
   DayType,
+  FeePricingVersion,
   Gender,
   type Prisma,
 } from '../../../generated/prisma/client.js';
@@ -147,6 +148,7 @@ async function ensureFeeSnapshot(params: {
       admissionId: params.admissionId,
       academicYearId: params.academicYearId,
       feeStructureId: feeStructure.id,
+      pricingVersion: FeePricingVersion.V0_SNAPSHOTTED,
       discountAmount: 0,
       grossAmount: 0,
       netAmount: 0,

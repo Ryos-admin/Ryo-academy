@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { assertQaDatabase } from "../src/test/assert-qa-database.js";
 import { AcademicYearService } from "../src/academic/academic-year/academic-year.service.js";
 import { StaffService } from "../src/academic/staff/staff.service.js";
 import { SubjectService } from "../src/academic/subject/subject.service.js";
@@ -27,6 +28,7 @@ async function main() {
   checkQaTarget();
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any);
   await db.$connect();
+  await assertQaDatabase(db);
 
   const created = { schools: [] as string[], users: [] as string[], years: [] as string[], programs: [] as string[], classes: [] as string[], sections: [] as string[], subjects: [] as string[], staff: [] as string[], assignments: [] as string[], calendars: [] as string[], admissions: [] as string[], students: [] as string[] };
   const cleanup = async () => {

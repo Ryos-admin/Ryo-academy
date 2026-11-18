@@ -15,7 +15,7 @@ export type Role = "OFFICE_ADMIN" | "COLLEGE_ADMIN" | "STAFF";
  */
 export const PERMISSIONS = [
   "ADMISSION_READ", "ADMISSION_CREATE", "ADMISSION_UPDATE",
-  "FEES_READ", "FEES_CREATE", "FEES_UPDATE",
+  "FEES_READ", "FEES_CREATE", "FEES_UPDATE", "FEES_REVERSE",
   "CLASS_READ", "CLASS_CREATE", "CLASS_UPDATE",
   "SUBJECT_READ", "SUBJECT_CREATE", "SUBJECT_UPDATE",
   "ATTENDANCE_READ", "ATTENDANCE_MARK", "ATTENDANCE_UPDATE",
@@ -23,6 +23,9 @@ export const PERMISSIONS = [
   "STUDENT_READ", "STUDENT_CREATE", "STUDENT_UPDATE",
   "SHIFT_READ", "SHIFT_CREATE", "SHIFT_UPDATE",
   "TIMETABLE_READ",
+  "INSTALLMENT_TEMPLATE_READ",
+  "INSTALLMENT_SCHEDULE_READ", "INSTALLMENT_SCHEDULE_MANAGE",
+  "SCHOOL_UPDATE",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -30,13 +33,19 @@ export type Permission = (typeof PERMISSIONS)[number];
 const isPermission = (value: unknown): value is Permission =>
   typeof value === "string" && (PERMISSIONS as readonly string[]).includes(value);
 
+const normalizePermissionName = (val: string): string => val.replace(/-/g, "_");
+
 /**
  * Narrows the raw permission strings from the API to the known set. Unknown
  * names are dropped, which fails closed: a permission this build does not know
  * about simply is not used to unlock UI.
  */
 export const toPermissions = (values: readonly unknown[] | null | undefined): Permission[] =>
-  Array.isArray(values) ? values.filter(isPermission) : [];
+  Array.isArray(values)
+    ? values
+        .map((v) => (typeof v === "string" ? normalizePermissionName(v) : v))
+        .filter(isPermission)
+    : [];
 
 export type User = {
   id: string;

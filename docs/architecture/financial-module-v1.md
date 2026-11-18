@@ -1,8 +1,8 @@
 # Ryo Academy ERP — Financial Module V1 Architecture Specification
 
-> **Canonical Architecture Document**  
-> **Status:** Final / Implemented  
-> **Milestones Closed:** Task 02, Task 02.1, Task 03A, Task 03B, Task 03C, Task 04B.1, Task 04B.2, Task 04B.3, Task 04B.4, Task 04B.5, Task 04B.5.2, Task 04B.5.2.2, Task 04B.5.2.3.
+> **Canonical Architecture Document**
+> **Status:** Final / Implemented
+> **Milestones Closed:** Task 02, Task 02.1, Task 03A, Task 03B, Task 03C, Task 04B.1, Task 04B.2, Task 04B.3, Task 04B.4, Task 04B.5, Task 04B.5.2, Task 04B.5.2.2, Task 04B.5.2.3, BE-ND1, BE-ND2 Stage 1, Stage 2, Stage 3, Stage 4.
 
 ---
 
@@ -376,5 +376,91 @@ All financial endpoints require authenticated session tokens (`JwtAuthGuard`) an
 | `GET` | `/installment-templates` | `InstallmentTemplateController` | `INSTALLMENT_TEMPLATE_READ` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | List active installment templates for the school |
 | `POST` | `/fee-concessions` | `FeeConcessionCategoryController` | `FEES_CREATE` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | Create fee concession category |
 | `GET` | `/fee-concessions` | `FeeConcessionCategoryController` | `FEES_READ` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | List fee concession categories |
-| `POST` | `/admissions/:admissionId/confirm` | `AdmissionController` | `ADMISSION_UPDATE` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | Confirm admission, freeze concessions, and generate finalized installment schedule |
+| `POST` | `/admission/:id/confirmed` | `AdmissionController` | `ADMISSION_CREATE` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | Confirm admission (requires ACTIVE academic year and qualifying non-reversed payment > 0), atomically create Student, and support idempotent replay |
+| `POST` | `/admission/:id/cancelled` | `AdmissionController` | `ADMISSION_UPDATE` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | Cancel unconfirmed DRAFT admission (blocked if CONFIRMED or CANCELLED; preserves consumption freeze) |
+| `GET` | `/admission/fee-configuration/applicable` | `AdmissionController` | `ADMISSION_READ` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | Fetch applicable active FeeStructure and components preview for given year, program, and class |
+| `POST` | `/admission-payments/admissions/:admissionId/payments` | `AdmissionPaymentController` | `FEES_CREATE` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | Record admission-level fee payment against active installment schedule |
+| `POST` | `/admission-payments/admissions/:admissionId/payments/:paymentId/reversals` | `AdmissionPaymentController` | `FEES_REVERSE` | `COLLEGE_ADMIN` only | Reverse admission-level fee payment with full audit trail and balance restoration |
+
+---
+
+## 9. BE-ND1 & BE-ND2 Lifecycle, Freeze & GST Extensions
+
+### 9.1 BE-ND1: Admission Confirmation Payment Prerequisite
+- **Mandatory Prerequisite:** An admission cannot transition from `DRAFT` to `CONFIRMED` unless at least one qualifying, persisted payment exists on an active `FeePaymentHeader`.
+- **Qualifying Payment Predicate:**
+  - `amount > 0` (partial payment is sufficient; full settlement is not required).
+  - `reversalEvent === null` (reversed payments do not qualify).
+  - Persisted in the database on an active header belonging to the target admission.
+- **Error Contract:** If zero qualifying payments exist at confirmation time, the operation aborts atomically and returns HTTP 409 `ConflictException` with error body `{ "code": "CONFIRMATION_PAYMENT_REQUIRED", "message": "Admission cannot be confirmed without at least one non-reversed persisted payment." }`.
+- **Idempotent Replay:** Re-confirming an already-`CONFIRMED` admission returns HTTP 200 with `{ "isReplay": true, ... }` without creating duplicate Student rows or re-evaluating payments.
+
+### 9.2 BE-ND2 Stage 1: AcademicYear 3-State Lifecycle
+- **Lifecycle States:** `DRAFT` $\rightarrow$ `ACTIVE` $\rightarrow$ `CLOSED`.
+- **Allowed Transitions:**
+  - `DRAFT` $\rightarrow$ `ACTIVE`: Permitted via `AcademicYearService.activate()` when the qualifying `FeeStructure` predicate is satisfied. Single active year invariant enforced per school.
+  - `ACTIVE` $\rightarrow$ `CLOSED`: Permitted via `AcademicYearService.close()` only when zero unconfirmed `DRAFT` admissions remain (`draftAdmissionsCount === 0`).
+  - `DRAFT` $\rightarrow$ Soft-Deleted: Permitted via `AcademicYearService.remove()` only if the year has zero dependent programs, classes, fee structures, admissions, headers, or calendar records.
+- **Forbidden Transitions:** `CLOSED` years cannot transition to any other status (permanent terminal state). `ACTIVE` years cannot be deleted.
+- **Activation Qualification Predicate:**
+  Activation requires at least one qualifying FeeStructure chain:
+  - $\ge 1$ active `Program` assigned to the AcademicYear.
+  - $\ge 1$ active `Class` assigned to that Program.
+  - $\ge 1$ active `FeeStructure` assigned to that AcademicYear, Program, and Class.
+  - $\ge 1$ active mandatory `FeeComponent` assigned to that FeeStructure with `amount >= 0`.
+  - Failure returns HTTP 409 `ConflictException` with code `NO_QUALIFYING_FEE_STRUCTURE`.
+- **Authorization:** Only `COLLEGE_ADMIN` can trigger activation, closure, or removal.
+
+### 9.3 BE-ND2 Stage 2: GST Configuration & Permanent Consumption Freeze
+- **GST Configuration Range & Rounding:**
+  - `gstPercentage` is stored as `Decimal(5, 2)` on `FeeStructure`, constrained between `0.00` and `100.00` (default `0.00`).
+  - Discount is calculated before GST:
+    $$\text{taxableAmount} = \text{grossAmount} - \text{discountAmount}$$
+    $$\text{gstAmount} = \text{round}\left(\text{taxableAmount} \times \frac{\text{gstPercentage}}{100}, 2\right) \quad (\text{ROUND\_HALF\_UP})$$
+    $$\text{netAmount} = \text{taxableAmount} + \text{gstAmount} = \text{totalFeeAmount}$$
+- **Historical Pricing Snapshots:**
+  - `FeePaymentHeader` and `FeePaymentDetails` snapshot all financial figures (`grossAmount`, `discountAmount`, `taxableAmount`, `gstPercentage`, `gstAmount`, `netAmount`) at the moment of admission creation.
+  - Historical snapshots are permanently immutable; downstream configuration reads or structure edits never recalculate historical figures.
+- **Permanent Consumption Freeze:**
+  - A `FeeStructure` becomes permanently frozen the instant its first persisted `Admission` consumes it by creating a `FeePaymentHeader` (`SELECT 1 FROM "FeePaymentHeader" WHERE "feeStructureId" = ${id} LIMIT 1`).
+  - Permanent consumption is irreversible: admission cancellation, soft deletion, or payment reversal does not unfreeze the structure.
+  - When consumed, all updates (`PUT/PATCH /fee-structures/:id`) and deletions (`DELETE /fee-structures/:id`) are rejected with HTTP 409 `ConflictException("FEE_STRUCTURE_FROZEN")`.
+  - Adding, updating, or deleting `FeeComponent` rows on a consumed structure is rejected with HTTP 409.
+  - Non-DRAFT years (`ACTIVE` or `CLOSED`) reject structure and component mutations regardless of consumption.
+
+### 9.4 BE-ND2 Stage 3 & 4: Admission Integration & Lock Protocols
+- **Admission Creation Lifecycle Guard:**
+  - `DRAFT` AcademicYear: Admission creation permitted.
+  - `ACTIVE` AcademicYear: Admission creation permitted.
+  - `CLOSED` AcademicYear: Admission creation rejected with HTTP 409 `ConflictException("Admissions cannot be created in a CLOSED academic year")` before any student or financial mutation.
+- **Admission Confirmation Lifecycle Guard:**
+  - Requires `AcademicYear.status === ACTIVE`. Confirmation in `DRAFT` or `CLOSED` is rejected with HTTP 409.
+- **Lock Ordering Protocols:**
+  - *Academic Structure:* `AcademicYear` $\rightarrow$ `Program` $\rightarrow$ `Class` $\rightarrow$ `FeeStructure` $\rightarrow$ `FeeComponent`.
+  - *Financial Mutations:* `Admission` $\rightarrow$ `FeePaymentHeader` $\rightarrow$ `FeePayment` $\rightarrow$ `FeePaymentDetails` $\rightarrow$ `AdmissionInstallmentSchedule` $\rightarrow$ `AdmissionInstallment`.
+
+### 9.5 Admission Fee & Concession Management V1
+- **Separation of Concerns:**
+  - Fee component selection and concession assignment belong exclusively to `Admission Edit` (`AdmissionForm`) post-creation.
+  - `Admission Details` (`AdmissionDetail`) is strictly read-only for financial configurations, snapshot rows, and concession summaries. Concession mutation dialogs, resolve review modals, and action columns are eliminated from Details.
+- **Component Selection Invariants:**
+  - Mandatory fee components must always remain included and cannot be deselected.
+  - Optional fee components can be toggled via checkboxes when the admission is unlocked.
+- **Concession Application & V0 Financial Lineage:**
+  - Concessions may be assigned, updated, or removed for eligible components on `DRAFT` admissions.
+  - In V0 pricing, discounts apply prior to GST:
+    $$\text{taxableAmount} = \text{originalAmount} - \text{discountAmount}$$
+    $$\text{gstAmount} = \text{round}\left(\text{taxableAmount} \times \frac{\text{gstPercentage}}{100}, 2\right) \quad (\text{ROUND\_HALF\_UP})$$
+    $$\text{totalAmountToBePaid} = \text{taxableAmount} + \text{gstAmount} = \text{finalAmount}$$
+  - Decimal arithmetic and `ROUND_HALF_UP` are enforced on the backend. Frontend delegates math authority to backend query responses without client-side formula divergence.
+- **Lifetime Financial Lock Rules:**
+  Fee configuration and concession modifications are rejected with HTTP 409 `ConflictException` if:
+  1. Admission status is not `DRAFT` (`CONFIRMED` and `CANCELLED` admissions are permanently locked).
+  2. Any fee payment exists (`feePayment.count > 0` or header/detail `amountPaid > 0`).
+  3. Any installment allocation exists (`feePaymentInstallmentAllocation.count > 0`).
+  4. Any payment reversal event exists (`paymentReversalEvent.count > 0`).
+- **Admission-First Locking Hierarchy:**
+  All fee configuration updates, concession assignments, updates, removals, and payments execute within interactive transactions that first acquire `SELECT id FROM "Admission" WHERE id = ${id} FOR UPDATE`. This eliminates race conditions between payment creation and fee/concession modifications.
+- **Frontend Fail-Closed State:**
+  If payment history or fee configuration is loading or errors out, the frontend edit form fails closed by disabling all component checkboxes and concession action buttons until queries resolve successfully.
 

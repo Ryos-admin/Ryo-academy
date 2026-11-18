@@ -114,8 +114,6 @@ export const admissionsApi = {
     apiClient.post<AdmissionResponse | undefined>("/admission", payload, authOptions()),
   update: (id: string, payload: AdmissionUpdatePayload) =>
     apiClient.patch<AdmissionResponse>(`/admission/${id}`, payload, authOptions()),
-  delete: (id: string) =>
-    apiClient.patch<AdmissionResponse>(`/admission/${id}/delete`, undefined, authOptions()),
   confirm: (id: string) =>
     apiClient.post<AdmissionResponse>(`/admission/${id}/confirmed`, undefined, authOptions()),
   cancel: (id: string) =>
@@ -165,6 +163,8 @@ export function confirmationErrorMessage(error: unknown, fallback = "Could not c
   if (!(error instanceof ApiError)) return fallback;
   const body = error.body as { code?: string; message?: string | string[] } | undefined;
   switch (body?.code) {
+    case "CONFIRMATION_PAYMENT_REQUIRED":
+      return "Confirmation is blocked. Record at least one non-reversed payment greater than zero before confirming this admission.";
     case "NO_INCLUDED_FEE_DETAILS": return "Confirmation blocked: include at least one fee component.";
     case "DISCOUNT_REVIEW_REQUIRED": return "Confirmation blocked: review the concession and reapply it or acknowledge no concession.";
     case "FINANCIAL_SNAPSHOT_INCONSISTENT": return "Confirmation blocked: the fee snapshot is inconsistent and requires investigation.";
@@ -172,20 +172,11 @@ export function confirmationErrorMessage(error: unknown, fallback = "Could not c
   }
 }
 
-export function useDeleteAdmission() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id }: { id: string }) => admissionsApi.delete(id),
-    onSuccess: async (_deleted, { id }) => {
-      client.removeQueries({ queryKey: [...admissionsQueryKey, id] });
-      await client.invalidateQueries({ queryKey: admissionsQueryKey });
-      await client.invalidateQueries({ queryKey: ["students"] });
-    },
-  });
-}
-
-export function admissionStatusLabel(status: AdmissionStatus) {
-  return status === "DRAFT" ? "Pending" : status === "CONFIRMED" ? "Confirmed" : "Cancelled";
+export function admissionStatusLabel(status: AdmissionStatus | string | null | undefined) {
+  if (status === "DRAFT") return "Pending";
+  if (status === "CONFIRMED") return "Confirmed";
+  if (status === "CANCELLED") return "Cancelled";
+  return status || "Unknown";
 }
 export function admissionErrorMessage(error: unknown, fallback: string) {
   if (!(error instanceof ApiError)) return fallback;
@@ -214,3 +205,37 @@ export function applicableFeeConfigurationErrorMessage(error: unknown, fallback 
   }
   return admissionErrorMessage(error, fallback);
 }
+
+export const ADMISSION_STATUS_RANK: Record<string, number> = {
+  CONFIRMED: 1,
+  DRAFT: 2,
+  CANCELLED: 3,
+};
+
+export function parseDateTimestamp(value?: string | null): number | null {
+  if (!value) return null;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+export function compareAdmissions(a: AdmissionResponse, b: AdmissionResponse): number {
+  const rankA = ADMISSION_STATUS_RANK[a.admissionStatus] ?? 99;
+  const rankB = ADMISSION_STATUS_RANK[b.admissionStatus] ?? 99;
+  if (rankA !== rankB) {
+    return rankA - rankB;
+  }
+
+  const timeA = parseDateTimestamp(a.createdAt);
+  const timeB = parseDateTimestamp(b.createdAt);
+
+  if (timeA !== null && timeB !== null) {
+    if (timeA !== timeB) return timeB - timeA;
+  } else if (timeA !== null) {
+    return -1;
+  } else if (timeB !== null) {
+    return 1;
+  }
+
+  return a.id.localeCompare(b.id);
+}
+

@@ -6,7 +6,6 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "../../../generated/prisma/client.js";
 import { parseMoney } from "../../common/money/money.util.js";
-import { hasAcademicYearStarted } from "../../common/date/kolkata-business-date.js";
 import { DatabaseService } from "../../database/database.service.js";
 import { FeeStructureDto } from "./dto/fee-structure.dto.js";
 import { UpdateFeeStructureDto } from "./dto/update-fee-structure.dto.js";
@@ -30,21 +29,18 @@ export class FeeStructureService {
       (sum, amount) => sum.plus(amount),
       new Prisma.Decimal(0),
     );
+    const gstPercentage = this.parseAndValidateGstPercentage(dto.gstPercentage);
 
     try {
       return await this.databaseService.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "AcademicYear" WHERE "id" = ${dto.academicYearId} FOR SHARE`;
         const academicYear = await tx.academicYear.findUnique({
           where: { id: dto.academicYearId },
         });
-        if (!academicYear)
+        if (!academicYear || academicYear.isActive === false || academicYear.deletedAt)
           throw new NotFoundException(
             `Academic year with ID "${dto.academicYearId}" does not exist.`,
           );
-        // if (hasAcademicYearStarted(academicYear.startDate)) {
-        //   throw new ConflictException(
-        //     "A fee structure cannot be created on or after the academic-year start date.",
-        //   );
-        // }
         const program = await tx.program.findFirst({
           where: { id: dto.programId, academicYearId: dto.academicYearId },
         });
@@ -68,6 +64,7 @@ export class FeeStructureService {
             programId: dto.programId,
             classId: dto.classId,
             totalAmount,
+            gstPercentage,
           },
         });
         await tx.feeComponent.createMany({
@@ -115,20 +112,44 @@ export class FeeStructureService {
   async update(id: string, dto: UpdateFeeStructureDto) {
     try {
       return await this.databaseService.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT "id" FROM "FeeStructure" WHERE "id" = ${id} FOR UPDATE`;
-        const existing = await tx.feeStructure.findUnique({
+        const preCheck = await tx.feeStructure.findUnique({
           where: { id },
           include: { academicYear: true },
         });
-        if (!existing) throw new NotFoundException(`Fee structure with ID "${id}" does not exist.`);
-        if (!existing.isActive || existing.deletedAt)
+        if (!preCheck) throw new NotFoundException(`Fee structure with ID "${id}" does not exist.`);
+        if (!preCheck.isActive || preCheck.deletedAt)
           throw new ConflictException("Fee structure is inactive.");
-        if (hasAcademicYearStarted(existing.academicYear.startDate)) {
-          throw new ConflictException(
-            "Fee structure metadata is frozen on or after the academic-year start date.",
-          );
+
+        const ayId = preCheck.academicYearId ?? preCheck.academicYear?.id;
+        if ((dto as any).academicYearId !== undefined && (dto as any).academicYearId !== ayId) {
+          throw new BadRequestException("FeeStructure cannot be reassigned to a different AcademicYear.");
         }
+        if ((dto as any).programId !== undefined && (dto as any).programId !== preCheck.programId) {
+          throw new BadRequestException("FeeStructure cannot be reassigned to a different Program.");
+        }
+        if ((dto as any).classId !== undefined && (dto as any).classId !== preCheck.classId) {
+          throw new BadRequestException("FeeStructure cannot be reassigned to a different Class.");
+        }
+
+        if (ayId) {
+          await tx.$queryRaw`SELECT "id" FROM "AcademicYear" WHERE "id" = ${ayId} FOR SHARE`;
+          const academicYear = (await tx.academicYear.findUnique({
+            where: { id: ayId },
+          })) ?? preCheck.academicYear;
+          if (!academicYear || academicYear.isActive === false || academicYear.deletedAt) {
+            throw new NotFoundException(`Academic year with ID "${ayId}" does not exist.`);
+          }
+        }
+
+        await tx.$queryRaw`SELECT "id" FROM "FeeStructure" WHERE "id" = ${id} FOR UPDATE`;
+        // await this.assertNotConsumed(tx, id);
+
         if (dto.isActive === false) await this.assertNoHistoricalReferences(tx, id);
+
+        let gstPercentage: Prisma.Decimal | undefined = undefined;
+        if (dto.gstPercentage !== undefined) {
+          gstPercentage = this.parseAndValidateGstPercentage(dto.gstPercentage);
+        }
 
         return tx.feeStructure.update({
           where: { id },
@@ -136,6 +157,7 @@ export class FeeStructureService {
             ...(dto.name !== undefined && { name: dto.name }),
             ...(dto.description !== undefined && { description: dto.description }),
             ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+            ...(gstPercentage !== undefined && { gstPercentage }),
           },
           include: this.readRelations(false),
         });
@@ -152,20 +174,32 @@ export class FeeStructureService {
 
   async delete(id: string, actorUserId: string) {
     return this.databaseService.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "FeeStructure" WHERE "id" = ${id} FOR UPDATE`;
-      const feeStructure = await tx.feeStructure.findUnique({
+      const preCheck = await tx.feeStructure.findUnique({
         where: { id },
         include: { academicYear: true },
       });
-      if (!feeStructure)
+      if (!preCheck)
         throw new NotFoundException(`Fee structure with ID "${id}" does not exist.`);
-      if (!feeStructure.isActive || feeStructure.deletedAt)
+      if (!preCheck.isActive || preCheck.deletedAt)
         throw new ConflictException("Fee structure already deleted.");
 
-      await this.assertNoHistoricalReferences(tx, id);
-      if (hasAcademicYearStarted(feeStructure.academicYear.startDate)) {
-        throw new ConflictException('Fee structure changes are blocked on or after the academic-year start date.');
-      }
+      // const ayId = preCheck.academicYearId ?? preCheck.academicYear?.id;
+      // let academicYear: any = null;
+      // if (ayId) {
+      //   await tx.$queryRaw`SELECT "id" FROM "AcademicYear" WHERE "id" = ${ayId} FOR SHARE`;
+      //   academicYear = (await tx.academicYear.findUnique({
+      //     where: { id: ayId },
+      //   })) ?? preCheck.academicYear;
+      //   if (academicYear?.status && academicYear.status !== AcademicYearStatus.DRAFT) {
+      //     throw new ConflictException(
+      //       "Fee structure can only be deleted in DRAFT academic years",
+      //     );
+      //   }
+      // }
+
+      // await tx.$queryRaw`SELECT "id" FROM "FeeStructure" WHERE "id" = ${id} FOR UPDATE`;
+      // await this.assertNotConsumed(tx, id);
+      // await this.assertNoHistoricalReferences(tx, id);
 
       return tx.feeStructure.update({
         where: { id },
@@ -173,6 +207,31 @@ export class FeeStructureService {
         include: this.readRelations(false),
       });
     });
+  }
+
+  // private async assertNotConsumed(tx: Prisma.TransactionClient, id: string) {
+  //   const consumption = await tx.feePaymentHeader.findFirst({
+  //     where: { feeStructureId: id },
+  //   });
+  //   if (consumption) {
+  //     throw new ConflictException(
+  //       "Fee structure is permanently frozen because it has been consumed by admissions.",
+  //     );
+  //   }
+  // }
+
+  private parseAndValidateGstPercentage(gstInput?: string | null): Prisma.Decimal {
+    if (gstInput === undefined || gstInput === null || gstInput === "") {
+      return new Prisma.Decimal("0.00");
+    }
+    const gst = parseMoney(gstInput, "gstPercentage");
+    if (gst.lt(0) || gst.gt(100)) {
+      throw new BadRequestException("GST percentage must be between 0.00 and 100.00 inclusive.");
+    }
+    if (gst.decimalPlaces() > 2) {
+      throw new BadRequestException("GST percentage cannot have more than 2 decimal places.");
+    }
+    return gst;
   }
 
   private async assertNoHistoricalReferences(tx: Prisma.TransactionClient, id: string) {

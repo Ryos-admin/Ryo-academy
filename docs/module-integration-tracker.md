@@ -4,23 +4,23 @@ This document tracks backend readiness and frontend real-API migration progress.
 
 ## Overall Status
 
-| Module | Backend status | Frontend status | Mock usage | Next action |
-|---|---|---|---|---|
-| Authentication | Implemented | Integrated | Demo auth removed from login flow | Improve roles/permissions contract |
-| Academic Years | Implemented | Real API-backed | Unrelated consumers may still use mocks | Verify permissions and edge cases |
-| Programs | Implemented | Real API-backed | Unrelated consumers may still use mocks | Verify live integration |
-| Classes | Implemented | Real API-backed | Unrelated consumers may still use mocks | Verify live integration |
-| Sections | Implemented | Real API-backed | Attendance and other unmigrated consumers remain mocked | Verify live integration |
-| Subjects | Implemented | Real API-backed | Teaching Assignments and Timetable remain mocked | Add dedicated frontend permissions |
-| Staff | Implemented/semi-finished | Mock or partial | Yes | Frontend migration and contract verification |
-| Teaching Assignments | Implemented | Mock-backed | Yes | Frontend migration |
-| Admissions | Implemented | Mock-backed | Yes | Frontend migration |
-| Students | Partial backend capability | Mock-backed | Yes | Confirm student API scope |
-| Academic Calendar | Implemented | Not migrated | Yes | Frontend migration |
-| Attendance | Implemented | Mock-backed | Yes | Frontend migration and live validation |
-| Fees | Implemented (V1 Complete) | Mock-backed | Yes | Backend V1 verified (see `docs/architecture/financial-module-v1.md`); ready for frontend migration |
-| Timetable | Not fully available | Mock-backed | Yes | Keep mock until backend is ready |
-| Dashboard | Aggregated frontend view | Mock-backed | Yes | Migrate only after source modules are real |
+| Module               | Backend status                                        | Frontend status                                                                                                                                              | Mock usage                                              | Next action                                  |
+| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- | -------------------------------------------- |
+| Authentication       | Implemented                                           | Integrated                                                                                                                                                   | Demo auth removed from login flow                       | Improve roles/permissions contract           |
+| Academic Years       | Implemented                                           | Real API-backed                                                                                                                                              | Unrelated consumers may still use mocks                 | Verify permissions and edge cases            |
+| Programs             | Implemented                                           | Real API-backed                                                                                                                                              | Unrelated consumers may still use mocks                 | Verify live integration                      |
+| Classes              | Implemented                                           | Real API-backed                                                                                                                                              | Unrelated consumers may still use mocks                 | Verify live integration                      |
+| Sections             | Implemented                                           | Real API-backed                                                                                                                                              | Attendance and other unmigrated consumers remain mocked | Verify live integration                      |
+| Subjects             | Implemented                                           | Real API-backed                                                                                                                                              | Teaching Assignments and Timetable remain mocked        | Add dedicated frontend permissions           |
+| Staff                | Implemented/semi-finished                             | Mock or partial                                                                                                                                              | Yes                                                     | Frontend migration and contract verification |
+| Teaching Assignments | Implemented                                           | Mock-backed                                                                                                                                                  | Yes                                                     | Frontend migration                           |
+| Admissions           | Implemented (BE-ND1/ND2 & Fee Concession V1 Complete) | API-integrated (Create, edit fee selection & concessions, confirm, cancel, fee preview, admission payments real; Details read-only; Dashboard status-sorted) | Timetable remains mocked                                | V0 browser QA                                |
+| Students             | Partial backend capability                            | Partially API-integrated (Fee views & payments real; student profile partial)                                                                                | Yes                                                     | Confirm full student profile scope           |
+| Academic Calendar    | Implemented                                           | Not migrated                                                                                                                                                 | Yes                                                     | Frontend migration                           |
+| Attendance           | Implemented                                           | Mock-backed                                                                                                                                                  | Yes                                                     | Frontend migration and live validation       |
+| Fees                 | Implemented (V1 & BE-ND2 Complete)                    | Real API-backed (Fee structures, components, payments, reversals, concessions, schedules)                                                                    | Timetable remains mocked                                | Ready for V0 browser QA                      |
+| Timetable            | Not fully available                                   | Mock-backed                                                                                                                                                  | Yes                                                     | Keep mock until V0 browser QA sign-off       |
+| Dashboard            | Aggregated frontend view                              | Mock-backed                                                                                                                                                  | Yes                                                     | Migrate only after source modules are real   |
 
 ## Completed Frontend Milestones
 
@@ -154,3 +154,65 @@ Use this template for each future module:
 - Backend authorization remains authoritative.
 - Do not assume an endpoint exists from a filename; verify the controller and service.
 - Keep each migration focused, reviewable, and independently verifiable.
+
+## Need to exec later in Prod
+
+```
+-- Failed query:
+BEGIN;
+
+-- 1. Ensure the permission exists.
+INSERT INTO "Permission" (
+    "id",
+    "name",
+    "description",
+    "createdAt",
+    "updatedAt",
+    "isActive"
+)
+VALUES (
+    gen_random_uuid(),
+    'school:update',
+    'Update school configuration',
+    NOW(),
+    NOW(),
+    TRUE
+)
+ON CONFLICT ("name") DO NOTHING;
+
+
+-- SELECT r.*
+-- FROM "Role" r
+-- WHERE r."name" = 'COLLEGE_ADMIN';
+--
+-- -- 2. Create the mapping for COLLEGE_ADMIN.
+INSERT INTO "RolePermission" (
+    "roleId",
+    "permissionId"
+)
+SELECT
+    r."id",
+    p."id"
+FROM "Role" r
+CROSS JOIN "Permission" p
+WHERE r."name" = 'COLLEGE_ADMIN'
+  AND p."name" = 'school:update'
+ON CONFLICT ("roleId", "permissionId") DO NOTHING;
+
+COMMIT;
+-- Text to SQL original prompt:
+-- fix this query
+--
+-- SELECT r.*
+-- FROM "Role" r
+-- WHERE r."name" = 'COLLEGE_ADMIN';
+-- SELECT r.*
+-- FROM "Role" r
+-- WHERE r."name" = 'COLLEGE_ADMIN';
+-- The query looks syntactically correct as-is.
+-- If it returns no results, the role name may differ in the database.
+-- Checking all available roles to help identify the correct name:
+-- SELECT r.*
+-- FROM "Role" r
+-- WHERE r."name" ILIKE '%admin%';
+```

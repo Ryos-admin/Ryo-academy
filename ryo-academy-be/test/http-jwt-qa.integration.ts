@@ -1,7 +1,48 @@
+import 'reflect-metadata';
+import '../src/common/money/decimal-precision.js';
 import assert from 'node:assert/strict';
+import { assertQaDatabase } from '../src/test/assert-qa-database.js';
 import argon2 from 'argon2';
 import request from 'supertest';
 import { DatabaseService } from '../src/database/database.service.js';
+import { NestFactory } from '@nestjs/core';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { AppModule } from '../src/app.module.js';
+import { AuthController } from '../src/auth/auth.controller.js';
+import { AuthService } from '../src/auth/auth.service.js';
+import { PasswordService } from '../src/security/password/password.service.js';
+import { UsersService } from '../src/users/users.service.js';
+import { UsersRepository } from '../src/users/users.repository.js';
+import { AccessTokenService } from '../src/security/token/access-token.service.js';
+import { FinancialLogController } from '../src/finance/financial-log.controller.js';
+import { FinancialLogService } from '../src/finance/financial-log.service.js';
+import { QueryFinancialLogDto } from '../src/finance/dto/query-financial-log.dto.js';
+import { ExpenseController } from '../src/finance/expense.controller.js';
+import { ExpenseService } from '../src/finance/expense.service.js';
+import { CreateExpenseDto } from '../src/finance/dto/create-expense.dto.js';
+import { PermissionsGuard } from '../src/auth/permissions.guard.js';
+import { AuthorizationService } from '../src/auth/authorization.service.js';
+
+process.env.JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'qa-test-jwt-access-secret-minimum-32-chars-long';
+process.env.JWT_ACCESS_EXPIRES_IN = process.env.JWT_ACCESS_EXPIRES_IN || '3600';
+process.env.JWT_ISSUER = process.env.JWT_ISSUER || 'self';
+process.env.JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'self';
+
+// Provide DI constructor metadata stripped by tsx/esbuild
+Reflect.defineMetadata('design:paramtypes', [AuthService], AuthController);
+Reflect.defineMetadata('design:paramtypes', [PasswordService, UsersService, AccessTokenService], AuthService);
+Reflect.defineMetadata('design:paramtypes', [UsersRepository], UsersService);
+Reflect.defineMetadata('design:paramtypes', [DatabaseService], UsersRepository);
+Reflect.defineMetadata('design:paramtypes', [FinancialLogService], FinancialLogController);
+Reflect.defineMetadata('design:paramtypes', [QueryFinancialLogDto, Object], FinancialLogController.prototype, 'findAll');
+Reflect.defineMetadata('design:paramtypes', [DatabaseService], FinancialLogService);
+Reflect.defineMetadata('design:paramtypes', [ExpenseService], ExpenseController);
+Reflect.defineMetadata('design:paramtypes', [CreateExpenseDto, Object], ExpenseController.prototype, 'create');
+Reflect.defineMetadata('design:paramtypes', [String, Object], ExpenseController.prototype, 'remove');
+Reflect.defineMetadata('design:paramtypes', [DatabaseService], ExpenseService);
+Reflect.defineMetadata('design:paramtypes', [Reflector, AuthorizationService], PermissionsGuard);
+Reflect.defineMetadata('design:paramtypes', [DatabaseService], AuthorizationService);
 
 const databaseUrl = process.env.DATABASE_URL;
 assert.ok(databaseUrl, 'DATABASE_URL is required');
@@ -24,10 +65,13 @@ const routes = [
 async function main() {
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any);
   await db.$connect();
+  await assertQaDatabase(db);
   const ids = { schools: [] as string[], users: [] as string[], logs: [] as string[], expenses: [] as string[] };
   const emailA = `qa-http-office-a-${Date.now()}@example.test`;
   const emailB = `qa-http-office-b-${Date.now()}@example.test`;
   const emailStaff = `qa-http-staff-a-${Date.now()}@example.test`;
+
+  let app: INestApplication | null = null;
 
   const cleanup = async () => {
     await db.$transaction(async (tx) => {
@@ -39,6 +83,49 @@ async function main() {
   };
 
   try {
+    const permFeesRead = await db.permission.upsert({
+      where: { name: 'fees:read' },
+      update: {},
+      create: { name: 'fees:read', description: 'View fees.' },
+    });
+    const permExpenseCreate = await db.permission.upsert({
+      where: { name: 'expense:create' },
+      update: {},
+      create: { name: 'expense:create', description: 'Create expense.' },
+    });
+    const permExpenseDelete = await db.permission.upsert({
+      where: { name: 'expense:delete' },
+      update: {},
+      create: { name: 'expense:delete', description: 'Delete expense.' },
+    });
+
+    const officeRole = await db.role.upsert({
+      where: { name: 'OFFICE_ADMIN' },
+      update: {},
+      create: { name: 'OFFICE_ADMIN', description: 'Office Administrator' },
+    });
+    await db.role.upsert({
+      where: { name: 'STAFF' },
+      update: {},
+      create: { name: 'STAFF', description: 'Staff Member' },
+    });
+
+    for (const p of [permFeesRead, permExpenseCreate, permExpenseDelete]) {
+      await db.rolePermission.upsert({
+        where: {
+          roleId_permissionId: {
+            roleId: officeRole.id,
+            permissionId: p.id,
+          },
+        },
+        update: {},
+        create: {
+          roleId: officeRole.id,
+          permissionId: p.id,
+        },
+      });
+    }
+
     const [schoolA, schoolB] = await Promise.all([
       db.school.create({ data: { name: 'QA HTTP School A', schoolCode: `QA-HTTP-A-${Date.now()}` } }),
       db.school.create({ data: { name: 'QA HTTP School B', schoolCode: `QA-HTTP-B-${Date.now()}` } }),
@@ -56,7 +143,19 @@ async function main() {
       { schoolId: schoolB.id, userId: officeB.id, type: 'FEE_PAYMENT', flowType: 'INCOME', amount: 999, occurredAt: new Date('2026-10-01T12:00:00Z'), sourceType: 'FEE_PAYMENT', sourceId: `qa-http-b-${Date.now()}` },
     ]});
 
-    const http = request('http://127.0.0.1:7676');
+    // Bootstrap isolated in-process Nest application
+    app = await NestFactory.create(AppModule, { logger: ['error', 'warn'] });
+    app.setGlobalPrefix('api/v0');
+    app.useGlobalPipes(
+      new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
+    );
+    await app.init();
+
+    const http = request(app.getHttpServer());
     for (const [method, path] of routes) {
       const noToken = await http[method](path);
       assert.equal(noToken.status, 401, `${method.toUpperCase()} ${path} without token`);
@@ -66,6 +165,9 @@ async function main() {
 
     const login = async (email: string) => {
       const response = await http.post('/api/v0/auth/login').send({ email, password });
+      if (response.status !== 201) {
+        console.error('Login failed:', response.status, response.body);
+      }
       assert.equal(response.status, 201);
       return response.body.accessToken as string;
     };
@@ -99,9 +201,19 @@ async function main() {
     assert.equal(repeatedDelete.status, 409);
     console.log('HTTP_JWT_QA_PASS');
   } finally {
+    if (app) {
+      await app.close();
+    }
     await cleanup();
     await db.$disconnect();
   }
 }
 
-main().catch((error) => { console.error(error?.message || error); process.exitCode = 1; });
+main()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error(error?.message || error);
+    process.exit(1);
+  });

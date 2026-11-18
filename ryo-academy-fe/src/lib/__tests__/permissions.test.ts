@@ -27,7 +27,7 @@ const userWith = (permissions: string[], role: Role = "STAFF"): User => ({
  */
 const BACKEND_PERMISSIONS: string[] = [
   "admission:read", "admission:create", "admission:update",
-  "fees:read", "fees:create", "fees:update",
+  "fees:read", "fees:create", "fees:update", "fees:reverse",
   "class:read", "class:create", "class:update",
   "subject:read", "subject:create", "subject:update",
   "attendance:read", "attendance:mark", "attendance:update",
@@ -35,9 +35,12 @@ const BACKEND_PERMISSIONS: string[] = [
   "student:read", "student:create", "student:update",
   "shift:read", "shift:create", "shift:update",
   "timetable:read",
+  "installment-template:read",
+  "installment-schedule:read", "installment-schedule:manage",
+  "school:update",
 ];
 
-const normalise = (name: string) => name.toUpperCase().replace(/:/g, "_");
+const normalise = (name: string) => name.toUpperCase().replace(/[:-]/g, "_");
 
 describe("PERMISSIONS", () => {
   it("mirrors every backend permission name", () => {
@@ -53,11 +56,36 @@ describe("PERMISSIONS", () => {
     expect(PERMISSIONS).toContain("SUBJECT_CREATE");
     expect(PERMISSIONS).toContain("SUBJECT_UPDATE");
   });
+
+  it("includes the installment schedule and reversal permissions", () => {
+    expect(PERMISSIONS).toContain("INSTALLMENT_SCHEDULE_READ");
+    expect(PERMISSIONS).toContain("INSTALLMENT_SCHEDULE_MANAGE");
+    expect(PERMISSIONS).toContain("INSTALLMENT_TEMPLATE_READ");
+    expect(PERMISSIONS).toContain("FEES_REVERSE");
+  });
 });
 
 describe("toPermissions", () => {
   it("keeps known permission names", () => {
-    expect(toPermissions(["STUDENT_READ", "FEES_READ"])).toEqual(["STUDENT_READ", "FEES_READ"]);
+    expect(toPermissions(["STUDENT_READ", "FEES_READ", "INSTALLMENT_SCHEDULE_READ"])).toEqual([
+      "STUDENT_READ",
+      "FEES_READ",
+      "INSTALLMENT_SCHEDULE_READ",
+    ]);
+  });
+
+  it("normalizes hyphenated permission names from backend profile response", () => {
+    expect(
+      toPermissions([
+        "INSTALLMENT-SCHEDULE_READ",
+        "INSTALLMENT-SCHEDULE_MANAGE",
+        "INSTALLMENT-TEMPLATE_READ",
+      ])
+    ).toEqual([
+      "INSTALLMENT_SCHEDULE_READ",
+      "INSTALLMENT_SCHEDULE_MANAGE",
+      "INSTALLMENT_TEMPLATE_READ",
+    ]);
   });
 
   it("drops unknown names, failing closed", () => {

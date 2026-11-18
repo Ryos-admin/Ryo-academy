@@ -9,6 +9,7 @@ model FeeStructure {
     classId String
     class Class @relation(fields: [classId], references: [id])
     totalAmount Decimal
+    gstPercentage Decimal @default(0.00) @db.Decimal(5, 2)
     isActive Boolean @default(true)
     deletedAt DateTime?
     deletedById String?

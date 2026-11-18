@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsNotEmpty, IsOptional, IsUUID } from 'class-validator';
+import { IsDateString, IsEnum, IsNotEmpty, IsOptional, IsUUID, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { IsMoneyString } from '../../common/money/money.util.js';
+import { PaymentMethod } from '../../../generated/prisma/enums.js';
+import { AdmissionComponentAllocationDto } from '../../admission/admission-payment/dto/create-admission-payment.dto.js';
 
 export class CreateStudentFeePaymentDto {
   @ApiProperty({
@@ -36,4 +39,22 @@ export class CreateStudentFeePaymentDto {
   @IsOptional()
   @IsDateString({}, { message: 'Payment date must be a valid ISO date string.' })
   paymentDate?: string;
+
+  @ApiPropertyOptional({
+    enum: [PaymentMethod.CASH],
+    description: 'Payment method. Required as CASH for V0 pricing headers.',
+    example: PaymentMethod.CASH,
+  })
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
+
+  @ApiPropertyOptional({
+    type: [AdmissionComponentAllocationDto],
+    description: 'Explicit list of component allocations. Required for V0 pricing headers.',
+  })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => AdmissionComponentAllocationDto)
+  allocations?: AdmissionComponentAllocationDto[];
 }

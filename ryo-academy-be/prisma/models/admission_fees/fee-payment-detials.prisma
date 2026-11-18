@@ -10,6 +10,11 @@ model FeePaymentDetails {
     isActive Boolean @default(true)
     isIncluded Boolean @default(true)
 
+    discountPercentage Decimal? @db.Decimal(5, 2)
+    taxableAmount Decimal? @db.Decimal(12, 2)
+    gstPercentage Decimal? @db.Decimal(5, 2)
+    gstAmount Decimal? @db.Decimal(12, 2)
+
     originalAmount Decimal
     discountApplicable Boolean
     isMandatory Boolean

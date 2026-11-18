@@ -5,8 +5,10 @@ model AcademicYear {
   endDate   DateTime
 
   schoolId   String?
-  school     School? @relation(fields: [schoolId], references: [id])
+  school     School? @relation("SchoolAcademicYears", fields: [schoolId], references: [id])
   legacySchoolCode String? @map("schoolCode")
+
+  configuredInSchools School[] @relation("SchoolActiveAcademicYear")
 
   programs Program[]
   feeStructures FeeStructure[] 

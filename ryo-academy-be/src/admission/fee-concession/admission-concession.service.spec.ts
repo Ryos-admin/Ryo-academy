@@ -40,4 +40,27 @@ describe("AdmissionConcessionService payable contract", () => {
   it("GET safely returns PAYABLE concession with null category", async () => { const getDetail = { id: "detail-get", feeComponentId: "component", nameSnapshot: "Tuition", originalAmount: d(1000), discountApplicable: true, isMandatory: false, discountAmount: d(250), finalAmount: d(750), totalAmountToBePaid: d(750), concession: { id: "c-payable", concessionCategoryId: null, concessionCategory: null, discountType: null, discountValue: null, calculatedDiscountAmount: d(250), justification: null, appliedAt: new Date(), calculationMode: CalculationMode.PAYABLE, requiresReview: true } }; db.admission = { findUnique: jest.fn().mockResolvedValue({ id: "admission-1", admissionStatus: AdmissionStatus.DRAFT, feePaymentHeaders: [{ id: "header-get", feePaymentDetails: [getDetail] }] }) }; const result: any = await service.getConcessionsForAdmission("admission-1"); expect(result.components[0].concession).toEqual(expect.objectContaining({ categoryId: null, categoryName: null, categoryCode: null, discountType: null, discountValue: null, calculationMode: CalculationMode.PAYABLE, requiresReview: true, calculatedDiscountAmount: d(250) })); });
   it("GET preserves no-concession shape and Decimal values", async () => { const getDetail = { id: "detail-get", feeComponentId: "component", nameSnapshot: "Fee", originalAmount: d("12.34"), discountApplicable: false, isMandatory: false, discountAmount: d(0), finalAmount: d("12.34"), totalAmountToBePaid: d("12.34"), concession: null }; db.admission = { findUnique: jest.fn().mockResolvedValue({ id: "admission-1", admissionStatus: AdmissionStatus.DRAFT, feePaymentHeaders: [{ id: "header-get", feePaymentDetails: [getDetail] }] }) }; const result: any = await service.getConcessionsForAdmission("admission-1"); expect(result.components[0].concession).toBeNull(); expect(result.grossAmount).toBeInstanceOf(Prisma.Decimal); });
   it("GET preserves no-active-header behavior", async () => { db.admission = { findUnique: jest.fn().mockResolvedValue({ id: "admission-1", admissionStatus: AdmissionStatus.DRAFT, feePaymentHeaders: [] }) }; const result: any = await service.getConcessionsForAdmission("admission-1"); expect(result.headerId).toBeUndefined(); expect(result.components).toEqual([]); });
+  it("assignConcession passes configured transaction options", async () => {
+    await service.assignConcession("admission-1", { feePaymentDetailsId: "detail-1", payableAmount: "750" }, "actor-1");
+    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 10000, maxWait: 5000 });
+  });
+  it("updateConcession passes configured transaction options", async () => {
+    const c = { id: "c-1", admissionId: "admission-1", feePaymentDetailsId: "detail-1", calculationMode: CalculationMode.PAYABLE, discountType: null, discountValue: null, concessionCategoryId: null, calculatedDiscountAmount: d(100) };
+    detail.concession = c;
+    detail.discountAmount = d(100);
+    detail.finalAmount = d(900);
+    detail.totalAmountToBePaid = d(900);
+    header.discountAmount = d(100);
+    header.netAmount = d(900);
+    header.totalDueAmount = d(900);
+    tx.admissionFeeConcession.findUnique.mockResolvedValue(c);
+    await service.updateConcession("admission-1", "c-1", { payableAmount: "800" }, "actor-1");
+    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 10000, maxWait: 5000 });
+  });
+  it("removeConcession passes configured transaction options", async () => {
+    const c = { id: "c-1", admissionId: "admission-1", feePaymentDetailsId: "detail-1" };
+    tx.admissionFeeConcession.findUnique.mockResolvedValue(c);
+    await service.removeConcession("admission-1", "c-1");
+    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 10000, maxWait: 5000 });
+  });
 });

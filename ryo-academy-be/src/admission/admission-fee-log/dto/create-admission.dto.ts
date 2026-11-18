@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
@@ -15,6 +15,8 @@ import {
   IsPhoneNumber,
   IsPostalCode,
   IsString,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { Gender, Relation } from '../../../../generated/prisma/enums.js';
 import { IsMoneyString } from '../../../common/money/money.util.js';
@@ -225,6 +227,27 @@ export class CreateFeePaymentHeaderDto {
   feePaymentDetails!: CreateFeePaymentDetailsDto[];
 }
 
+export class AdmissionFeeComponentSelectionDto {
+  @ApiProperty({
+    description: 'ID of the active fee component from the fee structure',
+    example: 'fee-component-123',
+    type: String,
+  })
+  @IsString()
+  @IsNotEmpty()
+  feeComponentId!: string;
+
+  @ApiPropertyOptional({
+    description: 'Discount percentage between 0.00 and 100.00',
+    example: '10.00',
+    type: String,
+  })
+  @ValidateIf((_obj, val) => val !== undefined)
+  @IsString({ message: 'discountPercentage must be a string; explicit null is not allowed.' })
+  @IsMoneyString({ message: 'discountPercentage must be a decimal string with at most two fractional digits.' })
+  discountPercentage?: string;
+}
+
 export class CreateAdmissionDto {
   @ApiProperty({
     description: 'Admission number, e.g., "ADM-2023-001"',
@@ -284,17 +307,29 @@ export class CreateAdmissionDto {
   @IsNotEmpty()
   classId!: string;
 
-  @ApiProperty({
-    description: 'IDs of active fee components selected for this admission',
+  @ApiPropertyOptional({
+    description: 'V0 explicit fee component selections and discount configurations',
+    type: () => [AdmissionFeeComponentSelectionDto],
+  })
+  @ValidateIf((o) => o.components !== undefined)
+  @IsArray()
+  @ArrayNotEmpty()
+  @ValidateNested({ each: true })
+  @Type(() => AdmissionFeeComponentSelectionDto)
+  components?: AdmissionFeeComponentSelectionDto[];
+
+  @ApiPropertyOptional({
+    description: 'IDs of active fee components selected for this admission (legacy format)',
     example: ['tuition-component-id'],
     type: [String],
   })
+  @ValidateIf((o) => o.components === undefined || o.selectedFeeComponentIds !== undefined)
   @IsArray()
   @ArrayNotEmpty()
   @ArrayUnique()
   @IsString({ each: true })
   @IsNotEmpty({ each: true })
-  selectedFeeComponentIds!: string[];
+  selectedFeeComponentIds?: string[];
 
   @ApiProperty({
     description: 'ID of the section for the admission',

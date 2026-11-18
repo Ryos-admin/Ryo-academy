@@ -24,7 +24,7 @@ model AdmissionInstallmentSchedule {
 
   school             School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   admission          Admission               @relation(fields: [admissionId], references: [id], onDelete: Restrict)
-  feePaymentHeader   FeePaymentHeader        @relation(fields: [feePaymentHeaderId], references: [id], onDelete: Restrict)
+  feePaymentHeader   FeePaymentHeader        @relation(fields: [feePaymentHeaderId, admissionId], references: [id, admissionId], onDelete: Restrict)
   template           InstallmentTemplate?    @relation(fields: [templateId], references: [id], onDelete: Restrict)
   installments       AdmissionInstallment[]
   lineageEvents      InstallmentLineageEvent[]

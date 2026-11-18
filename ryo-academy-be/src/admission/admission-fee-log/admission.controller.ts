@@ -110,15 +110,16 @@ export class AdmissionController {
   // }
 
   @Post(":id/confirmed")
-  @RequirePermissions(PERMISSIONS.ADMISSION_UPDATE)
-  @ApiOperation({ summary: "Update the status of an admission to confirmed" })
-  @ApiOkResponse({ description: "Admission status updated to confirmed successfully" })
-  @ApiBadRequestResponse({ description: "Admission not found or status update failed" })
+  @RequirePermissions(PERMISSIONS.ADMISSION_CREATE)
+  @ApiOperation({ summary: "Confirm an admission and atomically create a student" })
+  @ApiOkResponse({ description: "Admission confirmed successfully or idempotent replay" })
+  @ApiBadRequestResponse({ description: "Admission not found or confirmation failed" })
   @ApiConflictResponse({
-    description: "Admission status update conflict, e.g., already confirmed or cancelled",
+    description: "Admission status update conflict, e.g., missing/inconsistent student linkage or cancelled",
   })
-  async admissionConfirmed(@Param("id") id: string, @CurrentUser() user: any) {
-    return await this.admissionService.updateStatusById(id, user, "CONFIRMED");
+  async admissionConfirmed(@Param("id") id: string, @CurrentUser() user: any, @Req() req: any) {
+    const actor = req?.user ?? user;
+    return await this.admissionService.confirmAdmission(id, actor);
   }
 
   @Post(":id/cancelled")

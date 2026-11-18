@@ -7,9 +7,10 @@ import { AuthorizationService } from '../auth/authorization.service.js';
 import { PermissionsGuard } from '../auth/permissions.guard.js';
 import { JwtAuthGuard } from '../security/token/jwt-auth.guard.js';
 import { InstallmentTemplateModule } from '../admission/installment/installment-template.module.js';
+import { AdmissionPaymentModule } from '../admission/admission-payment/admission-payment.module.js';
 
 @Module({
-  imports: [AccessTokenModule, InstallmentTemplateModule],
+  imports: [AccessTokenModule, InstallmentTemplateModule, AdmissionPaymentModule],
   controllers: [StudentController],
   providers: [
     StudentService,

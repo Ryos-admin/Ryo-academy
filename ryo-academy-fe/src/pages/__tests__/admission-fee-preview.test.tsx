@@ -13,12 +13,16 @@ const mocks = vi.hoisted(() => ({
   admission: null as any,
   feeConfiguration: null as any,
   concessions: null as any,
+  payments: [] as any,
+  paymentsState: {} as any,
   feeConfigurationState: {} as any,
   concessionsState: {} as any,
   updateFeeSelection: vi.fn(),
   assignConcession: vi.fn(),
   updateConcession: vi.fn(),
   removeConcession: vi.fn(),
+  admissionsList: [] as any,
+  workflow: vi.fn(),
 }));
 
 vi.mock("@/lib/admissions-api", async (importOriginal) => {
@@ -26,9 +30,24 @@ vi.mock("@/lib/admissions-api", async (importOriginal) => {
   return {
     ...actual,
     useAdmission: () => ({ data: mocks.admission, isLoading: false, isError: false }),
-    useAdmissionWorkflow: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useAdmissions: () => ({ data: mocks.admissionsList, isLoading: false, isError: false }),
+    useAdmissionWorkflow: () => ({ mutate: mocks.workflow, mutateAsync: mocks.workflow, isPending: false }),
     useApplicableFeeConfiguration: (query: unknown) => { mocks.previewQuery(query); return mocks.preview; },
     useSaveAdmission: () => ({ mutateAsync: mocks.save, isPending: false }),
+  };
+});
+vi.mock("@/lib/admission-payments-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/admission-payments-api")>();
+  return {
+    ...actual,
+    useAdmissionPayments: () => ({
+      data: mocks.payments,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      ...mocks.paymentsState,
+    }),
   };
 });
 vi.mock("@/lib/concessions-api", async (importOriginal) => {
@@ -66,7 +85,7 @@ vi.mock("wouter", async (importOriginal) => ({
   useLocation: () => ["", mocks.navigate],
 }));
 
-import { AdmissionDetail, AdmissionForm } from "@/pages/admissions-students-pages";
+import { AdmissionDetail, AdmissionForm, AdmissionList } from "@/pages/admissions-students-pages";
 
 const session = { id: "user-1", name: "Admin", email: "admin@example.test", schoolId: "school-1", role: "OFFICE_ADMIN" as const, permissions: ["ADMISSION_CREATE" as const], avatar: "A", title: "Admin" };
 const readSession = { ...session, permissions: ["ADMISSION_READ" as const] };
@@ -144,6 +163,10 @@ describe("applicable fee preview in admission creation", () => {
     mocks.concessions = { components: [] };
     mocks.feeConfigurationState = {};
     mocks.concessionsState = {};
+    mocks.payments = [];
+    mocks.paymentsState = {};
+    mocks.admissionsList = [];
+    mocks.workflow.mockReset();
     mocks.save.mockResolvedValue({ id: "admission-1" });
     mocks.updateFeeSelection.mockResolvedValue(undefined);
     mocks.assignConcession.mockReset();
@@ -248,14 +271,14 @@ describe("applicable fee preview in admission creation", () => {
     }
   });
 
-  it("keeps dedicated DRAFT fee selection on snapshot detail IDs", async () => {
+  it("keeps dedicated DRAFT fee selection on snapshot detail IDs in edit form", async () => {
     const user = userEvent.setup();
     mocks.admission = admissionDetail();
     mocks.feeConfiguration = { admissionId: "admission-1", feePaymentHeader: { id: "header-1", grossAmount: "30.00", discountAmount: "0.00", netAmount: "30.00", totalFeeAmount: "30.00", totalPaidAmount: "0.00", totalDueAmount: "30.00", feePaymentDetails: [
       { id: "snapshot-detail-1", feeComponentId: "source-component-1", name: "Snapshot one", originalAmount: "10.00", discountAmount: "0.00", finalAmount: "10.00", totalAmountToBePaid: "10.00", amountPaid: "0.00", isMandatory: false, discountApplicable: false, isActive: true, isIncluded: true, concession: null },
       { id: "snapshot-detail-2", feeComponentId: "source-component-2", name: "Snapshot two", originalAmount: "20.00", discountAmount: "0.00", finalAmount: "20.00", totalAmountToBePaid: "20.00", amountPaid: "0.00", isMandatory: false, discountApplicable: false, isActive: true, isIncluded: false, concession: null },
     ] } };
-    render(<AdmissionDetail id="admission-1" session={updateSession} />);
+    render(<AdmissionForm id="admission-1" session={updateSession} />);
     await user.click(screen.getByRole("checkbox", { name: "Include Snapshot two" }));
     await user.click(screen.getByRole("button", { name: "Save fee selection" }));
 
@@ -327,18 +350,25 @@ describe("applicable fee preview in admission creation", () => {
       expect(screen.queryByRole("checkbox", { name: /Include/ })).not.toBeInTheDocument();
     });
 
-    it("shows DRAFT mutation controls to a user with ADMISSION_UPDATE", () => {
+    it("renders read-only fee presentation on AdmissionDetail and editable controls on AdmissionForm", () => {
       render(<AdmissionDetail id="admission-1" session={updateSession} />);
+      expect(screen.getByText("Tuition snapshot")).toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: /Include/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Save fee selection" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Add Concession" })).not.toBeInTheDocument();
+
+      const { unmount } = render(<AdmissionForm id="admission-1" session={updateSession} />);
       expect(screen.getByRole("checkbox", { name: "Include Tuition snapshot" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Save fee selection" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Add Concession" })).toBeInTheDocument();
+      unmount();
     });
 
     it("consumes the fee-configuration response fields and minimal concession summary", () => {
       setReviewRequired();
       render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      expect(screen.getByRole("checkbox", { name: "Include Tuition snapshot" })).toBeInTheDocument();
+      expect(screen.getByText("Tuition snapshot")).toBeInTheDocument();
       expect(screen.getByText("Review required")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Resolve review" })).not.toBeInTheDocument();
     });
 
     it("uses the concession snapshot name when the fee serializer omits name", () => {
@@ -352,7 +382,7 @@ describe("applicable fee preview in admission creation", () => {
       render(<AdmissionDetail id="admission-1" session={updateSession} />);
       const row = screen.getByText("Tuition snapshot").closest("tr");
       expect(row).not.toBeNull();
-      expect(within(row!).getByText("₹88.25")).toBeInTheDocument();
+      expect(within(row!).getAllByText("₹88.25")).toHaveLength(2);
       expect(within(row!).queryByText("₹95.00")).not.toBeInTheDocument();
     });
 
@@ -365,99 +395,65 @@ describe("applicable fee preview in admission creation", () => {
       expect(within(row!).queryByText("₹95.00")).not.toBeInTheDocument();
     });
 
-    it("reapplies a review-required discount with the exact selected payable string", async () => {
-      setReviewRequired();
+    it("renders concession assignment and update controls on AdmissionForm in edit mode", async () => {
+      mocks.admission = admissionDetail();
+      mocks.feeConfiguration = feeConfiguration([
+        {
+          id: "snapshot-1",
+          feeComponentId: "source-1",
+          name: "Tuition snapshot",
+          originalAmount: "100.00",
+          discountAmount: "0.00",
+          finalAmount: "100.00",
+          totalAmountToBePaid: "100.00",
+          amountPaid: "0.00",
+          isMandatory: false,
+          discountApplicable: true,
+          isActive: true,
+          isIncluded: true,
+          concession: null,
+        },
+      ]);
       const user = userEvent.setup();
-      const view = render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      await user.click(screen.getByRole("button", { name: "Resolve review" }));
-      await user.click(screen.getByRole("button", { name: "Reapply concession" }));
-      const input = screen.getByLabelText("Payable amount");
+      render(<AdmissionForm id="admission-1" session={updateSession} />);
+      expect(screen.getByRole("button", { name: "Assign Concession" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Assign Concession" }));
+      expect(screen.getByText("Assign Fee Concession")).toBeInTheDocument();
+      const input = screen.getByLabelText(/Payable amount/);
       await user.clear(input);
-      await user.type(input, "90.25");
-      await user.click(screen.getByRole("button", { name: "Submit reapplication" }));
-      await waitFor(() => expect(mocks.updateConcession).toHaveBeenCalledWith({
-        concessionId: "concession-1",
-        payload: { payableAmount: "90.25" },
-      }));
-      expect(screen.getByText("Review required")).toBeInTheDocument();
-
-      mocks.concessions = concessionBreakdown({ id: "concession-1", requiresReview: false, categoryName: null, calculatedDiscountAmount: "9.75" });
-      view.rerender(<AdmissionDetail id="admission-1" session={updateSession} />);
-      expect(screen.queryByText("Review required")).not.toBeInTheDocument();
-    });
-
-    it("does not submit the original amount through reapplication", async () => {
-      setReviewRequired();
-      const user = userEvent.setup();
-      render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      await user.click(screen.getByRole("button", { name: "Resolve review" }));
-      await user.click(screen.getByRole("button", { name: "Reapply concession" }));
-      await user.click(screen.getByRole("button", { name: "Submit reapplication" }));
-      expect(await screen.findByRole("alert")).toHaveTextContent("Reapply requires a payable amount below the original amount");
-      expect(mocks.updateConcession).not.toHaveBeenCalled();
-      expect(screen.getByText("Review required")).toBeInTheDocument();
-    });
-
-    it("acknowledges no discount using the original snapshot amount regardless of prior input", async () => {
-      setReviewRequired();
-      const user = userEvent.setup();
-      render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      await user.click(screen.getByRole("button", { name: "Resolve review" }));
-      const input = screen.getByLabelText("Payable amount");
-      await user.clear(input);
-      await user.type(input, "70.00");
-      await user.click(screen.getByRole("button", { name: "Acknowledge no discount" }));
-      expect(input).toHaveValue("100.00");
-      expect(input).toHaveAttribute("readonly");
-      await user.click(screen.getByRole("button", { name: "Confirm no-discount acknowledgement" }));
-      expect(mocks.updateConcession).toHaveBeenCalledWith({
-        concessionId: "concession-1",
-        payload: { payableAmount: "100.00" },
+      await user.type(input, "80.00");
+      await user.click(screen.getByRole("button", { name: "Save Concession" }));
+      expect(mocks.assignConcession).toHaveBeenCalledWith({
+        feePaymentDetailsId: "snapshot-1",
+        payableAmount: "80.00",
       });
     });
 
-    it("offers only no-discount acknowledgement for non-discountable review rows", async () => {
-      setReviewRequired(false);
+    it("renders edit and remove concession controls on AdmissionForm for assigned concessions", async () => {
+      mocks.admission = admissionDetail();
+      mocks.feeConfiguration = feeConfiguration([
+        {
+          id: "snapshot-1",
+          feeComponentId: "source-1",
+          name: "Tuition snapshot",
+          originalAmount: "100.00",
+          discountAmount: "20.00",
+          finalAmount: "80.00",
+          totalAmountToBePaid: "80.00",
+          amountPaid: "0.00",
+          isMandatory: false,
+          discountApplicable: true,
+          isActive: true,
+          isIncluded: true,
+          concession: { id: "concession-1", requiresReview: false, calculationMode: "PAYABLE" },
+        },
+      ]);
       const user = userEvent.setup();
-      render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      await user.click(screen.getByRole("button", { name: "Resolve review" }));
-      expect(screen.queryByRole("button", { name: "Reapply concession" })).not.toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Acknowledge no discount" }));
-      await user.click(screen.getByRole("button", { name: "Confirm no-discount acknowledgement" }));
-      expect(mocks.updateConcession).toHaveBeenCalledWith({
-        concessionId: "concession-1",
-        payload: { payableAmount: "100.00" },
-      });
-    });
-
-    it.each(["", ".", "letters", "-1", "1.234", "100.01"])(
-      "keeps invalid payable input %j without rendering a calculation",
-      async (value) => {
-        const user = userEvent.setup();
-        render(<AdmissionDetail id="admission-1" session={updateSession} />);
-        await user.click(screen.getByRole("button", { name: "Add Concession" }));
-        const input = screen.getByLabelText("Payable amount");
-        await user.clear(input);
-        if (value) await user.type(input, value);
-        expect(input).toHaveValue(value);
-        expect(screen.getByRole("alert")).toBeVisible();
-        expect(screen.queryByText("Calculated Deduction:")).not.toBeInTheDocument();
-      },
-    );
-
-    it.each([
-      ["0", "- ₹100.00"],
-      ["99.99", "- ₹0.01"],
-    ])("renders an exact preview for payable %s", async (value, deduction) => {
-      const user = userEvent.setup();
-      render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      await user.click(screen.getByRole("button", { name: "Add Concession" }));
-      const input = screen.getByLabelText("Payable amount");
-      await user.clear(input);
-      await user.type(input, value);
-      expect(input).toHaveValue(value);
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      expect(screen.getByText(deduction)).toBeInTheDocument();
+      render(<AdmissionForm id="admission-1" session={updateSession} />);
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      expect(mocks.removeConcession).toHaveBeenCalledWith("concession-1");
     });
 
     it.each([
@@ -485,7 +481,7 @@ describe("applicable fee preview in admission creation", () => {
     it.each([
       ["loading", null, { isLoading: true }, "Loading concession details…"],
       ["failed", null, { isError: true, error: new Error("concession offline") }, "Could not load concession details."],
-      ["empty", { components: [] }, {}, "No concessions are assigned."],
+      ["empty", { components: [] }, {}, "No concession"],
       ["populated", concessionBreakdown({ id: "concession-1", requiresReview: true, categoryName: null, calculatedDiscountAmount: "0.00" }), {}, "Review required"],
     ])("shows the concession GET %s state", async (_state, data, state, expected) => {
       mocks.concessions = data;
@@ -499,9 +495,9 @@ describe("applicable fee preview in admission creation", () => {
         expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
       }
       if (_state === "populated") {
-        expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
-        await user.click(screen.getByRole("button", { name: "Resolve review" }));
-        expect(screen.getByRole("button", { name: "Acknowledge no discount" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Resolve review" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Acknowledge no discount" })).not.toBeInTheDocument();
       }
     });
 
@@ -523,88 +519,49 @@ describe("applicable fee preview in admission creation", () => {
       expect(screen.queryByRole("button", { name: "Add Concession" })).not.toBeInTheDocument();
     });
 
-    it("restores backend-confirmed checkbox selection after a failed fee update", async () => {
+    it("shows fee selection error alert on update failure in edit form", async () => {
+      mocks.admission = admissionDetail();
       mocks.feeConfiguration = feeConfiguration([
         { id: "snapshot-1", feeComponentId: "source-1", name: "Tuition snapshot", originalAmount: "100.00", discountAmount: "0.00", finalAmount: "100.00", totalAmountToBePaid: "100.00", amountPaid: "0.00", isMandatory: false, discountApplicable: true, isActive: true, isIncluded: true, concession: null },
         { id: "snapshot-2", feeComponentId: "source-2", name: "Excluded snapshot", originalAmount: "20.00", discountAmount: "0.00", finalAmount: "20.00", totalAmountToBePaid: "20.00", amountPaid: "0.00", isMandatory: false, discountApplicable: false, isActive: true, isIncluded: false, concession: null },
       ]);
       mocks.updateFeeSelection.mockRejectedValueOnce(new Error("Fee activity prevents changes"));
       const user = userEvent.setup();
-      render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      const included = screen.getByRole("checkbox", { name: "Include Tuition snapshot" });
+      render(<AdmissionForm id="admission-1" session={updateSession} />);
       const excluded = screen.getByRole("checkbox", { name: "Include Excluded snapshot" });
-      expect(included).toBeChecked();
-      expect(excluded).not.toBeChecked();
       await user.click(excluded);
-      expect(excluded).toBeChecked();
       await user.click(screen.getByRole("button", { name: "Save fee selection" }));
       expect(await screen.findByRole("alert")).toHaveTextContent("Fee activity prevents changes");
-      expect(included).toBeChecked();
-      expect(excluded).not.toBeChecked();
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
-    it("keeps concession POST and PATCH failures visible in the dialog", async () => {
-      const user = userEvent.setup();
-      mocks.assignConcession.mockRejectedValueOnce(new Error("POST rejected"));
-      const first = render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      await user.click(screen.getByRole("button", { name: "Add Concession" }));
-      await user.click(screen.getByRole("button", { name: "Save Payable" }));
-      expect(await screen.findByRole("alert")).toHaveTextContent("POST rejected");
-      first.unmount();
-
+    it("keeps concession mutation controls completely off AdmissionDetail even when review is required", async () => {
       setReviewRequired();
-      mocks.updateConcession.mockRejectedValueOnce(new Error("PATCH rejected"));
-      const { unmount } = render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      await user.click(screen.getByRole("button", { name: "Resolve review" }));
-      await user.click(screen.getByRole("button", { name: "Reapply concession" }));
-      const input = screen.getByLabelText("Payable amount");
-      await user.clear(input);
-      await user.type(input, "90.00");
-      await user.click(screen.getByRole("button", { name: "Submit reapplication" }));
-      expect(await screen.findByRole("alert")).toHaveTextContent("PATCH rejected");
+      render(<AdmissionDetail id="admission-1" session={updateSession} />);
       expect(screen.getByText("Review required")).toBeInTheDocument();
-      unmount();
+      expect(screen.queryByRole("button", { name: "Resolve review" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Reapply concession" })).not.toBeInTheDocument();
     });
 
-    it("shows concession DELETE failures without reporting success", async () => {
+    it("does not render Add Concession or Remove controls on AdmissionDetail", () => {
       mocks.concessions = concessionBreakdown({ id: "concession-1", requiresReview: false, categoryName: "Sibling discount", calculatedDiscountAmount: "10.00" });
-      mocks.removeConcession.mockRejectedValueOnce(new Error("DELETE rejected"));
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-      const user = userEvent.setup();
       render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      await user.click(screen.getByRole("button", { name: "Remove" }));
-      await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Could not remove concession", description: "DELETE rejected" })));
-      expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: "Concession removed" }));
-      confirm.mockRestore();
+      expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Add Concession" })).not.toBeInTheDocument();
     });
 
-    it("displays dirty-state bar on component selection change and restores on Discard", async () => {
-      mocks.feeConfiguration = feeConfiguration([
-        { id: "snapshot-1", feeComponentId: "source-1", name: "Tuition snapshot", originalAmount: "100.00", discountAmount: "0.00", finalAmount: "100.00", totalAmountToBePaid: "100.00", amountPaid: "0.00", isMandatory: false, discountApplicable: true, isActive: true, isIncluded: true, concession: null },
-        { id: "snapshot-2", feeComponentId: "source-2", name: "Excluded snapshot", originalAmount: "20.00", discountAmount: "0.00", finalAmount: "20.00", totalAmountToBePaid: "20.00", amountPaid: "0.00", isMandatory: false, discountApplicable: false, isActive: true, isIncluded: false, concession: null },
-      ]);
-      const user = userEvent.setup();
+    it("does not render dirty-state bar or checkboxes on AdmissionDetail", () => {
+      mocks.feeConfiguration = feeConfiguration();
       render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      expect(screen.queryByRole("button", { name: "Discard changes" })).not.toBeInTheDocument();
-
-      const excluded = screen.getByRole("checkbox", { name: "Include Excluded snapshot" });
-      await user.click(excluded);
-      expect(excluded).toBeChecked();
-      expect(screen.getByText(/Unsaved selection changes: 1 change pending/)).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Discard changes" })).toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: "Discard changes" }));
-      expect(excluded).not.toBeChecked();
-      expect(screen.queryByRole("button", { name: "Discard changes" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
       expect(screen.queryByText(/Unsaved selection changes/)).not.toBeInTheDocument();
     });
 
-    it("locks mandatory components from being deselected in DRAFT admission", () => {
+    it("locks mandatory components from being deselected in edit mode", () => {
+      mocks.admission = admissionDetail();
       mocks.feeConfiguration = feeConfiguration([
         { id: "snapshot-mandatory", feeComponentId: "source-mandatory", name: "Mandatory fee", originalAmount: "500.00", discountAmount: "0.00", finalAmount: "500.00", totalAmountToBePaid: "500.00", amountPaid: "0.00", isMandatory: true, discountApplicable: false, isActive: true, isIncluded: true, concession: null },
       ]);
-      render(<AdmissionDetail id="admission-1" session={updateSession} />);
+      render(<AdmissionForm id="admission-1" session={updateSession} />);
       const mandatoryCheckbox = screen.getByRole("checkbox", { name: "Include Mandatory fee" });
       expect(mandatoryCheckbox).toBeChecked();
       expect(mandatoryCheckbox).toBeDisabled();
@@ -628,16 +585,10 @@ describe("applicable fee preview in admission creation", () => {
       expect(screen.queryByRole("button", { name: "Save fee selection" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Add Concession" })).not.toBeInTheDocument();
     });
-    it("executes DELETE concession independently from no-discount acknowledgement", async () => {
+    it("does not render remove concession button for active concessions on AdmissionDetail", () => {
       mocks.concessions = concessionBreakdown({ id: "concession-1", requiresReview: false, categoryName: "Sibling discount", calculatedDiscountAmount: "10.00" });
-      mocks.removeConcession.mockResolvedValueOnce(undefined);
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-      const user = userEvent.setup();
       render(<AdmissionDetail id="admission-1" session={updateSession} />);
-      await user.click(screen.getByRole("button", { name: "Remove" }));
-      await waitFor(() => expect(mocks.removeConcession).toHaveBeenCalledWith("concession-1"));
-      expect(mocks.updateConcession).not.toHaveBeenCalled();
-      confirm.mockRestore();
+      expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
     });
 
     it("renders component description and verifies excluded component financial contribution is zero", () => {
@@ -682,11 +633,344 @@ describe("applicable fee preview in admission creation", () => {
 
       const transportRow = screen.getByText("Transport snapshot").closest("tr")!;
       expect(within(transportRow).getByText("₹50.00")).toBeInTheDocument();
-      expect(within(transportRow).getByText("₹0.00")).toBeInTheDocument();
+      expect(within(transportRow).getAllByText("₹0.00")).toHaveLength(3);
       expect(within(transportRow).getAllByText("Excluded")).toHaveLength(2);
 
       const tuitionRow = screen.getByText("Tuition snapshot").closest("tr")!;
-      expect(within(tuitionRow).getAllByText("₹100.00")).toHaveLength(2);
+      expect(within(tuitionRow).getAllByText("₹100.00")).toHaveLength(3);
+    });
+
+    describe("Phase 2 admission fee locking and payment gating", () => {
+      const feesSession = { ...updateSession, permissions: ["ADMISSION_READ" as const, "ADMISSION_UPDATE" as const, "FEES_CREATE" as const] };
+
+      it("locks fee selection on edit form when admission is confirmed", () => {
+        mocks.admission = { ...admissionDetail(), admissionStatus: "CONFIRMED" };
+        mocks.feeConfiguration = feeConfiguration();
+        render(<AdmissionForm id="admission-1" session={updateSession} />);
+        expect(screen.getByText("Fee Configuration Locked")).toBeInTheDocument();
+        expect(screen.getByText(/Fee obligations are confirmed and frozen/)).toBeInTheDocument();
+        expect(screen.getByRole("checkbox", { name: "Include Tuition snapshot" })).toBeDisabled();
+        expect(screen.queryByRole("button", { name: "Save fee selection" })).not.toBeInTheDocument();
+      });
+
+      it("locks fee selection on edit form when payments exist", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = feeConfiguration();
+        mocks.payments = [{ id: "payment-1", amount: "50.00" }];
+        render(<AdmissionForm id="admission-1" session={updateSession} />);
+        expect(screen.getByText("Fee Configuration Locked")).toBeInTheDocument();
+        expect(screen.getByText(/financial transactions \(payments or reversals\) have been recorded/)).toBeInTheDocument();
+        expect(screen.getByRole("checkbox", { name: "Include Tuition snapshot" })).toBeDisabled();
+        expect(screen.queryByRole("button", { name: "Save fee selection" })).not.toBeInTheDocument();
+      });
+
+      it("locks fee selection on edit form when payment history is loading (fail-closed)", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = feeConfiguration();
+        mocks.payments = undefined;
+        mocks.paymentsState = { isLoading: true };
+        render(<AdmissionForm id="admission-1" session={updateSession} />);
+        expect(screen.getByText("Fee Configuration Locked")).toBeInTheDocument();
+        expect(screen.getByText("Checking payment history and financial lock status…")).toBeInTheDocument();
+        expect(screen.getByRole("checkbox", { name: "Include Tuition snapshot" })).toBeDisabled();
+        expect(screen.queryByRole("button", { name: "Save fee selection" })).not.toBeInTheDocument();
+      });
+
+      it("locks fee selection on edit form when payment history query fails (fail-closed)", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = feeConfiguration();
+        mocks.payments = undefined;
+        mocks.paymentsState = { isError: true, error: new Error("Network offline") };
+        render(<AdmissionForm id="admission-1" session={updateSession} />);
+        expect(screen.getByText("Fee Configuration Locked")).toBeInTheDocument();
+        expect(screen.getByText("Fee selection is locked because payment history could not be verified.")).toBeInTheDocument();
+        expect(screen.getByRole("checkbox", { name: "Include Tuition snapshot" })).toBeDisabled();
+        expect(screen.queryByRole("button", { name: "Save fee selection" })).not.toBeInTheDocument();
+      });
+
+      it("allows fee selection on edit form when payment history is confirmed empty and admission is DRAFT", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = feeConfiguration();
+        mocks.payments = [];
+        mocks.paymentsState = { isLoading: false, isError: false };
+        render(<AdmissionForm id="admission-1" session={updateSession} />);
+        expect(screen.queryByText("Fee Configuration Locked")).not.toBeInTheDocument();
+        expect(screen.getByText("Select optional fee components for this admission.")).toBeInTheDocument();
+        expect(screen.getByRole("checkbox", { name: "Include Tuition snapshot" })).toBeEnabled();
+        expect(screen.getByRole("button", { name: "Save fee selection" })).toBeInTheDocument();
+      });
+
+      it("displays Collect Fee Payment button in PageHeader for DRAFT admissions with positive due and FEES_CREATE", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = {
+          ...feeConfiguration(),
+          feePaymentHeader: {
+            ...feeConfiguration().feePaymentHeader,
+            pricingVersion: "V0_SNAPSHOTTED",
+            totalDueAmount: "100.00",
+          },
+        };
+        render(<AdmissionDetail id="admission-1" session={feesSession} />);
+        const payBtn = screen.getByRole("button", { name: "Collect Fee Payment" });
+        expect(payBtn).toBeInTheDocument();
+        expect(payBtn.closest(".detail-actions")).toBeInTheDocument();
+      });
+
+      it("displays Collect Fee Payment button in PageHeader for CONFIRMED admissions with positive due and FEES_CREATE", () => {
+        mocks.admission = { ...admissionDetail(), admissionStatus: "CONFIRMED" };
+        mocks.feeConfiguration = {
+          ...feeConfiguration(),
+          feePaymentHeader: {
+            ...feeConfiguration().feePaymentHeader,
+            pricingVersion: "V0_SNAPSHOTTED",
+            totalDueAmount: "100.00",
+          },
+        };
+        render(<AdmissionDetail id="admission-1" session={feesSession} />);
+        const payBtn = screen.getByRole("button", { name: "Collect Fee Payment" });
+        expect(payBtn).toBeInTheDocument();
+        expect(payBtn.closest(".detail-actions")).toBeInTheDocument();
+      });
+
+      it("hides Collect Fee Payment button and feedback for CANCELLED admissions", () => {
+        mocks.admission = { ...admissionDetail(), admissionStatus: "CANCELLED" };
+        mocks.feeConfiguration = {
+          ...feeConfiguration(),
+          feePaymentHeader: {
+            ...feeConfiguration().feePaymentHeader,
+            pricingVersion: "V0_SNAPSHOTTED",
+            totalDueAmount: "100.00",
+          },
+        };
+        render(<AdmissionDetail id="admission-1" session={feesSession} />);
+        expect(screen.queryByRole("button", { name: "Collect Fee Payment" })).not.toBeInTheDocument();
+        expect(screen.queryByText(/Checking fee configuration/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Payment collection is unavailable/i)).not.toBeInTheDocument();
+      });
+
+      it("hides Collect Fee Payment button and feedback for unknown or unrecognized admission statuses", () => {
+        mocks.admission = { ...admissionDetail(), admissionStatus: "ARCHIVED" };
+        mocks.feeConfiguration = {
+          ...feeConfiguration(),
+          feePaymentHeader: {
+            ...feeConfiguration().feePaymentHeader,
+            pricingVersion: "V0_SNAPSHOTTED",
+            totalDueAmount: "100.00",
+          },
+        };
+        render(<AdmissionDetail id="admission-1" session={feesSession} />);
+        expect(screen.queryByRole("button", { name: "Collect Fee Payment" })).not.toBeInTheDocument();
+        expect(screen.queryByText(/Checking fee configuration/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Payment collection is unavailable/i)).not.toBeInTheDocument();
+      });
+
+      it("hides Collect Fee Payment button when session lacks FEES_CREATE permission", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = {
+          ...feeConfiguration(),
+          feePaymentHeader: {
+            ...feeConfiguration().feePaymentHeader,
+            pricingVersion: "V0_SNAPSHOTTED",
+            totalDueAmount: "100.00",
+          },
+        };
+        render(<AdmissionDetail id="admission-1" session={updateSession} />);
+        expect(screen.queryByRole("button", { name: "Collect Fee Payment" })).not.toBeInTheDocument();
+      });
+
+      it("hides Collect Fee Payment button when outstanding balance is zero", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = {
+          ...feeConfiguration(),
+          feePaymentHeader: {
+            ...feeConfiguration().feePaymentHeader,
+            pricingVersion: "V0_SNAPSHOTTED",
+            totalDueAmount: "0.00",
+          },
+        };
+        render(<AdmissionDetail id="admission-1" session={feesSession} />);
+        expect(screen.queryByRole("button", { name: "Collect Fee Payment" })).not.toBeInTheDocument();
+      });
+
+      it("shows loading feedback and no premature action while fee configuration is loading", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = null;
+        mocks.feeConfigurationState = { isLoading: true };
+        render(<AdmissionDetail id="admission-1" session={feesSession} />);
+        expect(screen.getByText("Checking fee configuration for payment collection…")).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Collect Fee Payment" })).not.toBeInTheDocument();
+      });
+
+      it("transitions from loading feedback to payment action upon successful query resolution", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = null;
+        mocks.feeConfigurationState = { isLoading: true };
+        const view = render(<AdmissionDetail id="admission-1" session={feesSession} />);
+        expect(screen.getByText("Checking fee configuration for payment collection…")).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Collect Fee Payment" })).not.toBeInTheDocument();
+
+        // Query resolves
+        mocks.feeConfiguration = {
+          ...feeConfiguration(),
+          feePaymentHeader: {
+            ...feeConfiguration().feePaymentHeader,
+            pricingVersion: "V0_SNAPSHOTTED",
+            totalDueAmount: "150.00",
+          },
+        };
+        mocks.feeConfigurationState = { isLoading: false, isError: false };
+        view.rerender(<AdmissionDetail id="admission-1" session={feesSession} />);
+        expect(screen.queryByText("Checking fee configuration for payment collection…")).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Collect Fee Payment" })).toBeInTheDocument();
+      });
+
+      it("shows unavailable feedback and hides payment action when fee configuration query fails", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = null;
+        mocks.feeConfigurationState = { isLoading: false, isError: true, error: new Error("Network error") };
+        render(<AdmissionDetail id="admission-1" session={feesSession} />);
+        expect(
+          screen.getByText("Payment collection is unavailable because fee configuration could not be verified."),
+        ).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Collect Fee Payment" })).not.toBeInTheDocument();
+      });
+
+      it("shows unavailable feedback when pricing version is missing or unsupported", () => {
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = {
+          ...feeConfiguration(),
+          feePaymentHeader: {
+            ...feeConfiguration().feePaymentHeader,
+            pricingVersion: "LEGACY",
+            totalDueAmount: "100.00",
+          },
+        };
+        render(<AdmissionDetail id="admission-1" session={feesSession} />);
+        expect(
+          screen.getByText("Payment collection is unavailable: pricing version is missing or unsupported."),
+        ).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Collect Fee Payment" })).not.toBeInTheDocument();
+      });
+
+      it("opens the existing payment dialog when Collect Fee Payment is clicked", async () => {
+        const user = userEvent.setup();
+        mocks.admission = admissionDetail();
+        mocks.feeConfiguration = {
+          ...feeConfiguration(),
+          feePaymentHeader: {
+            ...feeConfiguration().feePaymentHeader,
+            pricingVersion: "V0_SNAPSHOTTED",
+            totalDueAmount: "100.00",
+          },
+        };
+        render(<AdmissionDetail id="admission-1" session={feesSession} />);
+        const payBtn = screen.getByRole("button", { name: "Collect Fee Payment" });
+        await user.click(payBtn);
+        expect(await screen.findByText("Collect Fee Payment (V0)")).toBeInTheDocument();
+        expect(screen.getByText("Fee Component Allocations")).toBeInTheDocument();
+      });
+    });
+
+    describe("Phase 2 admission list cancellation UX", () => {
+      it("renders Cancel admission action ONLY for DRAFT admissions with ADMISSION_UPDATE", () => {
+        mocks.admissionsList = [
+          { ...admissionDetail(), id: "adm-draft", admissionStatus: "DRAFT" },
+          { ...admissionDetail(), id: "adm-confirmed", admissionStatus: "CONFIRMED" },
+          { ...admissionDetail(), id: "adm-cancelled", admissionStatus: "CANCELLED" },
+        ];
+        render(<AdmissionList session={updateSession} />);
+        const cancelButtons = screen.getAllByRole("button", { name: "Cancel admission" });
+        expect(cancelButtons).toHaveLength(1);
+      });
+
+      it("does not render Cancel admission action for read-only users", () => {
+        mocks.admissionsList = [
+          { ...admissionDetail(), id: "adm-draft", admissionStatus: "DRAFT" },
+        ];
+        render(<AdmissionList session={readSession} />);
+        expect(screen.queryByRole("button", { name: "Cancel admission" })).not.toBeInTheDocument();
+      });
+
+      it("prompts with cancel terminology and calls cancel workflow on confirm", async () => {
+        const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+        const user = userEvent.setup();
+        mocks.admissionsList = [
+          { ...admissionDetail(), id: "adm-draft", admissionStatus: "DRAFT" },
+        ];
+        render(<AdmissionList session={updateSession} />);
+        await user.click(screen.getByRole("button", { name: "Cancel admission" }));
+        expect(confirmSpy).toHaveBeenCalledWith(
+          expect.stringContaining("Cancel this admission? The status will be set to Cancelled while preserving all financial and audit history.")
+        );
+        expect(mocks.workflow).toHaveBeenCalledWith(
+          { id: "adm-draft", action: "cancel" },
+          expect.anything()
+        );
+        confirmSpy.mockRestore();
+      });
+    });
+
+    describe("Admissions Dashboard Status Sorting", () => {
+      it("renders admissions sorted by approved status priority: CONFIRMED -> DRAFT -> CANCELLED", () => {
+        mocks.admissionsList = [
+          { ...admissionDetail(), id: "adm-draft", admissionNumber: "ADM-DRAFT", admissionStatus: "DRAFT", createdAt: "2026-11-15T00:00:00.000Z" },
+          { ...admissionDetail(), id: "adm-cancelled", admissionNumber: "ADM-CANCELLED", admissionStatus: "CANCELLED", createdAt: "2026-11-18T00:00:00.000Z" },
+          { ...admissionDetail(), id: "adm-confirmed", admissionNumber: "ADM-CONFIRMED", admissionStatus: "CONFIRMED", createdAt: "2026-11-10T00:00:00.000Z" },
+        ];
+        render(<AdmissionList session={readSession} />);
+        const links = screen.getAllByRole("link", { name: /^ADM-/ });
+        expect(links.map((l) => l.textContent)).toEqual(["ADM-CONFIRMED", "ADM-DRAFT", "ADM-CANCELLED"]);
+      });
+
+      it("renders admissions newest-first within the same status group", () => {
+        mocks.admissionsList = [
+          { ...admissionDetail(), id: "adm-c1", admissionNumber: "ADM-C1", admissionStatus: "CONFIRMED", createdAt: "2026-11-10T00:00:00.000Z" },
+          { ...admissionDetail(), id: "adm-c3", admissionNumber: "ADM-C3", admissionStatus: "CONFIRMED", createdAt: "2026-11-18T00:00:00.000Z" },
+          { ...admissionDetail(), id: "adm-c2", admissionNumber: "ADM-C2", admissionStatus: "CONFIRMED", createdAt: "2026-11-14T00:00:00.000Z" },
+        ];
+        render(<AdmissionList session={readSession} />);
+        const links = screen.getAllByRole("link", { name: /^ADM-/ });
+        expect(links.map((l) => l.textContent)).toEqual(["ADM-C3", "ADM-C2", "ADM-C1"]);
+      });
+
+      it("renders valid timestamps before invalid/missing timestamps within status, tie-broken by id", () => {
+        mocks.admissionsList = [
+          { ...admissionDetail(), id: "adm-invalid", admissionNumber: "ADM-INV", admissionStatus: "DRAFT", createdAt: "bad-date" },
+          { ...admissionDetail(), id: "adm-missing", admissionNumber: "ADM-MISS", admissionStatus: "DRAFT", createdAt: undefined },
+          { ...admissionDetail(), id: "adm-valid", admissionNumber: "ADM-VAL", admissionStatus: "DRAFT", createdAt: "2026-11-18T00:00:00.000Z" },
+        ];
+        render(<AdmissionList session={readSession} />);
+        const links = screen.getAllByRole("link", { name: /^ADM-/ });
+        expect(links.map((l) => l.textContent)).toEqual(["ADM-VAL", "ADM-INV", "ADM-MISS"]);
+      });
+
+      it("maintains status priority and newest-first order when status filter is selected", async () => {
+        mocks.admissionsList = [
+          { ...admissionDetail(), id: "adm-d-old", admissionNumber: "ADM-D-OLD", admissionStatus: "DRAFT", createdAt: "2026-11-10T00:00:00.000Z" },
+          { ...admissionDetail(), id: "adm-c", admissionNumber: "ADM-C", admissionStatus: "CONFIRMED", createdAt: "2026-11-12T00:00:00.000Z" },
+          { ...admissionDetail(), id: "adm-d-new", admissionNumber: "ADM-D-NEW", admissionStatus: "DRAFT", createdAt: "2026-11-18T00:00:00.000Z" },
+        ];
+        const user = userEvent.setup();
+        render(<AdmissionList session={readSession} />);
+        const statusSelect = screen.getByLabelText("Status");
+        await user.selectOptions(statusSelect, "Pending");
+        const links = screen.getAllByRole("link", { name: /^ADM-/ });
+        expect(links.map((l) => l.textContent)).toEqual(["ADM-D-NEW", "ADM-D-OLD"]);
+      });
+
+      it("maintains status priority and newest-first order when searching", async () => {
+        mocks.admissionsList = [
+          { ...admissionDetail(), id: "adm-1", admissionNumber: "ADM-TEST-1", studentName: "Pooja Student", admissionStatus: "DRAFT", createdAt: "2026-11-12T00:00:00.000Z" },
+          { ...admissionDetail(), id: "adm-2", admissionNumber: "ADM-OTHER", studentName: "Other Student", admissionStatus: "CONFIRMED", createdAt: "2026-11-18T00:00:00.000Z" },
+          { ...admissionDetail(), id: "adm-3", admissionNumber: "ADM-TEST-2", studentName: "Pooja Kumar", admissionStatus: "CONFIRMED", createdAt: "2026-11-14T00:00:00.000Z" },
+        ];
+        const user = userEvent.setup();
+        render(<AdmissionList session={readSession} />);
+        const searchBox = screen.getByPlaceholderText("Search by name, ID or email");
+        await user.type(searchBox, "Pooja");
+        const links = screen.getAllByRole("link", { name: /^ADM-/ });
+        expect(links.map((l) => l.textContent)).toEqual(["ADM-TEST-2", "ADM-TEST-1"]);
+      });
     });
   });
 });

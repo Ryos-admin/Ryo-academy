@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { assertQaDatabase } from '../src/test/assert-qa-database.js';
 import { Prisma, LineageEventType, InstallmentRowStatus, AdmissionStatus, InstallmentScheduleType, FinancialFlowType } from '../generated/prisma/client.js';
+import { FeePricingVersion } from '../generated/prisma/enums.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { HistoricalOffsetBackfillService } from '../src/admission/installment/historical-offset-backfill.service.js';
 import { PaymentReversalService } from '../src/student/payment-reversal.service.js';
@@ -17,6 +19,7 @@ async function main() {
 
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any);
   await db.$connect();
+  await assertQaDatabase(db);
 
   const backfillService = new HistoricalOffsetBackfillService(db);
   const paymentReversalService = new PaymentReversalService(db);
@@ -146,6 +149,7 @@ async function main() {
           admissionId: adm.id,
           academicYearId: yearId,
           feeStructureId: fs.id,
+          pricingVersion: FeePricingVersion.LEGACY,
           grossAmount: new Decimal(totalFee),
           discountAmount: new Decimal(0),
           netAmount: new Decimal(totalFee),
@@ -497,6 +501,7 @@ async function main() {
       await db.installmentLineageTransferEdge.deleteMany({ where: { scheduleId: fix.schedule.id } });
       await db.installmentLineageEvent.deleteMany({ where: { scheduleId: fix.schedule.id } });
       await db.feePaymentInstallmentAllocation.deleteMany({ where: { feePaymentId: payment.id } });
+      await db.feePaymentDetailAttribution.deleteMany({ where: { feePaymentId: payment.id } });
       await db.feePayment.deleteMany({ where: { admissionId: fix.adm.id } });
       await db.admissionInstallment.deleteMany({ where: { scheduleId: fix.schedule.id } });
       await db.admissionInstallmentSchedule.delete({ where: { id: fix.schedule.id } });
@@ -735,6 +740,7 @@ async function main() {
       DELETE FROM "PaymentReversalEvent" WHERE "schoolId" = '${schoolId}';
       DELETE FROM "InstallmentLineageTransferEdge" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" = '${schoolId}');
       DELETE FROM "InstallmentLineageEvent" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" = '${schoolId}');
+      DELETE FROM "FeePaymentDetailAttribution" WHERE "feePaymentHeaderId" IN (SELECT id FROM "FeePaymentHeader" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" = '${schoolId}'));
       DELETE FROM "FeePaymentInstallmentAllocation" WHERE "feePaymentHeaderId" IN (SELECT id FROM "FeePaymentHeader" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" = '${schoolId}'));
       DELETE FROM "FeePayment" WHERE "schoolId" = '${schoolId}';
       DELETE FROM "AdmissionInstallment" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" = '${schoolId}');

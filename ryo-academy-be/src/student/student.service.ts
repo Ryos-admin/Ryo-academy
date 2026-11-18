@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
+import { FeePricingVersion, PaymentMethod } from '../../generated/prisma/enums.js';
 import { DatabaseService } from '../database/database.service.js';
 import { CreateStudentFeePaymentDto } from './dto/create-student-fee-payment.dto.js';
 import {
@@ -13,6 +14,7 @@ import {
   getCalendarDateString,
 } from '../admission/installment/installment-allocation.service.js';
 import { parseMoney, serializeMoney } from '../common/money/money.util.js';
+import { AdmissionPaymentService } from '../admission/admission-payment/admission-payment.service.js';
 
 const studentRelations = {
   admission: {
@@ -34,6 +36,7 @@ export class StudentService {
   constructor(
     private readonly databaseService: DatabaseService,
     allocationService?: InstallmentAllocationService,
+    private readonly admissionPaymentService?: AdmissionPaymentService,
   ) {
     this.allocationService = allocationService ?? new InstallmentAllocationService();
   }
@@ -256,12 +259,6 @@ export class StudentService {
           );
         }
 
-        if (student.admission.admissionStatus !== 'CONFIRMED') {
-          throw new BadRequestException(
-            'Payment recording is not allowed for unconfirmed admissions.',
-          );
-        }
-
         // Re-read active headers under Admission lock
         const activeHeaders: any[] =
           typeof tx.feePaymentHeader.findMany === 'function'
@@ -289,6 +286,40 @@ export class StudentService {
               `Student with id "${studentId}" does not have an applicable fee snapshot.`,
             );
           }
+        }
+
+        // V0 delegation branch
+        if (targetHeader.pricingVersion === FeePricingVersion.V0_SNAPSHOTTED) {
+          if (!dto.allocations || !dto.allocations.length) {
+            throw new BadRequestException('Explicit component allocations are mandatory for V0 pricing headers.');
+          }
+          if (dto.paymentMethod && dto.paymentMethod !== PaymentMethod.CASH) {
+            throw new BadRequestException('V0 supports CASH payment method only.');
+          }
+          if (!dto.paymentDate) {
+            throw new BadRequestException('paymentDate is mandatory for V0 pricing headers.');
+          }
+          const v0Service = this.admissionPaymentService ?? new AdmissionPaymentService(this.databaseService);
+          await v0Service.createAdmissionPayment(
+            student.admission.id,
+            {
+              idempotencyKey: dto.idempotencyKey,
+              feePaymentHeaderId: targetHeader.id,
+              amount: dto.amount,
+              paymentMethod: PaymentMethod.CASH,
+              paymentDate: dto.paymentDate,
+              allocations: dto.allocations,
+            },
+            actorUserId,
+            tx,
+          );
+          return this.getStudentFees(studentId);
+        }
+
+        if (student.admission.admissionStatus !== 'CONFIRMED') {
+          throw new BadRequestException(
+            'Payment recording is not allowed for unconfirmed admissions.',
+          );
         }
 
         // Level 2 Lock: FeePaymentHeader
@@ -363,6 +394,7 @@ export class StudentService {
             feePaymentHeaderId: freshHeader.id,
             amount,
             paymentDate,
+            paymentMethod: PaymentMethod.LEGACY_UNSPECIFIED,
           },
         });
 

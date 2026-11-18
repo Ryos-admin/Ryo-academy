@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -14,29 +15,44 @@ export class ClassService {
 
   async createClass(dto: CreateClassDto) {
     try {
-      const program = await this.databaseService.program.findUnique({
-        where: { id: dto.programId, isActive: true, deletedAt: null },
-        select: { id: true, name: true },
-      });
-
-      const isClassExists = await this.databaseService.class.findUnique({
-        where: {
-          programId_name: {
-            name: dto.name,
-            programId: dto.programId,
-          },
-        },
-      });
-
-      if (!program) {
-        throw new NotFoundException(`Program with id "${dto.programId}" not found`);
-      }
-      if (isClassExists) {
-        throw new NotFoundException(
-          `Class with name "${dto.name}" already exists for program "${dto.programId}".`,
-        );
-      }
       return await this.databaseService.$transaction(async (tx) => {
+        const program = await tx.program.findUnique({
+          where: { id: dto.programId, isActive: true, deletedAt: null },
+          select: { id: true, name: true, academicYearId: true },
+        });
+
+        if (!program) {
+          throw new NotFoundException(`Program with id "${dto.programId}" not found`);
+        }
+
+        const ayRows = await tx.$queryRaw<
+          Array<{ id: string; isActive: boolean; deletedAt: Date | null }>
+        >`
+          SELECT id, status, "isActive", "deletedAt"
+          FROM "AcademicYear"
+          WHERE id = ${program.academicYearId}
+          FOR SHARE
+        `;
+        const ay = ayRows[0];
+        if (!ay || !ay.isActive || ay.deletedAt !== null) {
+          throw new ConflictException("Academic year does not exist or is inactive");
+        }
+
+        const isClassExists = await tx.class.findUnique({
+          where: {
+            programId_name: {
+              name: dto.name,
+              programId: dto.programId,
+            },
+          },
+        });
+
+        if (isClassExists) {
+          throw new NotFoundException(
+            `Class with name "${dto.name}" already exists for program "${dto.programId}".`,
+          );
+        }
+
         const newClass = await tx.class.create({
           data: {
             name: dto.name,
@@ -97,19 +113,42 @@ export class ClassService {
 
   async updateClassById(id: string, dto: UpdateClassDto) {
     try {
-      const classData = await this.databaseService.class.findUnique({
-        where: { id, isActive: true, deletedAt: null },
-      });
+      return await this.databaseService.$transaction(async (tx) => {
+        const classData = await tx.class.findUnique({
+          where: { id, isActive: true, deletedAt: null },
+          select: {
+            id: true,
+            programId: true,
+            program: { select: { academicYearId: true } },
+          },
+        });
 
-      if (!classData) {
-        throw new NotFoundException(`Class with id "${id}" not found`);
-      }
+        if (!classData) {
+          throw new NotFoundException(`Class with id "${id}" not found`);
+        }
 
-      return await this.databaseService.class.update({
-        where: { id },
-        data: {
-          name: dto.name,
-        },
+        if ((dto as any).programId !== undefined && (dto as any).programId !== classData.programId) {
+          throw new BadRequestException("Class cannot be reassigned to a different Program.");
+        }
+
+        // const ayId = classData.program?.academicYearId;
+        // if (ayId) {
+        //   const ayRows = await tx.$queryRaw<Array<{ id: string; }>>`
+        //     SELECT id, status FROM "AcademicYear" WHERE id = ${ayId} FOR SHARE
+        //   `;
+        //   if (ayRows.length > 0 ) {
+        //     throw new ConflictException(
+        //       "Class cannot be modified when Academic Year is not in DRAFT status",
+        //     );
+        //   }
+        // }
+
+        return await tx.class.update({
+          where: { id },
+          data: {
+            name: dto.name,
+          },
+        });
       });
     } catch (error) {
       if (error?.code === "P2002") {
@@ -120,69 +159,91 @@ export class ClassService {
   }
 
   async remove(id: string, actorUserId: string) {
-    // Verify actor and school ownership
-    const actor = await this.databaseService.user.findUnique({
-      where: { id: actorUserId },
-      select: { schoolId: true },
-    });
-    if (!actor?.schoolId) throw new ForbiddenException("A school-scoped user is required");
+    const runInTx = async (tx: any) => {
+      // Verify actor and school ownership
+      const actor = await tx.user.findUnique({
+        where: { id: actorUserId },
+        select: { schoolId: true },
+      });
+      if (!actor?.schoolId) throw new ForbiddenException("A school-scoped user is required");
 
-    // Load class with its school via program → academicYear
-    const classWithSchool = await this.databaseService.class.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        programId: true,
-        isActive: true,
-        deletedAt: true,
-        program: {
-          select: {
-            academicYear: { select: { schoolId: true } },
+      // Load class with its school via program → academicYear
+      const classWithSchool = await tx.class.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          programId: true,
+          isActive: true,
+          deletedAt: true,
+          program: {
+            select: {
+              academicYear: { select: { id: true, schoolId: true } },
+            },
           },
         },
-      },
-    });
-    if (!classWithSchool || classWithSchool.isActive === false || classWithSchool.deletedAt) {
-      throw new NotFoundException(`Class with id "${id}" not found`);
-    }
-    const classSchoolId = classWithSchool.program?.academicYear?.schoolId;
-    if (classSchoolId !== actor.schoolId)
-      throw new ForbiddenException("Cross-school deletion not allowed");
+      });
+      if (!classWithSchool || classWithSchool.isActive === false || classWithSchool.deletedAt) {
+        throw new NotFoundException(`Class with id "${id}" not found`);
+      }
+      const classSchoolId = classWithSchool.program?.academicYear?.schoolId;
+      if (classSchoolId !== actor.schoolId)
+        throw new ForbiddenException("Cross-school deletion not allowed");
 
-    // Guard: active DRAFT or CONFIRMED admissions
-    const blockingAdmission = await this.databaseService.admission.findFirst({
-      where: {
-        classId: id,
-        isActive: true,
-        deletedAt: null,
-        admissionStatus: { in: ["DRAFT", "CONFIRMED"] },
-      },
-      select: { id: true },
-    });
-    if (blockingAdmission) {
-      throw new ConflictException("Class cannot be deleted while active admissions exist.");
-    }
+      // const ayId = classWithSchool.program?.academicYear?.id;
+      // if (ayId) {
+      //   const ayRows =
+      //     typeof tx.$queryRaw === "function"
+      //       ? await tx.$queryRaw<Array<{ id: string; status: AcademicYearStatus }>>`
+      //           SELECT id, status FROM "AcademicYear" WHERE id = ${ayId} FOR SHARE
+      //         `
+      //       : [];
+      //   if (ayRows.length > 0 && ayRows[0].status !== AcademicYearStatus.DRAFT) {
+      //     throw new ConflictException(
+      //       "Class cannot be deleted when Academic Year is not in DRAFT status",
+      //     );
+      //   }
+      // }
 
-    // Guard: submitted attendance logs
-    const blockingAttendance = await this.databaseService.attendanceLogMaster.findFirst({
-      where: {
-        classId: id,
-        isActive: true,
-        deletedAt: null,
-        status: "SUBMITTED",
-      },
-      select: { id: true },
-    });
-    if (blockingAttendance) {
-      throw new ConflictException(
-        "Class cannot be deleted while submitted attendance records exist.",
-      );
-    }
+      // Guard: active DRAFT or CONFIRMED admissions
+      const blockingAdmission = await tx.admission.findFirst({
+        where: {
+          classId: id,
+          isActive: true,
+          deletedAt: null,
+          admissionStatus: { in: ["DRAFT", "CONFIRMED"] },
+        },
+        select: { id: true },
+      });
+      if (blockingAdmission) {
+        throw new ConflictException("Class cannot be deleted while active admissions exist.");
+      }
 
-    // Soft-delete with actor attribution
-    return this.databaseService.class.update({
-      where: { id },
-      data: { isActive: false, deletedAt: new Date(), deletedById: actorUserId },
-    });
+      // Guard: submitted attendance logs
+      const blockingAttendance = await tx.attendanceLogMaster.findFirst({
+        where: {
+          classId: id,
+          isActive: true,
+          deletedAt: null,
+          status: "SUBMITTED",
+        },
+        select: { id: true },
+      });
+      if (blockingAttendance) {
+        throw new ConflictException(
+          "Class cannot be deleted while submitted attendance records exist.",
+        );
+      }
+
+      // Soft-delete with actor attribution
+      return tx.class.update({
+        where: { id },
+        data: { isActive: false, deletedAt: new Date(), deletedById: actorUserId },
+      });
+    };
+
+    if (typeof this.databaseService.$transaction === "function") {
+      return await this.databaseService.$transaction(runInTx);
+    }
+    return await runInTx(this.databaseService);
   }
 }

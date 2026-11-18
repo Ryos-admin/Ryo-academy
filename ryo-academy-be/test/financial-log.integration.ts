@@ -14,7 +14,7 @@ async function main() {
     const service = new FinancialLogService(db); const report = await service.findAll({ page: 1, pageSize: 2, from: '2026-10-01T00:00:00Z', to: '2026-10-31T23:59:59Z' }, actor.id);
     assert.equal(report.total, 3); assert.equal(report.data.length, 2); assert.equal(report.summary.income, '110'); assert.equal(report.summary.expenses, '40'); assert.equal(report.summary.net, '70'); assert.ok(report.data[0].occurredAt >= report.data[1].occurredAt);
     const expenses = await service.findAll({ page: 1, pageSize: 10, flowType: 'EXPENSE' }, actor.id); assert.equal(expenses.total, 1); assert.equal(expenses.summary.net, '-40');
-    const empty = await service.findAll({ page: 1, pageSize: 10, from: '2025-01-01T00:00:00Z', to: '2025-01-31T23:59:59Z' }, actor.id); assert.equal(empty.total, 0); assert.deepEqual(empty.summary, { income: '0', expenses: '0', net: '0' });
+    const empty = await service.findAll({ page: 1, pageSize: 10, from: '2025-01-01T00:00:00Z', to: '2025-01-31T23:59:59Z' }, actor.id); assert.equal(empty.total, 0); assert.deepEqual(empty.summary, { income: '0', expenses: '0', reversals: '0', net: '0' });
     await assert.rejects(() => service.findAll({ page: 1, pageSize: 10 }, 'missing-actor'));
     console.log('FINANCIAL_LOG_INTEGRATION_PASS');
   } finally { await cleanup(); await db.$disconnect(); }

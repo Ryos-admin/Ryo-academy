@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { assertQaDatabase } from '../src/test/assert-qa-database.js';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../src/database/database.service.js';
 import { StudentService } from '../src/student/student.service.js';
+import { FeePricingVersion } from '../generated/prisma/enums.js';
 
 class FailingAllocationStudentService extends StudentService {
   protected override createFinancialLog(): Promise<never> {
@@ -19,6 +21,7 @@ assert.equal(target.pathname, '/ryo_qa');
 async function main() {
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any);
   await db.$connect();
+  await assertQaDatabase(db);
 
   const ids: Record<string, string[]> = {
     schools: [],
@@ -50,6 +53,9 @@ async function main() {
       });
       await tx.feePaymentInstallmentAllocation.deleteMany({
         where: { header: { admission: { schoolId: { in: ids.schools } } } },
+      });
+      await tx.feePaymentDetailAttribution.deleteMany({
+        where: { feePaymentHeader: { admission: { schoolId: { in: ids.schools } } } },
       });
       await tx.feePayment.deleteMany({
         where: { OR: [{ id: { in: ids.payments } }, { schoolId: { in: ids.schools } }] },
@@ -194,6 +200,7 @@ async function main() {
 
       const header = await db.feePaymentHeader.create({
         data: {
+          pricingVersion: FeePricingVersion.LEGACY,
           admissionId: adm.id,
           academicYearId: year.id,
           feeStructureId: structure.id,
@@ -386,7 +393,7 @@ async function main() {
 
     // Retry with SAME amount -> succeeds idempotently
     const replay = await service.recordStudentFeePayment(s5A.student.id, { amount: '25000', idempotencyKey: key5 }, actor.id);
-    assert.equal(replay.fee?.paidAmount, 25000);
+    assert.equal(replay.fee?.paidAmount, '25000');
 
     // Retry with DIFFERENT amount -> 409 Conflict
     await assert.rejects(
@@ -426,8 +433,8 @@ async function main() {
     assert.equal(sumComponentPaid, 65000, 'Sum of component amountPaid must equal 65,000');
 
     // 3. Header totalPaidAmount
-    assert.equal(feeSnapshot.fee!.paidAmount, 65000, 'Header paidAmount must equal 65,000');
-    assert.equal(feeSnapshot.fee!.outstandingAmount, 35000, 'Outstanding must be 35,000');
+    assert.equal(feeSnapshot.fee!.paidAmount, '65000', 'Header paidAmount must equal 65,000');
+    assert.equal(feeSnapshot.fee!.outstandingAmount, '35000', 'Outstanding must be 35,000');
 
     // 4. FinancialLog ledger reconciliation
     const financialLogs = await db.financialLog.findMany({

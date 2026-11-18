@@ -38,11 +38,11 @@ import {
   applicableFeeConfigurationErrorMessage,
   confirmationErrorMessage,
   admissionStatusLabel,
+  compareAdmissions,
   useAdmission,
   useApplicableFeeConfiguration,
   useAdmissionWorkflow,
   useAdmissions,
-  useDeleteAdmission,
   useSaveAdmission,
   type AdmissionPayload,
   type AdmissionUpdatePayload,
@@ -65,34 +65,90 @@ import {
   parseFeeMoneyMinorUnits,
   sumFeeMoneyMinorUnits,
 } from "@/lib/fee-money";
-type AdmissionFeeDetailView = Omit<FeeConfigurationDetail, "name" | "concession"> & {
+import {
+  InstallmentScheduleCard,
+  StudentInstallmentScheduleCard,
+} from "./installment-schedule-components";
+import {
+  CollectAdmissionPaymentDialog,
+  AdmissionPaymentHistoryCard,
+} from "./admission-payment-components";
+import { parseMoneyMinor, useAdmissionPayments } from "@/lib/admission-payments-api";
+type AdmissionFeeDetailView = Omit<
+  FeeConfigurationDetail,
+  "name" | "concession"
+> & {
   name: string;
   concession: ConcessionComponentItem["concession"];
+};
+export const displayMoney = (value: string | number | null | undefined) =>
+  value == null ? "-" : `₹${String(value)}`;
+export const displayMinor = (value: bigint) => {
+  const sign = value < 0n ? "-" : "";
+  const abs = value < 0n ? -value : value;
+  return `${sign}${abs / 100n}.${String(abs % 100n).padStart(2, "0")}`;
 };
 export const parsePayableMinor = (value: string): bigint | null => {
   if (!/^\d+(?:\.\d{1,2})?$/.test(value)) return null;
   const [whole, fraction = ""] = value.split(".");
   return BigInt(whole) * 100n + BigInt((fraction + "00").slice(0, 2));
 };
-export const payableAmountError = (value: string, original: string | number | null | undefined, discountApplicable = true): string | null => {
+export const payableAmountError = (
+  value: string,
+  original: string | number | null | undefined,
+  discountApplicable = true,
+): string | null => {
   if (original == null) return "The original amount is unavailable.";
   const source = parsePayableMinor(String(original));
-  if (source === null) return "The original amount cannot be represented with the current two-decimal payable contract.";
+  if (source === null)
+    return "The original amount cannot be represented with the current two-decimal payable contract.";
   if (value === "") return "Enter a payable amount.";
   const payable = parsePayableMinor(value);
-  if (payable === null) return "Enter a non-negative decimal amount with at most two fractional digits.";
-  if (payable > source) return "Payable amount cannot exceed the original amount.";
-  if (!discountApplicable && payable !== source) return "A discount is not applicable to this component; payable must equal the original amount.";
+  if (payable === null)
+    return "Enter a non-negative decimal amount with at most two fractional digits.";
+  if (payable > source)
+    return "Payable amount cannot exceed the original amount.";
+  if (!discountApplicable && payable !== source)
+    return "A discount is not applicable to this component; payable must equal the original amount.";
   return null;
 };
-export const validatePayableAmount = (value: string, original: string | number | null | undefined) => {
+export const validatePayableAmount = (
+  value: string,
+  original: string | number | null | undefined,
+) => {
   if (original == null) return null;
   const payable = parsePayableMinor(value);
   const source = parsePayableMinor(String(original));
-  return payable !== null && source !== null && payable <= source ? payable : null;
+  return payable !== null && source !== null && payable <= source
+    ? payable
+    : null;
 };
-export const initialFeeSelection = (components: Array<{ id: string; initiallySelected: boolean; isMandatory: boolean }>) => components.filter((component) => component.initiallySelected || component.isMandatory).map((component) => component.id);
-export const toggleFeeSelection = (selected: string[], id: string, mandatory: boolean, checked: boolean) => mandatory ? selected : checked ? Array.from(new Set([...selected, id])) : selected.filter((value) => value !== id);
+export const initialFeeSelection = (
+  components: Array<{
+    id: string;
+    initiallySelected: boolean;
+    isMandatory: boolean;
+  }>,
+) =>
+  components
+    .filter((component) => component.initiallySelected || component.isMandatory)
+    .map((component) => component.id);
+export const toggleFeeSelection = (
+  selected: string[],
+  id: string,
+  mandatory: boolean,
+  checked: boolean,
+) =>
+  mandatory
+    ? selected
+    : checked
+      ? Array.from(new Set([...selected, id]))
+      : selected.filter((value) => value !== id);
+
+export const readableErrorText = (reason: unknown, fallback: string) =>
+  reason instanceof Error && reason.message
+    ? reason.message
+    : admissionErrorMessage(reason, fallback);
 import {
   useStudent,
   useStudents,
@@ -677,7 +733,10 @@ function admissionCreatePayload(
     selectedFeeComponentIds,
   };
 }
-function admissionUpdatePayload(form: AdmissionFormState, admissionId: string): AdmissionUpdatePayload {
+function admissionUpdatePayload(
+  form: AdmissionFormState,
+  admissionId: string,
+): AdmissionUpdatePayload {
   return {
     admissionId,
     programId: form.programId,
@@ -826,24 +885,206 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
   const [, setLocation] = useLocation();
   const [form, setForm] = useState(emptyAdmissionForm);
   const [error, setError] = useState("");
-  const feePreview = useApplicableFeeConfiguration({ academicYearId: editing ? "" : form.academicYearId, programId: editing ? "" : form.programId, classId: editing ? "" : form.classId });
-  const [selectedFeeComponentIds, setSelectedFeeComponentIds] = useState<string[]>([]);
-  const hasFeeLookupCriteria = Boolean(form.academicYearId && form.programId && form.classId);
-  const previewMatchesLookup = Boolean(feePreview.data &&
+  const feePreview = useApplicableFeeConfiguration({
+    academicYearId: form.academicYearId,
+    programId: form.programId,
+    classId: form.classId,
+  });
+  const [selectedFeeComponentIds, setSelectedFeeComponentIds] = useState<
+    string[]
+  >([]);
+  const admissionFeeConfig = useAdmissionFeeConfiguration(id);
+  const admissionPayments = useAdmissionPayments(id, { enabled: editing });
+  const updateFeeConfig = useUpdateAdmissionFeeConfiguration(id || "");
+  const concessionsQuery = useAdmissionConcessions(editing ? id : undefined);
+  const assignConcession = useAssignAdmissionConcession(id || "");
+  const updateConcession = useUpdateAdmissionConcession(id || "");
+  const removeConcession = useRemoveAdmissionConcession(id || "");
+
+  const [editSelectedSnapshotIds, setEditSelectedSnapshotIds] = useState<
+    string[]
+  >([]);
+  const [feeConfigSaveError, setFeeConfigSaveError] = useState("");
+  const [concessionModalOpen, setConcessionModalOpen] = useState(false);
+  const [selectedConcessionDetail, setSelectedConcessionDetail] =
+    useState<FeeConfigurationDetail | null>(null);
+  const [concessionPayableInput, setConcessionPayableInput] = useState("");
+  const [concessionActionError, setConcessionActionError] = useState("");
+  const [removingConcessionId, setRemovingConcessionId] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (editing && admissionFeeConfig.data) {
+      setEditSelectedSnapshotIds(
+        admissionFeeConfig.data.feePaymentHeader.feePaymentDetails
+          .filter((d) => d.isActive && d.isIncluded)
+          .map((d) => d.id),
+      );
+    }
+  }, [editing, admissionFeeConfig.data]);
+
+  const isDraft = itemQuery.data?.admissionStatus === "DRAFT";
+  const paymentsLoading = Boolean(
+    editing && (admissionPayments.isLoading || admissionPayments.isFetching),
+  );
+  const paymentsError = Boolean(editing && admissionPayments.isError);
+  const paymentsAuthoritative = Boolean(
+    editing &&
+      !paymentsLoading &&
+      !paymentsError &&
+      Array.isArray(admissionPayments.data),
+  );
+  const hasRecordedPayments = Boolean(
+    admissionPayments.data && admissionPayments.data.length > 0,
+  );
+  const hasNonZeroPaidAmount = Boolean(
+    admissionFeeConfig.data?.feePaymentHeader.totalPaidAmount &&
+      (parseMoneyMinor(
+        admissionFeeConfig.data.feePaymentHeader.totalPaidAmount,
+      ) ?? 0n) !== 0n,
+  );
+  const hasPayments = hasRecordedPayments || hasNonZeroPaidAmount;
+  const canUpdate = hasPermission(session, "ADMISSION_UPDATE");
+  const canEditFeeConfig =
+    editing && isDraft && paymentsAuthoritative && !hasPayments && canUpdate;
+
+  let feeConfigLockReason: string | null = null;
+  if (editing) {
+    if (!isDraft) {
+      feeConfigLockReason =
+        itemQuery.data?.admissionStatus === "CONFIRMED"
+          ? "Fee obligations are confirmed and frozen. Component selection cannot be modified."
+          : `Fee selection is locked for ${admissionStatusLabel(itemQuery.data?.admissionStatus)} admissions.`;
+    } else if (paymentsLoading) {
+      feeConfigLockReason = "Checking payment history and financial lock status…";
+    } else if (paymentsError || !paymentsAuthoritative) {
+      feeConfigLockReason = "Fee selection is locked because payment history could not be verified.";
+    } else if (hasPayments) {
+      feeConfigLockReason =
+        "Fee selection is locked because financial transactions (payments or reversals) have been recorded for this admission.";
+    } else if (!canUpdate) {
+      feeConfigLockReason = "You do not have permission to update fee selection.";
+    }
+  }
+
+  const handleSaveFeeSelection = async () => {
+    if (!canEditFeeConfig || editSelectedSnapshotIds.length === 0) return;
+    setFeeConfigSaveError("");
+    try {
+      await updateFeeConfig.mutateAsync(editSelectedSnapshotIds);
+      toast({ title: "Fee configuration updated" });
+    } catch (err) {
+      setFeeConfigSaveError(
+        err instanceof Error && err.message
+          ? err.message
+          : admissionErrorMessage(err, "Could not update fee configuration."),
+      );
+    }
+  };
+
+  const handleOpenAssignConcession = (detail: FeeConfigurationDetail) => {
+    setSelectedConcessionDetail(detail);
+    setConcessionPayableInput(String(detail.originalAmount ?? "0"));
+    setConcessionActionError("");
+    setConcessionModalOpen(true);
+  };
+
+  const handleOpenEditConcession = (detail: FeeConfigurationDetail) => {
+    setSelectedConcessionDetail(detail);
+    const existingDiscount = parseMoneyMinor(String(detail.discountAmount ?? "0")) ?? 0n;
+    const original = parseMoneyMinor(String(detail.originalAmount ?? "0")) ?? 0n;
+    const preTaxPayable = original > existingDiscount ? original - existingDiscount : original;
+    setConcessionPayableInput(
+      detail.taxableAmount ?? (Number(preTaxPayable) / 100).toFixed(2),
+    );
+    setConcessionActionError("");
+    setConcessionModalOpen(true);
+  };
+
+  const handleSaveConcession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedConcessionDetail || !id) return;
+    const original = parsePayableMinor(String(selectedConcessionDetail.originalAmount));
+    const payableMinor = validatePayableAmount(
+      concessionPayableInput,
+      selectedConcessionDetail.originalAmount,
+    );
+    if (payableMinor === null) {
+      setConcessionActionError(
+        "Enter a valid payable amount with at most two decimal places not exceeding the original amount.",
+      );
+      return;
+    }
+    if (!selectedConcessionDetail.discountApplicable && payableMinor !== original) {
+      setConcessionActionError(
+        "A discount is not applicable to this component; payable must equal the original amount.",
+      );
+      return;
+    }
+    setConcessionActionError("");
+    try {
+      if (selectedConcessionDetail.concession) {
+        await updateConcession.mutateAsync({
+          concessionId: selectedConcessionDetail.concession.id,
+          payload: { payableAmount: concessionPayableInput },
+        });
+        toast({ title: "Concession updated successfully" });
+      } else {
+        await assignConcession.mutateAsync({
+          feePaymentDetailsId: selectedConcessionDetail.id,
+          payableAmount: concessionPayableInput,
+        });
+        toast({ title: "Concession assigned successfully" });
+      }
+      setConcessionModalOpen(false);
+      setSelectedConcessionDetail(null);
+    } catch (err: any) {
+      setConcessionActionError(
+        readableErrorText(err, "Failed to save concession."),
+      );
+    }
+  };
+
+  const handleRemoveConcession = async (concessionId: string) => {
+    if (!id) return;
+    setRemovingConcessionId(concessionId);
+    try {
+      await removeConcession.mutateAsync(concessionId);
+      toast({ title: "Concession removed successfully" });
+    } catch (err: any) {
+      toast({
+        title: "Failed to remove concession",
+        description: readableErrorText(err, "Please try again."),
+        variant: "destructive",
+      });
+    } finally {
+      setRemovingConcessionId(null);
+    }
+  };
+
+  const hasFeeLookupCriteria = Boolean(
+    form.academicYearId && form.programId && form.classId,
+  );
+  const previewMatchesLookup = Boolean(
+    feePreview.data &&
     feePreview.data.feeStructure.academicYearId === form.academicYearId &&
     feePreview.data.feeStructure.programId === form.programId &&
-    feePreview.data.feeStructure.classId === form.classId);
-  const previewComponents = previewMatchesLookup ? feePreview.data?.components ?? [] : [];
+    feePreview.data.feeStructure.classId === form.classId,
+  );
+  const previewComponents = previewMatchesLookup
+    ? (feePreview.data?.components ?? [])
+    : [];
   const selectedComponents = previewComponents.filter((component) =>
-    selectedFeeComponentIds.includes(component.id)
+    selectedFeeComponentIds.includes(component.id),
   );
   const selectedPreviewTotal =
     selectedComponents.length > 0 &&
     selectedComponents.every(
-      (component) => parseFeeMoneyMinorUnits(component.originalAmount) !== null
+      (component) => parseFeeMoneyMinorUnits(component.originalAmount) !== null,
     )
       ? sumFeeMoneyMinorUnits(
-          selectedComponents.map((component) => component.originalAmount)
+          selectedComponents.map((component) => component.originalAmount),
         )
       : null;
   const previewMessage = hasFeeLookupCriteria
@@ -857,13 +1098,33 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
             ? "This fee structure has no active components."
             : null
     : null;
-  const feeSelectionReady = hasFeeLookupCriteria && !feePreview.isLoading && !feePreview.isFetching && !feePreview.isError && previewMatchesLookup && previewComponents.length > 0 && selectedFeeComponentIds.length > 0;
-  useEffect(() => { setSelectedFeeComponentIds([]); }, [form.academicYearId, form.programId, form.classId]);
+  const feeSelectionReady =
+    hasFeeLookupCriteria &&
+    !feePreview.isLoading &&
+    !feePreview.isFetching &&
+    !feePreview.isError &&
+    previewMatchesLookup &&
+    previewComponents.length > 0 &&
+    selectedFeeComponentIds.length > 0;
   useEffect(() => {
-    if (previewMatchesLookup && feePreview.data) {
-      setSelectedFeeComponentIds(initialFeeSelection(feePreview.data.components));
+    if (!editing) {
+      setSelectedFeeComponentIds([]);
     }
-  }, [form.academicYearId, form.programId, form.classId, feePreview.data, previewMatchesLookup]);
+  }, [editing, form.academicYearId, form.programId, form.classId]);
+  useEffect(() => {
+    if (!editing && previewMatchesLookup && feePreview.data) {
+      setSelectedFeeComponentIds(
+        initialFeeSelection(feePreview.data.components),
+      );
+    }
+  }, [
+    editing,
+    form.academicYearId,
+    form.programId,
+    form.classId,
+    feePreview.data,
+    previewMatchesLookup,
+  ]);
   useEffect(() => {
     if (itemQuery.data) setForm(admissionToForm(itemQuery.data));
   }, [itemQuery.data]);
@@ -883,15 +1144,27 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
       if (editing) {
         await save.mutateAsync(admissionUpdatePayload(form, id!));
       } else if (!feeSelectionReady) {
-        setError(previewMessage || "Select an applicable fee configuration and at least one component.");
+        setError(
+          previewMessage ||
+            "Select an applicable fee configuration and at least one component.",
+        );
         return;
       } else {
-        const year = years.data?.find((item) => item.id === form.academicYearId);
+        const year = years.data?.find(
+          (item) => item.id === form.academicYearId,
+        );
         if (!year?.schoolId) {
           setError("The selected academic year has no school configured.");
           return;
         }
-        await save.mutateAsync(admissionCreatePayload(form, years.data || [], session.id, selectedFeeComponentIds));
+        await save.mutateAsync(
+          admissionCreatePayload(
+            form,
+            years.data || [],
+            session.id,
+            selectedFeeComponentIds,
+          ),
+        );
       }
       toast({ title: editing ? "Admission updated" : "Admission created" });
       setLocation("/admissions");
@@ -909,11 +1182,18 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
     );
   return (
     <>
+      <button
+        className="back-link page-back"
+        onClick={() => setLocation("/admissions")}
+      >
+        <ArrowLeft size={15} />
+        Back to Admissions
+      </button>
       <PageHeader
         title={editing ? "Edit admission" : "New admission"}
         description="Capture the student, guardian, and academic placement details."
       />
-      <form onSubmit={submit} className="panel space-y-6">
+      <form onSubmit={submit} className="panel form-card space-y-6">
         {/* 1. Academic Placement */}
         <section className="space-y-4">
           <h2>Academic placement</h2>
@@ -1026,13 +1306,14 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
           </div>
         </section>
 
-        {/* 4. Fee Structure & Component Selection (Create Mode Only) */}
-        {!editing && (
+        {/* 4. Fee Structure & Component Selection */}
+        {!editing ? (
           <section className="space-y-3">
             <h2>Fee Structure & Component Selection</h2>
             {!hasFeeLookupCriteria && (
               <p className="text-sm text-muted-foreground">
-                Select an academic year, program, and class above to preview applicable fees.
+                Select an academic year, program, and class above to preview
+                applicable fees.
               </p>
             )}
             {previewMessage && (
@@ -1040,36 +1321,226 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                 {previewMessage}
               </p>
             )}
-            {previewMatchesLookup && previewComponents.length > 0 && feePreview.data && (
-              <div className="table-card">
-                <div className="p-4 border-b border-border bg-muted/30">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <span className="text-xs uppercase font-semibold text-muted-foreground tracking-wider">
-                        Applicable Fee Structure
-                      </span>
-                      <h3 className="text-base font-semibold text-foreground">
-                        {feePreview.data.feeStructure.name}{" "}
-                        <span className="text-sm font-normal text-muted-foreground">
-                          ({feePreview.data.feeStructure.id})
+            {previewMatchesLookup &&
+              previewComponents.length > 0 &&
+              feePreview.data && (
+                <div className="table-card">
+                  <div className="p-4 border-b border-border bg-muted/30">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <span className="text-xs uppercase font-semibold text-muted-foreground tracking-wider">
+                          Applicable Fee Structure
                         </span>
-                      </h3>
-                      {feePreview.data.feeStructure.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {feePreview.data.feeStructure.description}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-left sm:text-right">
-                      <span className="text-xs text-muted-foreground block">
-                        Master Baseline Total
-                      </span>
-                      <span className="font-semibold text-foreground">
-                        {formatFeeMoney(feePreview.data.feeStructure.totalAmount)}
-                      </span>
+                        <h3 className="text-base font-semibold text-foreground">
+                          {feePreview.data.feeStructure.name}{" "}
+                          <span className="text-sm font-normal text-muted-foreground">
+                            ({feePreview.data.feeStructure.id})
+                          </span>
+                        </h3>
+                        {feePreview.data.feeStructure.description && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {feePreview.data.feeStructure.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-left sm:text-right">
+                        <span className="text-xs text-muted-foreground block">
+                          Master Baseline Total
+                        </span>
+                        <span className="font-semibold text-foreground">
+                          {formatFeeMoney(
+                            feePreview.data.feeStructure.totalAmount,
+                          )}
+                        </span>
+                      </div>
                     </div>
                   </div>
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th className="w-12 text-center">Include</th>
+                          <th>Fee Component</th>
+                          <th>Classification</th>
+                          <th>Discount Eligibility</th>
+                          <th className="text-right">Amount (INR)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewComponents.map((component) => {
+                          const isSelected = selectedFeeComponentIds.includes(
+                            component.id,
+                          );
+                          const isLocked =
+                            component.locked || component.isMandatory;
+                          return (
+                            <tr
+                              key={component.id}
+                              className={
+                                !isSelected ? "opacity-60 bg-muted/20" : undefined
+                              }
+                            >
+                              <td className="text-center">
+                                <input
+                                  type="checkbox"
+                                  aria-label={component.name}
+                                  checked={isSelected}
+                                  disabled={isLocked}
+                                  onChange={(event) =>
+                                    setSelectedFeeComponentIds((current) =>
+                                      toggleFeeSelection(
+                                        current,
+                                        component.id,
+                                        isLocked,
+                                        event.target.checked,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <div className="font-medium text-foreground">
+                                  {component.name}
+                                </div>
+                                {component.description && (
+                                  <small className="block text-xs text-muted-foreground mt-0.5">
+                                    {component.description}
+                                  </small>
+                                )}
+                              </td>
+                              <td>
+                                {component.isMandatory ? (
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-secondary-foreground">
+                                    <Lock size={11} /> Mandatory
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                    Optional
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                {component.isDiscountApplicable ? (
+                                  <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300">
+                                    Discount applicable
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-md bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+                                    No discount
+                                  </span>
+                                )}
+                              </td>
+                              <td className="text-right font-medium">
+                                {formatFeeMoney(component.originalAmount)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="table-foot flex items-center justify-between p-3 border-t border-border bg-muted/20">
+                    <span className="text-xs text-muted-foreground">
+                      {selectedFeeComponentIds.length} of{" "}
+                      {previewComponents.length} components selected
+                    </span>
+                    {selectedPreviewTotal !== null && (
+                      <span className="text-sm font-semibold text-foreground">
+                        Selected Baseline Total:{" "}
+                        {formatFeeMinorUnits(selectedPreviewTotal)}
+                      </span>
+                    )}
+                  </div>
                 </div>
+              )}
+          </section>
+        ) : (
+          <section className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h2>Fee Structure & Concessions</h2>
+                <p className="text-sm text-muted-foreground">
+                  {feeConfigLockReason ||
+                    "Select optional fee components for this admission."}
+                </p>
+              </div>
+              {feeConfigLockReason && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground border border-border">
+                  <Lock size={12} /> Fee Configuration Locked
+                </span>
+              )}
+            </div>
+
+            {admissionFeeConfig.isLoading && (
+              <p role="status">Loading fee configuration…</p>
+            )}
+            {admissionFeeConfig.isError && (
+              <p className="field-error" role="alert">
+                Could not load fee configuration.{" "}
+                {admissionErrorMessage(
+                  admissionFeeConfig.error,
+                  "Please try again.",
+                )}
+              </p>
+            )}
+
+            {admissionFeeConfig.data && (
+              <div className="table-card">
+                {/* Financial Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 p-4 bg-muted/20 border-b border-border">
+                  <div className="rounded-lg border border-border bg-card p-3">
+                    <span className="text-xs uppercase font-semibold text-muted-foreground block">
+                      Gross Fee Baseline
+                    </span>
+                    <div className="text-xl font-bold mt-1 text-foreground">
+                      {displayMoney(admissionFeeConfig.data.feePaymentHeader.grossAmount)}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Before concessions</span>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-3">
+                    <span className="text-xs uppercase font-semibold text-amber-600 block">
+                      Approved Concessions
+                    </span>
+                    <div className="text-xl font-bold mt-1 text-amber-600">
+                      - {displayMoney(admissionFeeConfig.data.feePaymentHeader.discountAmount)}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Component reductions</span>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-3">
+                    <span className="text-xs uppercase font-semibold text-muted-foreground block">
+                      Net Taxable Amount
+                    </span>
+                    <div className="text-xl font-bold mt-1 text-foreground">
+                      {displayMoney(
+                        admissionFeeConfig.data.feePaymentHeader.taxableAmount ??
+                          displayMinor(
+                            (parseMoneyMinor(admissionFeeConfig.data.feePaymentHeader.grossAmount) ?? 0n) -
+                              (parseMoneyMinor(admissionFeeConfig.data.feePaymentHeader.discountAmount) ?? 0n),
+                          ),
+                      )}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Pre-tax taxable base</span>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-3">
+                    <span className="text-xs uppercase font-semibold text-muted-foreground block">
+                      GST
+                    </span>
+                    <div className="text-xl font-bold mt-1 text-foreground">
+                      {displayMoney(admissionFeeConfig.data.feePaymentHeader.gstAmount ?? "0.00")}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Applicable taxes</span>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-3">
+                    <span className="text-xs uppercase font-semibold text-primary block">
+                      Net Payable Obligation
+                    </span>
+                    <div className="text-xl font-bold mt-1 text-primary">
+                      {displayMoney(admissionFeeConfig.data.feePaymentHeader.netAmount)}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Target for payments</span>
+                  </div>
+                </div>
+
                 <div className="table-scroll">
                   <table>
                     <thead>
@@ -1078,89 +1549,293 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                         <th>Fee Component</th>
                         <th>Classification</th>
                         <th>Discount Eligibility</th>
-                        <th className="text-right">Amount (INR)</th>
+                        <th className="text-right">Original Amount</th>
+                        <th>Applied Concession</th>
+                        <th className="text-right">Concession Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {previewComponents.map((component) => {
-                        const isSelected = selectedFeeComponentIds.includes(component.id);
-                        const isLocked = component.locked || component.isMandatory;
-                        return (
-                          <tr
-                            key={component.id}
-                            className={!isSelected ? "opacity-60 bg-muted/20" : undefined}
-                          >
-                            <td className="text-center">
-                              <input
-                                type="checkbox"
-                                aria-label={component.name}
-                                checked={isSelected}
-                                disabled={isLocked}
-                                onChange={(event) =>
-                                  setSelectedFeeComponentIds((current) =>
-                                    toggleFeeSelection(
-                                      current,
-                                      component.id,
-                                      isLocked,
-                                      event.target.checked
+                      {admissionFeeConfig.data.feePaymentHeader.feePaymentDetails.map(
+                        (detail) => {
+                          const isSelected = editSelectedSnapshotIds.includes(
+                            detail.id,
+                          );
+                          const isLocked =
+                            !canEditFeeConfig ||
+                            detail.isMandatory ||
+                            !detail.isActive;
+                          const concessionData = concessionsQuery.data?.components?.find(
+                            (c) => c.id === detail.id,
+                          )?.concession;
+                          return (
+                            <tr
+                              key={detail.id}
+                              className={
+                                !isSelected || !detail.isActive
+                                  ? "opacity-60 bg-muted/20"
+                                  : undefined
+                              }
+                            >
+                              <td className="text-center">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Include ${detail.name || "Fee component"}`}
+                                  checked={isSelected}
+                                  disabled={isLocked}
+                                  onChange={(event) =>
+                                    setEditSelectedSnapshotIds((current) =>
+                                      toggleFeeSelection(
+                                        current,
+                                        detail.id,
+                                        detail.isMandatory || !canEditFeeConfig,
+                                        event.target.checked,
+                                      ),
                                     )
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <div className="font-medium text-foreground">
+                                  {detail.name || "Fee component"}
+                                </div>
+                                {detail.description && (
+                                  <small className="block text-xs text-muted-foreground mt-0.5">
+                                    {detail.description}
+                                  </small>
+                                )}
+                              </td>
+                              <td>
+                                {!detail.isActive ? (
+                                  <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                    Inactive
+                                  </span>
+                                ) : detail.isMandatory ? (
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-secondary-foreground">
+                                    <Lock size={11} /> Mandatory
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                    Optional
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                {detail.discountApplicable ? (
+                                  <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300">
+                                    Discount applicable
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-md bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+                                    No discount
+                                  </span>
+                                )}
+                              </td>
+                              <td className="text-right font-medium">
+                                {displayMoney(detail.originalAmount)}
+                              </td>
+                              <td>
+                                {!detail.isActive ? (
+                                  <span className="text-xs text-muted-foreground">Inactive</span>
+                                ) : !isSelected ? (
+                                  <span className="text-xs text-muted-foreground">Excluded</span>
+                                ) : concessionData || detail.concession ? (
+                                  <div className="flex flex-col">
+                                    <span className="font-semibold text-xs text-emerald-700 dark:text-emerald-300">
+                                      {concessionData?.categoryName ?? "Payable concession"}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      - {displayMoney(concessionData?.calculatedDiscountAmount ?? detail.discountAmount)}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">No concession</span>
+                                )}
+                              </td>
+                              <td className="text-right">
+                                {canEditFeeConfig && isSelected && detail.isActive && detail.discountApplicable ? (
+                                  detail.concession || concessionData ? (
+                                    <div className="inline-flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenEditConcession(detail)}
+                                        className="text-xs font-semibold text-primary hover:underline px-1.5 py-0.5"
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleRemoveConcession(
+                                            detail.concession?.id ?? concessionData?.id ?? "",
+                                          )
+                                        }
+                                        disabled={
+                                          removingConcessionId ===
+                                          (detail.concession?.id ?? concessionData?.id)
+                                        }
+                                        className="text-xs font-semibold text-destructive hover:underline px-1.5 py-0.5 disabled:opacity-50"
+                                      >
+                                        {removingConcessionId ===
+                                        (detail.concession?.id ?? concessionData?.id)
+                                          ? "Removing…"
+                                          : "Remove"}
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenAssignConcession(detail)}
+                                      className="text-xs font-semibold text-primary hover:underline px-1.5 py-0.5"
+                                    >
+                                      Assign Concession
+                                    </button>
                                   )
-                                }
-                              />
-                            </td>
-                            <td>
-                              <div className="font-medium text-foreground">
-                                {component.name}
-                              </div>
-                              {component.description && (
-                                <small className="block text-xs text-muted-foreground mt-0.5">
-                                  {component.description}
-                                </small>
-                              )}
-                            </td>
-                            <td>
-                              {component.isMandatory ? (
-                                <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-secondary-foreground">
-                                  <Lock size={11} /> Mandatory
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                                  Optional
-                                </span>
-                              )}
-                            </td>
-                            <td>
-                              {component.isDiscountApplicable ? (
-                                <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300">
-                                  Discount applicable
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center rounded-md bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400">
-                                  No discount
-                                </span>
-                              )}
-                            </td>
-                            <td className="text-right font-medium">
-                              {formatFeeMoney(component.originalAmount)}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">
+                                    {!canEditFeeConfig ? "Locked" : !isSelected ? "Excluded" : "Not eligible"}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        },
+                      )}
                     </tbody>
                   </table>
                 </div>
-                <div className="table-foot flex items-center justify-between p-3 border-t border-border bg-muted/20">
+
+                <div className="table-foot flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 border-t border-border bg-muted/20">
                   <span className="text-xs text-muted-foreground">
-                    {selectedFeeComponentIds.length} of {previewComponents.length} components selected
+                    {editSelectedSnapshotIds.length} of{" "}
+                    {
+                      admissionFeeConfig.data.feePaymentHeader.feePaymentDetails.filter(
+                        (d) => d.isActive,
+                      ).length
+                    }{" "}
+                    active components selected
                   </span>
-                  {selectedPreviewTotal !== null && (
-                    <span className="text-sm font-semibold text-foreground">
-                      Selected Baseline Total: {formatFeeMinorUnits(selectedPreviewTotal)}
-                    </span>
+                  {canEditFeeConfig && (
+                    <div className="flex items-center gap-2">
+                      <AppButton
+                        type="button"
+                        onClick={handleSaveFeeSelection}
+                        disabled={
+                          updateFeeConfig.isPending ||
+                          editSelectedSnapshotIds.length === 0
+                        }
+                      >
+                        {updateFeeConfig.isPending
+                          ? "Saving fee selection…"
+                          : "Save fee selection"}
+                      </AppButton>
+                    </div>
                   )}
                 </div>
+                {feeConfigSaveError && (
+                  <div className="p-3 border-t border-border bg-destructive/10">
+                    <p className="field-error" role="alert">
+                      {feeConfigSaveError}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
+
+            {/* Modal for Assigning / Updating Concession in Edit Mode */}
+            <Dialog
+              open={concessionModalOpen}
+              onOpenChange={setConcessionModalOpen}
+            >
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>
+                    {selectedConcessionDetail?.concession
+                      ? "Update Fee Concession"
+                      : "Assign Fee Concession"}
+                  </DialogTitle>
+                  <DialogDescription>
+                    Set the payable base amount for{" "}
+                    <strong>{selectedConcessionDetail?.name}</strong> (Original:{" "}
+                    {displayMoney(selectedConcessionDetail?.originalAmount)}).
+                  </DialogDescription>
+                </DialogHeader>
+
+                <form onSubmit={handleSaveConcession} className="space-y-4 py-2">
+                  <div>
+                    <label
+                      htmlFor="edit-concession-payable"
+                      className="text-xs font-semibold text-muted-foreground block mb-1"
+                    >
+                      Payable amount (pre-tax base)
+                    </label>
+                    <input
+                      id="edit-concession-payable"
+                      type="text"
+                      inputMode="decimal"
+                      value={concessionPayableInput}
+                      onChange={(e) => setConcessionPayableInput(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                      placeholder="e.g. 800.00"
+                      required
+                    />
+                  </div>
+
+                  {selectedConcessionDetail && (
+                    <div className="rounded-lg bg-muted/50 p-3 border border-border/60 text-xs space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Original Baseline:</span>
+                        <span>{displayMoney(selectedConcessionDetail.originalAmount)}</span>
+                      </div>
+                      <div className="flex justify-between font-semibold text-emerald-600">
+                        <span>Calculated Discount:</span>
+                        <span>
+                          -{" "}
+                          {displayMoney(
+                            displayMinor(
+                              (parsePayableMinor(String(selectedConcessionDetail.originalAmount)) ?? 0n) -
+                                (parsePayableMinor(concessionPayableInput) ?? 0n) > 0n
+                                ? (parsePayableMinor(String(selectedConcessionDetail.originalAmount)) ?? 0n) -
+                                    (parsePayableMinor(concessionPayableInput) ?? 0n)
+                                : 0n,
+                            ),
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between font-bold text-foreground pt-1 border-t border-border/40">
+                        <span>Payable Amount:</span>
+                        <span>{displayMoney(concessionPayableInput || "0.00")}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {concessionActionError && (
+                    <p className="text-xs text-red-600 font-medium" role="alert">
+                      {concessionActionError}
+                    </p>
+                  )}
+
+                  <DialogFooter className="pt-2">
+                    <AppButton
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setConcessionModalOpen(false)}
+                    >
+                      Cancel
+                    </AppButton>
+                    <AppButton
+                      type="submit"
+                      disabled={
+                        assignConcession.isPending || updateConcession.isPending
+                      }
+                    >
+                      {assignConcession.isPending || updateConcession.isPending
+                        ? "Saving…"
+                        : "Save Concession"}
+                    </AppButton>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
           </section>
         )}
 
@@ -1171,7 +1846,13 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
           </p>
         )}
         <div className="detail-actions">
-          <AppButton type="submit" disabled={save.isPending || (!editing && hasFeeLookupCriteria && !feeSelectionReady)}>
+          <AppButton
+            type="submit"
+            disabled={
+              save.isPending ||
+              (!editing && hasFeeLookupCriteria && !feeSelectionReady)
+            }
+          >
             {save.isPending
               ? "Saving…"
               : editing
@@ -1190,6 +1871,7 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
     </>
   );
 }
+
 function FieldValue({
   label,
   value,
@@ -1224,21 +1906,24 @@ export function AdmissionList({ session }: { session: User }) {
   const sections = useSections();
   const [, setLocation] = useLocation();
 
-  const deleteAdmission = (id: string) => {
+  const cancelAdmission = (id: string) => {
     if (
       !window.confirm(
-        `Delete this admission? It will also remove all the relative records.\nDo you agree to proceed.`,
+        `Cancel this admission? The status will be set to Cancelled while preserving all financial and audit history.\nDo you want to proceed?`,
       )
     )
       return;
-    remove.mutate({id, action: "cancel"}, {
-      onSuccess: () => toast({ title: "Admission deleted" }),
-      onError: (error) =>
-        toast({
-          title: "Could not deactivate admission",
-          description: admissionErrorMessage(error, "Please try again."),
-        }),
-    });
+    remove.mutate(
+      { id, action: "cancel" },
+      {
+        onSuccess: () => toast({ title: "Admission cancelled" }),
+        onError: (error) =>
+          toast({
+            title: "Could not cancel admission",
+            description: admissionErrorMessage(error, "Please try again."),
+          }),
+      },
+    );
   };
 
   if (query.isLoading)
@@ -1258,14 +1943,18 @@ export function AdmissionList({ session }: { session: User }) {
         )}
       />
     );
-  const rows = (query.data || []).filter((item) => {
-    const text = `${item.admissionNumber} ${item.studentName}`.toLowerCase();
-    return (
-      text.includes(search.toLowerCase()) &&
-      (filter === "All" ||
-        admissionStatusLabel(item.admissionStatus) === filter)
-    );
-  });
+  const rows = (query.data || [])
+    .filter((item) => {
+      console.log(item);
+
+      const text = `${item.admissionNumber} ${item.studentName}`.toLowerCase();
+      return (
+        text.includes(search.toLowerCase()) &&
+        (filter === "All" ||
+          admissionStatusLabel(item.admissionStatus) === filter)
+      );
+    })
+    .sort(compareAdmissions);
   const label = (id: string, values: Array<{ id: string; name: string }>) =>
     values.find((value) => value.id === id)?.name || "-";
   return (
@@ -1337,23 +2026,26 @@ export function AdmissionList({ session }: { session: User }) {
                     </td>
                     <td className="row-actions">
                       <Link
-                        href={`/admissions/${item.id}/edit`}
+                        href={`/admissions/${item.id}`}
                         className="icon-button"
                         title="Edit admission"
                       >
                         <Settings2 size={15} />
                       </Link>
 
-                      <button
-                        type="button"
-                        className="icon-button ml-3"
-                        title="Deactivate academic year"
-                        aria-label="Deactivate academic year"
-                        onClick={() => deleteAdmission(item.id)}
-                        disabled={remove.isPending}
-                      >
-                        <Trash2 color="red" size={15} />
-                      </button>
+                      {item.admissionStatus === "DRAFT" &&
+                        hasPermission(session, "ADMISSION_UPDATE") && (
+                          <button
+                            type="button"
+                            className="icon-button ml-3"
+                            title="Cancel admission"
+                            aria-label="Cancel admission"
+                            onClick={() => cancelAdmission(item.id)}
+                            disabled={remove.isPending}
+                          >
+                            <Trash2 color="red" size={15} />
+                          </button>
+                        )}
                     </td>
                   </tr>
                 ))}
@@ -1391,112 +2083,7 @@ export function AdmissionDetail({
 
   const concessionsQuery = useAdmissionConcessions(id);
   const feeConfigurationQuery = useAdmissionFeeConfiguration(id);
-  const updateFeeConfiguration = useUpdateAdmissionFeeConfiguration(id);
-  const assignConcession = useAssignAdmissionConcession(id);
-  const updateConcession = useUpdateAdmissionConcession(id);
-  const removeConcession = useRemoveAdmissionConcession(id);
-
-  const canUpdateAdmission = hasPermission(session, "ADMISSION_UPDATE");
-  const readableErrorText = (reason: unknown, fallback: string) => reason instanceof Error && reason.message ? reason.message : admissionErrorMessage(reason, fallback);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selectedComp, setSelectedComp] = useState<AdmissionFeeDetailView | null>(null);
-  const [payableAmount, setPayableAmount] = useState("");
-  const [reviewAction, setReviewAction] = useState<"reapply" | "acknowledge" | null>(null);
-  const [concessionError, setConcessionError] = useState("");
-  const [feeConfigurationError, setFeeConfigurationError] = useState("");
-  const backendSelectedSnapshotIds = () => feeConfigurationQuery.data?.feePaymentHeader.feePaymentDetails.filter((detail) => detail.isActive && detail.isIncluded).map((detail) => detail.id) ?? [];
-  const [selectedSnapshotIds, setSelectedSnapshotIds] = useState<string[]>(backendSelectedSnapshotIds);
-  useLayoutEffect(() => { if (feeConfigurationQuery.data) setSelectedSnapshotIds(backendSelectedSnapshotIds()); }, [feeConfigurationQuery.data]);
-  const feeConfigurationLoaded = Boolean(feeConfigurationQuery.data) && !feeConfigurationQuery.isLoading && !feeConfigurationQuery.isError;
-  const concessionsLoaded = Boolean(concessionsQuery.data) && !concessionsQuery.isLoading && !concessionsQuery.isError;
-  const canEditFeeConfiguration = canUpdateAdmission && query.data?.admissionStatus === "DRAFT" && feeConfigurationLoaded && !feeConfigurationQuery.isFetching;
-  const canEditConcessions = canEditFeeConfiguration && concessionsLoaded && !concessionsQuery.isFetching;
-  const persistedSelectedIds = backendSelectedSnapshotIds();
-  const isSelectionDirty = canEditFeeConfiguration && (
-    selectedSnapshotIds.length !== persistedSelectedIds.length ||
-    selectedSnapshotIds.some((id) => !persistedSelectedIds.includes(id)) ||
-    persistedSelectedIds.some((id) => !selectedSnapshotIds.includes(id))
-  );
-  const pendingChangesCount = [
-    ...selectedSnapshotIds.filter((id) => !persistedSelectedIds.includes(id)),
-    ...persistedSelectedIds.filter((id) => !selectedSnapshotIds.includes(id)),
-  ].length;
-  const payablePreviewError = selectedComp ? payableAmountError(payableAmount, selectedComp.originalAmount, selectedComp.discountApplicable) : null;
-  useEffect(() => { if (!canEditConcessions) { setModalOpen(false); setSelectedComp(null); } }, [canEditConcessions]);
-  const saveSelection = async () => {
-    if (!canEditFeeConfiguration || selectedSnapshotIds.length === 0) return;
-    setFeeConfigurationError("");
-    try {
-      await updateFeeConfiguration.mutateAsync(selectedSnapshotIds);
-    } catch (err: any) {
-      setSelectedSnapshotIds(backendSelectedSnapshotIds());
-      setFeeConfigurationError(readableErrorText(err, "Could not update fee selection."));
-    }
-  };
-
-  const openAddConcessionModal = (comp: AdmissionFeeDetailView) => {
-    if (!canEditConcessions) return;
-    setSelectedComp(comp);
-    setConcessionError("");
-    setPayableAmount(String(comp.totalAmountToBePaid ?? comp.originalAmount));
-    setReviewAction(null);
-    setModalOpen(true);
-  };
-
-  const handleAssignConcessionSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canEditConcessions) return;
-    if (!selectedComp) return;
-
-    const requiresReview = Boolean(selectedComp.concession?.requiresReview);
-    if (requiresReview && reviewAction === null) {
-      setConcessionError("Choose whether to reapply a concession or acknowledge no discount.");
-      return;
-    }
-    if (requiresReview && reviewAction === "reapply" && !selectedComp.discountApplicable) {
-      setConcessionError("A discounted payable is not allowed for this component.");
-      return;
-    }
-
-    const original = parsePayableMinor(String(selectedComp.originalAmount));
-    const submittedPayable = requiresReview && reviewAction === "acknowledge"
-      ? String(selectedComp.originalAmount)
-      : payableAmount;
-    const payable = validatePayableAmount(submittedPayable, selectedComp.originalAmount);
-    if (payable === null || (requiresReview && reviewAction === "reapply" && original !== null && payable >= original)) {
-      setConcessionError(requiresReview && reviewAction === "reapply"
-        ? "Reapply requires a payable amount below the original amount. Choose no-discount acknowledgement to accept the original amount."
-        : payableAmountError(submittedPayable, selectedComp.originalAmount, selectedComp.discountApplicable) ?? "Enter a payable amount with at most two decimal places.");
-      return;
-    }
-    if (!selectedComp.discountApplicable && payable !== original) {
-      setConcessionError("A discount is not applicable to this component; payable must equal the original amount.");
-      return;
-    }
-    try {
-      setConcessionError("");
-      if (selectedComp.concession?.id) await updateConcession.mutateAsync({ concessionId: selectedComp.concession.id, payload: { payableAmount: submittedPayable } });
-      else await assignConcession.mutateAsync({ feePaymentDetailsId: selectedComp.id, payableAmount: submittedPayable });
-      toast({ title: "Concession assigned successfully" });
-      setModalOpen(false);
-    } catch (err: any) {
-      setConcessionError(readableErrorText(err, "Failed to assign concession."));
-    }
-  };
-
-  const handleRemoveConcession = async (concessionId: string) => {
-    if (!canEditConcessions) return;
-    if (!window.confirm("Remove this concession from the fee component?")) return;
-    try {
-      await removeConcession.mutateAsync(concessionId);
-      toast({ title: "Concession removed" });
-    } catch (err: any) {
-      toast({
-        title: "Could not remove concession",
-        description: readableErrorText(err, "Could not remove concession."),
-      });
-    }
-  };
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   if (query.isLoading) return <Loading />;
   if (query.isError || !query.data)
     return (
@@ -1510,21 +2097,66 @@ export function AdmissionDetail({
     );
   const item = query.data;
   const config = feeConfigurationQuery.data;
-  const concessionComponentByDetail = new Map((concessionsQuery.data?.components || []).map((component) => [component.id, component]));
-  const displayComponents: AdmissionFeeDetailView[] = (config?.feePaymentHeader.feePaymentDetails || []).map((detail) => {
+  const concessionComponentByDetail = new Map(
+    (concessionsQuery.data?.components || []).map((component) => [
+      component.id,
+      component,
+    ]),
+  );
+  const displayComponents: AdmissionFeeDetailView[] = (
+    config?.feePaymentHeader.feePaymentDetails || []
+  ).map((detail) => {
     const concessionComponent = concessionComponentByDetail.get(detail.id);
     return {
       ...detail,
-      name: detail.name ?? concessionComponent?.nameSnapshot ?? "Name unavailable",
+      name:
+        detail.name ?? concessionComponent?.nameSnapshot ?? "Name unavailable",
       concession: concessionComponent?.concession ?? null,
     };
   });
   const feeDetails = config?.feePaymentHeader.feePaymentDetails || [];
-  const displayMoney = (value: string | number | null | undefined) => value == null ? "-" : `₹${String(value)}`;
-  const displayMinor = (value: bigint) => { const sign = value < 0n ? "-" : ""; const abs = value < 0n ? -value : value; return `${sign}${abs / 100n}.${String(abs % 100n).padStart(2, "0")}`; };
-  const originalMinor = selectedComp ? parsePayableMinor(String(selectedComp.originalAmount)) : null;
-  const payableMinor = parsePayableMinor(payableAmount);
-  const previewDiscount = payablePreviewError === null && originalMinor !== null && payableMinor !== null ? originalMinor - payableMinor : null;
+  const isPaymentEligibleStatus =
+    item.admissionStatus === "DRAFT" || item.admissionStatus === "CONFIRMED";
+  const canCreateFees = hasPermission(session, "FEES_CREATE");
+  const isFeeConfigLoading = Boolean(
+    feeConfigurationQuery.isLoading && !config,
+  );
+  const isFeeConfigError = Boolean(feeConfigurationQuery.isError);
+  const isPricingVersionSupported =
+    config?.feePaymentHeader?.pricingVersion === "V0_SNAPSHOTTED";
+  const isFeeConfigMissing = Boolean(
+    !feeConfigurationQuery.isLoading &&
+      !feeConfigurationQuery.isError &&
+      !config,
+  );
+  const totalDueMinor = config
+    ? parseMoneyMinor(
+        config.feePaymentHeader.totalDueAmount ??
+          config.feePaymentHeader.netAmount ??
+          "0",
+      ) ?? 0n
+    : 0n;
+  const hasDueBalance = totalDueMinor > 0n;
+
+  const canCollectPayment =
+    isPaymentEligibleStatus &&
+    canCreateFees &&
+    Boolean(config) &&
+    isPricingVersionSupported &&
+    hasDueBalance;
+
+  let paymentFeedback: string | null = null;
+  if (isPaymentEligibleStatus && canCreateFees && !canCollectPayment) {
+    if (isFeeConfigLoading) {
+      paymentFeedback = "Checking fee configuration for payment collection…";
+    } else if (isFeeConfigError || isFeeConfigMissing) {
+      paymentFeedback =
+        "Payment collection is unavailable because fee configuration could not be verified.";
+    } else if (!isPricingVersionSupported) {
+      paymentFeedback =
+        "Payment collection is unavailable: pricing version is missing or unsupported.";
+    }
+  }
   const label = (value: string, values: Array<{ id: string; name: string }>) =>
     values.find((entry) => entry.id === value)?.name || "-";
   const run = async (action: "confirm" | "cancel") => {
@@ -1543,7 +2175,11 @@ export function AdmissionDetail({
           action === "confirm" ? "Admission confirmed" : "Admission cancelled",
       });
     } catch (reason) {
-      setError(action === "confirm" ? confirmationErrorMessage(reason) : admissionErrorMessage(reason, "Could not update admission."));
+      setError(
+        action === "confirm"
+          ? confirmationErrorMessage(reason)
+          : admissionErrorMessage(reason, "Could not update admission."),
+      );
     }
   };
   const status = admissionStatusLabel(item.admissionStatus);
@@ -1568,24 +2204,30 @@ export function AdmissionDetail({
               <Settings2 size={15} />
               Edit
             </Link>
+            {canCollectPayment && (
+              <AppButton onClick={() => setPaymentDialogOpen(true)}>
+                Collect Fee Payment
+              </AppButton>
+            )}
+            {paymentFeedback && (
+              <span
+                className="text-xs text-muted-foreground self-center"
+                role="status"
+              >
+                {paymentFeedback}
+              </span>
+            )}
             {status === "Pending" &&
               hasPermission(session, "ADMISSION_UPDATE") && (
                 <>
                   <AppButton
-                    variant="soft"
+                    variant="confirm"
+                    // className="bg-green-300"
                     onClick={() => run("confirm")}
                     disabled={workflow.isPending}
                   >
                     <Check size={15} />
                     Confirm
-                  </AppButton>
-                  <AppButton
-                    variant="danger"
-                    onClick={() => run("cancel")}
-                    disabled={workflow.isPending}
-                  >
-                    <X size={15} />
-                    Cancel
                   </AppButton>
                 </>
               )}
@@ -1594,7 +2236,7 @@ export function AdmissionDetail({
       />
       <section className="panel">
         <div className="panel-head">
-          <h2>Admission details</h2>
+          <h2>Admission Details</h2>
           <Status>{status}</Status>
         </div>
         <div className="detail-fields">
@@ -1640,326 +2282,316 @@ export function AdmissionDetail({
 
       {/* Fee Breakdown & Concession Management */}
       <section className="panel mt-6">
-        <div className="panel-head">
+        <div className="panel-head flex items-center justify-between">
           <div>
             <h2>Fee Structure & Concessions</h2>
             <p className="text-sm text-muted-foreground mt-0.5">
               {item.admissionStatus === "CONFIRMED"
                 ? "Fee obligations are confirmed and frozen. Concessions cannot be altered."
-                : "Manage concessions on eligible components before admission confirmation."}
+                : "Authoritative snapshot of fee obligations and concessions."}
             </p>
           </div>
-          {item.admissionStatus === "CONFIRMED" ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-              <Check size={12} /> Obligations Frozen
-            </span>
-          ) : item.admissionStatus === "CANCELLED" ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground border border-border">
-              <X size={12} /> Admission Cancelled
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 dark:bg-blue-950/40 px-3 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-              <Tag size={12} /> Draft Concessions
-            </span>
+          <div className="flex items-center gap-2">
+            {item.admissionStatus === "CONFIRMED" ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                <Check size={12} /> Obligations Frozen
+              </span>
+            ) : item.admissionStatus === "CANCELLED" ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground border border-border">
+                <X size={12} /> Admission Cancelled
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 dark:bg-blue-950/40 px-3 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                <Tag size={12} /> Draft Snapshot
+              </span>
+            )}
+          </div>
+        </div>
+
+        {feeConfigurationQuery.isLoading && !config && (
+          <p role="status">Loading fee configuration…</p>
+        )}
+        {feeConfigurationQuery.isFetching && config && (
+          <p role="status">Refreshing fee configuration…</p>
+        )}
+        {feeConfigurationQuery.isError && (
+          <p className="field-error" role="alert">
+            {config
+              ? "Fee configuration refresh failed; the displayed snapshot may be stale."
+              : "Could not load fee configuration."}{" "}
+            {readableErrorText(
+              feeConfigurationQuery.error,
+              "Please try again.",
+            )}
+          </p>
+        )}
+        {!feeConfigurationQuery.isLoading &&
+          !feeConfigurationQuery.isError &&
+          !config && <p role="alert">Fee configuration is unavailable.</p>}
+        {concessionsQuery.isLoading && (
+          <p role="status">Loading concession details…</p>
+        )}
+        {concessionsQuery.isFetching && concessionsQuery.data && (
+          <p role="status">Refreshing concession details…</p>
+        )}
+        {concessionsQuery.isError && (
+          <p className="field-error" role="alert">
+            {concessionsQuery.data
+              ? "Concession refresh failed; cached concession data may be stale."
+              : "Could not load concession details."}{" "}
+            {readableErrorText(concessionsQuery.error, "Please try again.")}
+          </p>
+        )}
+        {!concessionsQuery.isLoading &&
+          !concessionsQuery.isFetching &&
+          !concessionsQuery.isError &&
+          !concessionsQuery.data && (
+            <p role="alert">Concession details are unavailable.</p>
           )}
-        </div>
+        {/* {concessionsLoaded &&
+          concessionsQuery.data?.components.every(
+            (component) => !component.concession,
+          ) && <p role="status">No concessions are assigned.</p>} */}
+        {config && (
+          <>
+            {/* Financial Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+              <div className="rounded-xl border border-border bg-card p-4">
+                <span className="text-xs uppercase font-semibold text-muted-foreground">
+                  Gross Fee Baseline
+                </span>
+                <div className="text-2xl font-bold mt-1 text-foreground">
+                  {displayMoney(config?.feePaymentHeader.grossAmount)}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Before concessions
+                </span>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <span className="text-xs uppercase font-semibold text-amber-600">
+                  Total Approved Concessions
+                </span>
+                <div className="text-2xl font-bold mt-1 text-amber-600">
+                  - {displayMoney(config?.feePaymentHeader.discountAmount)}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Approved component reductions
+                </span>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <span className="text-xs uppercase font-semibold text-primary">
+                  Net Payable Obligation
+                </span>
+                <div className="text-2xl font-bold mt-1 text-primary">
+                  {displayMoney(config?.feePaymentHeader.netAmount)}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Frozen target for payments
+                </span>
+              </div>
+            </div>
 
-        {feeConfigurationQuery.isLoading && !config && <p role="status">Loading fee configuration…</p>}
-        {feeConfigurationQuery.isFetching && config && <p role="status">Refreshing fee configuration…</p>}
-        {feeConfigurationQuery.isError && <p className="field-error" role="alert">{config ? "Fee configuration refresh failed; the displayed snapshot may be stale." : "Could not load fee configuration."} {readableErrorText(feeConfigurationQuery.error, "Please try again.")}</p>}
-        {!feeConfigurationQuery.isLoading && !feeConfigurationQuery.isError && !config && <p role="alert">Fee configuration is unavailable.</p>}
-        {concessionsQuery.isLoading && <p role="status">Loading concession details…</p>}
-        {concessionsQuery.isFetching && concessionsQuery.data && <p role="status">Refreshing concession details…</p>}
-        {concessionsQuery.isError && <p className="field-error" role="alert">{concessionsQuery.data ? "Concession refresh failed; cached concession data may be stale." : "Could not load concession details."} {readableErrorText(concessionsQuery.error, "Please try again.")}</p>}
-        {!concessionsQuery.isLoading && !concessionsQuery.isFetching && !concessionsQuery.isError && !concessionsQuery.data && <p role="alert">Concession details are unavailable.</p>}
-        {concessionsLoaded && concessionsQuery.data?.components.every((component) => !component.concession) && <p role="status">No concessions are assigned.</p>}
-        {config && <>
-        {/* Financial Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="rounded-xl border border-border bg-card p-4">
-            <span className="text-xs uppercase font-semibold text-muted-foreground">Gross Fee Baseline</span>
-            <div className="text-2xl font-bold mt-1 text-foreground">
-              {displayMoney(config?.feePaymentHeader.grossAmount)}
-            </div>
-            <span className="text-xs text-muted-foreground">Before concessions</span>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4">
-            <span className="text-xs uppercase font-semibold text-amber-600">Total Approved Concessions</span>
-            <div className="text-2xl font-bold mt-1 text-amber-600">
-              - {displayMoney(config?.feePaymentHeader.discountAmount)}
-            </div>
-            <span className="text-xs text-muted-foreground">Approved component reductions</span>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4">
-            <span className="text-xs uppercase font-semibold text-primary">Net Payable Obligation</span>
-            <div className="text-2xl font-bold mt-1 text-primary">
-              {displayMoney(config?.feePaymentHeader.netAmount)}
-            </div>
-            <span className="text-xs text-muted-foreground">Frozen target for payments</span>
-          </div>
-        </div>
-
-        {feeDetails.length === 0 ? !feeConfigurationQuery.isError && <p role="status">No fee snapshot details are available.</p> : <div className="table-card">
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th className="w-12 text-center">Include</th>
-                  <th>Fee Component</th>
-                  <th className="text-right">Original Baseline</th>
-                  <th>Inclusion Status</th>
-                  <th>Applied Concession</th>
-                  <th className="text-right">Net Payable</th>
-                  {canEditConcessions && <th className="text-right">Actions</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {displayComponents.map((comp) => (
-                  <tr
-                    key={comp.id}
-                    className={!comp.isActive || !comp.isIncluded ? "bg-muted/30" : undefined}
-                  >
-                    <td className="text-center">
-                      {canEditFeeConfiguration && comp.isActive ? (
-                        <input
-                          aria-label={`Include ${comp.name}`}
-                          type="checkbox"
-                          checked={selectedSnapshotIds.includes(comp.id)}
-                          disabled={comp.isMandatory || updateFeeConfiguration.isPending}
-                          onChange={(event) =>
-                            setSelectedSnapshotIds((current) =>
-                              toggleFeeSelection(current, comp.id, comp.isMandatory, event.target.checked)
-                            )
-                          }
-                        />
-                      ) : (
-                        <span className="text-xs text-muted-foreground" aria-hidden="true">
-                          {comp.isActive ? (comp.isIncluded ? "✓" : "-") : "-"}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="font-semibold text-foreground">{comp.name}</div>
-                      {comp.description ? (
-                        <div className="text-xs text-muted-foreground">{comp.description}</div>
-                      ) : null}
-                      {comp.isMandatory && (
-                        <span className="text-xs text-muted-foreground sm:hidden">(Mandatory)</span>
-                      )}
-                    </td>
-                    <td className="text-right font-medium text-foreground">
-                      {displayMoney(comp.originalAmount)}
-                    </td>
-                    <td>
-                      {!comp.isActive ? (
-                        <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                          Inactive
-                        </span>
-                      ) : comp.isMandatory ? (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-secondary-foreground">
-                          <Lock size={11} /> Mandatory
-                        </span>
-                      ) : comp.isIncluded ? (
-                        <span className="inline-flex items-center rounded-md bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                          Included
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                          Excluded
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      {!comp.isActive ? (
-                        <span className="text-xs text-muted-foreground">Inactive snapshot</span>
-                      ) : !comp.isIncluded ? (
-                        <span className="text-xs text-muted-foreground">Excluded</span>
-                      ) : concessionsQuery.isError && !comp.concession ? (
-                        <span className="text-xs text-muted-foreground">Concession status unavailable</span>
-                      ) : (concessionsQuery.isLoading || concessionsQuery.isFetching) && !comp.concession ? (
-                        <span className="text-xs text-muted-foreground">Loading concession status…</span>
-                      ) : comp.concession ? (
-                        <div className="flex flex-col">
-                          {comp.concession.requiresReview && (
-                            <span className="text-xs font-semibold text-amber-700" role="alert">
-                              Review required
-                            </span>
-                          )}
-                          <span className="font-semibold text-emerald-700">
-                            {comp.concession.categoryName ?? "Payable concession"}
-                            {comp.concession.discountType &&
-                              ` (${comp.concession.discountType === "PERCENTAGE" ? `${comp.concession.discountValue}%` : `₹${comp.concession.discountValue}`})`}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            - {displayMoney(comp.concession.calculatedDiscountAmount)}
-                            {comp.concession.justification && ` · ${comp.concession.justification}`}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">No concession</span>
-                      )}
-                    </td>
-                    <td className="text-right">
-                      <strong className="text-foreground">
-                        {displayMoney(comp.isActive && comp.isIncluded ? comp.totalAmountToBePaid : "0.00")}
-                      </strong>
-                    </td>
-                    {canEditConcessions && comp.isActive && (
-                      <td className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {comp.concession ? (
-                            <>
-                              {comp.concession.requiresReview && comp.isIncluded && (
-                                <button
-                                  type="button"
-                                  onClick={() => openAddConcessionModal(comp)}
-                                  className="min-h-[44px] sm:min-h-0 py-2 sm:py-0 inline-flex items-center text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
-                                >
-                                  Resolve review
-                                </button>
+            {feeDetails.length === 0 ? (
+              !feeConfigurationQuery.isError && (
+                <p role="status">No fee snapshot details are available.</p>
+              )
+            ) : (
+              <div className="table-card">
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Fee Component</th>
+                        <th>Classification</th>
+                        <th className="text-right">Original Baseline</th>
+                        <th>Status</th>
+                        <th>Applied Concession</th>
+                        <th className="text-right">Net Payable</th>
+                        <th className="text-right">Paid</th>
+                        <th className="text-right">Balance Due</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayComponents.map((comp) => {
+                        const isIncludedAndActive =
+                          comp.isActive && comp.isIncluded;
+                        const compNetMinor =
+                          parseMoneyMinor(
+                            isIncludedAndActive
+                              ? (comp.totalAmountToBePaid ?? "0")
+                              : "0",
+                          ) ?? 0n;
+                        const compPaidMinor =
+                          parseMoneyMinor(comp.amountPaid ?? "0") ?? 0n;
+                        const compDueMinor =
+                          compNetMinor > compPaidMinor
+                            ? compNetMinor - compPaidMinor
+                            : 0n;
+                        return (
+                          <tr
+                            key={comp.id}
+                            className={
+                              !isIncludedAndActive ? "bg-muted/30" : undefined
+                            }
+                          >
+                            <td>
+                              <div className="font-semibold text-foreground">
+                                {comp.name}
+                              </div>
+                              {comp.description ? (
+                                <div className="text-xs text-muted-foreground">
+                                  {comp.description}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td>
+                              {comp.isMandatory ? (
+                                <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-secondary-foreground">
+                                  <Lock size={11} /> Mandatory
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                  Optional
+                                </span>
                               )}
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveConcession(comp.concession!.id)}
-                                disabled={removeConcession.isPending}
-                                className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 p-2 sm:p-0 inline-flex items-center justify-center gap-1 text-xs text-red-600 hover:text-red-700 font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-600 rounded"
-                              >
-                                <Trash2 size={13} /> Remove
-                              </button>
-                            </>
-                          ) : comp.discountApplicable && comp.isIncluded ? (
-                            <button
-                              type="button"
-                              onClick={() => openAddConcessionModal(comp)}
-                              className="min-h-[44px] sm:min-h-[32px] inline-flex items-center gap-1 rounded border border-border bg-card px-2.5 py-1 text-xs font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-                            >
-                              <Plus size={13} /> Add Concession
-                            </button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">No discount</span>
-                          )}
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {canEditFeeConfiguration && (
-            <div
-              className={`table-foot flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 border-t border-border ${
-                isSelectionDirty ? "bg-amber-500/10" : "bg-muted/10"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                {isSelectionDirty ? (
-                  <>
-                    <span className="inline-flex h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                    <span className="text-sm font-medium text-foreground">
-                      Unsaved selection changes: {pendingChangesCount} {pendingChangesCount === 1 ? "change" : "changes"} pending.
-                      {" "}Selected: {selectedSnapshotIds.length} included.
-                    </span>
-                  </>
-                ) : (
+                            </td>
+                            <td className="text-right font-medium text-foreground">
+                              {displayMoney(comp.originalAmount)}
+                            </td>
+                            <td>
+                              {!comp.isActive ? (
+                                <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                  Inactive
+                                </span>
+                              ) : comp.isIncluded ? (
+                                <span className="inline-flex items-center rounded-md bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                                  Included
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                  Excluded
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              {!comp.isActive ? (
+                                <span className="text-xs text-muted-foreground">
+                                  Inactive snapshot
+                                </span>
+                              ) : !comp.isIncluded ? (
+                                <span className="text-xs text-muted-foreground">
+                                  Excluded
+                                </span>
+                              ) : concessionsQuery.isError &&
+                                !comp.concession ? (
+                                <span className="text-xs text-muted-foreground">
+                                  Concession status unavailable
+                                </span>
+                              ) : (concessionsQuery.isLoading ||
+                                  concessionsQuery.isFetching) &&
+                                !comp.concession ? (
+                                <span className="text-xs text-muted-foreground">
+                                  Loading concession status…
+                                </span>
+                              ) : comp.concession ? (
+                                <div className="flex flex-col">
+                                  {comp.concession.requiresReview && (
+                                    <span
+                                      className="text-xs font-semibold text-amber-700"
+                                      role="alert"
+                                    >
+                                      Review required
+                                    </span>
+                                  )}
+                                  <span className="font-semibold text-emerald-700">
+                                    {comp.concession.categoryName ??
+                                      "Payable concession"}
+                                    {comp.concession.discountType &&
+                                      ` (${comp.concession.discountType === "PERCENTAGE" ? `${comp.concession.discountValue}%` : `₹${comp.concession.discountValue}`})`}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    -{" "}
+                                    {displayMoney(
+                                      comp.concession.calculatedDiscountAmount,
+                                    )}
+                                    {comp.concession.justification &&
+                                      ` · ${comp.concession.justification}`}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">
+                                  No concession
+                                </span>
+                              )}
+                            </td>
+                            <td className="text-right">
+                              <strong className="text-foreground">
+                                {displayMoney(
+                                  isIncludedAndActive
+                                    ? comp.totalAmountToBePaid
+                                    : "0.00",
+                                )}
+                              </strong>
+                            </td>
+                            <td className="text-right text-muted-foreground">
+                              {displayMoney(comp.amountPaid ?? "0.00")}
+                            </td>
+                            <td className="text-right font-medium text-foreground">
+                              {displayMoney(
+                                displayMinor(
+                                  compDueMinor,
+                                ),
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="table-foot flex items-center justify-between p-3 border-t border-border bg-muted/20">
                   <span className="text-xs text-muted-foreground">
-                    {selectedSnapshotIds.length} of {feeDetails.filter((d) => d.isActive).length} active components included in billing snapshot.
+                    {
+                      displayComponents.filter(
+                        (d) => d.isActive && d.isIncluded,
+                      ).length
+                    }{" "}
+                    of {displayComponents.filter((d) => d.isActive).length}{" "}
+                    active components included in billing snapshot.
                   </span>
-                )}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                {isSelectionDirty && (
-                  <AppButton
-                    type="button"
-                    variant="ghost"
-                    onClick={() => {
-                      setSelectedSnapshotIds(backendSelectedSnapshotIds());
-                      setFeeConfigurationError("");
-                    }}
-                    disabled={updateFeeConfiguration.isPending}
-                  >
-                    Discard changes
-                  </AppButton>
-                )}
-                <AppButton
-                  type="button"
-                  onClick={saveSelection}
-                  disabled={updateFeeConfiguration.isPending || selectedSnapshotIds.length === 0}
-                >
-                  {updateFeeConfiguration.isPending ? "Saving fee selection…" : "Save fee selection"}
-                </AppButton>
-              </div>
-            </div>
-          )}
-          {feeConfigurationError && (
-            <div className="p-3 border-t border-border bg-destructive/10">
-              <p className="field-error" role="alert">
-                {feeConfigurationError}
-              </p>
-            </div>
-          )}
-        </div>}
-        </>}
+            )}
+          </>
+        )}
       </section>
 
-      {/* Modal for Assigning Concession */}
-      <Dialog open={modalOpen && canEditConcessions} onOpenChange={setModalOpen}>
-      <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Assign Fee Concession</DialogTitle>
-            <DialogDescription>
-              Set the payable amount for {selectedComp?.name} (Original: {displayMoney(selectedComp?.originalAmount)}).
-            </DialogDescription>
-          </DialogHeader>
+      <InstallmentScheduleCard
+        admissionId={id}
+        admissionStatus={item.admissionStatus}
+        pricingVersion={config?.feePaymentHeader.pricingVersion}
+        netAmount={config?.feePaymentHeader.netAmount}
+        session={session}
+      />
 
-          <form onSubmit={handleAssignConcessionSubmit} className="space-y-4 py-2">
-            <label htmlFor="payable-amount" className="text-xs font-semibold text-muted-foreground block mb-1">Payable amount</label>
-            <input id="payable-amount" type="text" inputMode="decimal" value={payableAmount} onChange={(e) => setPayableAmount(e.target.value)} readOnly={reviewAction === "acknowledge"} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" aria-invalid={payablePreviewError !== null} aria-describedby={payablePreviewError ? "payable-amount-error" : undefined} required />
-            {payablePreviewError && <p id="payable-amount-error" className="text-xs text-red-600 font-medium" role="alert">{payablePreviewError}</p>}
-            {selectedComp?.concession?.requiresReview && <div className="flex gap-2">{selectedComp.discountApplicable && <AppButton type="button" variant={reviewAction === "reapply" ? "primary" : "ghost"} onClick={() => { setReviewAction("reapply"); setConcessionError(""); }}>Reapply concession</AppButton>}<AppButton type="button" variant={reviewAction === "acknowledge" ? "primary" : "ghost"} onClick={() => { setReviewAction("acknowledge"); setPayableAmount(String(selectedComp.originalAmount)); setConcessionError(""); }}>Acknowledge no discount</AppButton></div>}
+      <AdmissionPaymentHistoryCard
+        admissionId={id}
+        admissionStatus={item.admissionStatus}
+        studentId={item.studentId}
+        session={session}
+      />
 
-            {/* Live Calculation Preview */}
-            {selectedComp && previewDiscount !== null && (
-              <div className="rounded-lg bg-muted/50 p-3 border border-border/60 text-xs space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Original Fee:</span>
-                  <span>{displayMoney(selectedComp.originalAmount)}</span>
-                </div>
-                <div className="flex justify-between font-semibold text-emerald-600">
-                  <span>Calculated Deduction:</span>
-                  <span>
-                      - {displayMoney(displayMinor(previewDiscount))}
-                  </span>
-                </div>
-                <div className="flex justify-between font-bold text-foreground pt-1 border-t border-border/40">
-                  <span>Final Component Payable:</span>
-                  <span>
-                    {displayMoney(payableAmount)}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div>
-            </div>
-
-            {concessionError && (
-              <p className="text-xs text-red-600 font-medium" role="alert">
-                {concessionError}
-              </p>
-            )}
-
-            <DialogFooter className="pt-2">
-              <AppButton type="button" variant="ghost" onClick={() => setModalOpen(false)}>
-                Cancel
-              </AppButton>
-              <AppButton type="submit" disabled={assignConcession.isPending || updateConcession.isPending || Boolean(selectedComp?.concession?.requiresReview && reviewAction === null)}>
-                {assignConcession.isPending || updateConcession.isPending ? "Saving…" : selectedComp?.concession?.requiresReview ? reviewAction === "acknowledge" ? "Confirm no-discount acknowledgement" : reviewAction === "reapply" ? "Submit reapplication" : "Choose an action" : "Save Payable"}
-              </AppButton>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {config && (
+        <CollectAdmissionPaymentDialog
+          open={paymentDialogOpen}
+          onOpenChange={setPaymentDialogOpen}
+          admissionId={id}
+          admissionNumber={item.admissionNumber}
+          applicantName={item.studentName}
+          feePaymentHeader={config.feePaymentHeader}
+          session={session}
+        />
+      )}
     </>
   );
 }
@@ -2122,10 +2754,18 @@ export function StudentList({ session }: { session: User }) {
     </>
   );
 }
-export function StudentDetail({ id }: { id: string }) {
+export function StudentDetail({ id, session }: { id: string; session?: User }) {
   const query = useStudent(id);
   const fees = useStudentFees(id);
   const admission = useAdmission(query.data?.admissionId);
+  const feeConfigurationQuery = useAdmissionFeeConfiguration(
+    query.data?.admissionId,
+  );
+  const pricingVersion =
+    feeConfigurationQuery.data?.feePaymentHeader?.pricingVersion;
+  const isPricingVersionLoading =
+    feeConfigurationQuery.isLoading && !feeConfigurationQuery.data;
+  const [v0PaymentDialogOpen, setV0PaymentDialogOpen] = useState(false);
   const years = useAcademicYears();
   const programs = usePrograms();
   const classes = useClasses();
@@ -2133,14 +2773,17 @@ export function StudentDetail({ id }: { id: string }) {
   const [, setLocation] = useLocation();
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDate, setPaymentDate] = useState("");
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() =>
+    crypto.randomUUID(),
+  );
   const recordPayment = useRecordStudentFeePayment(id);
   const submitPayment = async () => {
     const outstanding = fees.data?.fee?.outstandingAmount ?? "0";
     if (validatePaymentAmount(paymentAmount, outstanding) === null) {
       toast({
         title: "Invalid payment",
-        description: "Enter a positive amount with at most two decimals, not exceeding the outstanding balance.",
+        description:
+          "Enter a positive amount with at most two decimals, not exceeding the outstanding balance.",
       });
       return;
     }
@@ -2288,7 +2931,10 @@ export function StudentDetail({ id }: { id: string }) {
                 </div>
                 <div className="mt-5 space-y-3">
                   {feeState.components.map((component) => (
-                    <div className={`payment-line ${component.isActive && component.isIncluded ? "" : "opacity-60"}`} key={component.id}>
+                    <div
+                      className={`payment-line ${component.isActive && component.isIncluded ? "" : "opacity-60"}`}
+                      key={component.id}
+                    >
                       <span>
                         <strong>{component.nameSnapshot}</strong>
                         <small>
@@ -2296,7 +2942,8 @@ export function StudentDetail({ id }: { id: string }) {
                           {component.discountApplicable
                             ? "Discountable"
                             : "Fixed"}
-                          {!(component.isActive && component.isIncluded) && " · Historical / not currently payable"}
+                          {!(component.isActive && component.isIncluded) &&
+                            " · Historical / not currently payable"}
                         </small>
                       </span>
                       <div className="text-right">
@@ -2318,65 +2965,144 @@ export function StudentDetail({ id }: { id: string }) {
                 No live fee snapshot exists for this admission yet.
               </p>
             )}
+            <StudentInstallmentScheduleCard
+              admissionId={student.admissionId}
+              session={session}
+            />
           </section>
           <aside className="panel">
             <div className="panel-head">
               <div>
                 <div className="eyebrow">Record payment</div>
-                <h2>Quick payment</h2>
+                <h2>
+                  {pricingVersion === "V0_SNAPSHOTTED"
+                    ? "Fee payment"
+                    : "Quick payment"}
+                </h2>
               </div>
             </div>
-            <div className="space-y-4">
-              <div className="field">
-                <label htmlFor="student-fee-amount">Amount (INR)</label>
-                <input
-                  id="student-fee-amount"
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={paymentAmount}
-                  onChange={(event) => setPaymentAmount(event.target.value)}
-                />
+            {isPricingVersionLoading ||
+            (query.data?.admissionId && pricingVersion === undefined) ? (
+              <div className="p-4 text-xs text-muted-foreground">
+                Resolving pricing version configuration…
               </div>
-              <div className="field">
-                <label htmlFor="student-fee-date">Payment date</label>
-                <input
-                  id="student-fee-date"
-                  type="date"
-                  value={paymentDate}
-                  onChange={(event) => setPaymentDate(event.target.value)}
-                />
-              </div>
-              <AppButton
-                onClick={submitPayment}
-                disabled={recordPayment.isPending || !feeState}
-                className="w-full"
-              >
-                {recordPayment.isPending ? "Recording…" : "Record payment"}
-              </AppButton>
-              {payments.length > 0 && (
-                <div className="mt-4">
-                  <div className="eyebrow">Recent payments</div>
-                  <div className="space-y-3 mt-2">
-                    {payments.slice(0, 5).map((payment) => (
-                      <div className="payment-line" key={payment.id}>
-                        <span>
-                          <strong>{money(feeAmount(payment.amount))}</strong>
-                          <small>
-                            {payment.paymentDate
-                              ? date(payment.paymentDate)
-                              : "No date"}
-                          </small>
-                        </span>
-                        <small className="text-muted-foreground">
-                          {payment.createdAt ? date(payment.createdAt) : ""}
-                        </small>
-                      </div>
-                    ))}
-                  </div>
+            ) : pricingVersion === "V0_SNAPSHOTTED" ? (
+              <div className="space-y-4">
+                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-3 text-xs text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                  This student uses V0 Structured Fees. Payments require
+                  explicit component allocations.
                 </div>
-              )}
-            </div>
+                {hasPermission(session, "FEES_CREATE") && (
+                  <AppButton
+                    onClick={() => setV0PaymentDialogOpen(true)}
+                    disabled={
+                      !feeConfigurationQuery.data ||
+                      admission.data?.admissionStatus === "CANCELLED"
+                    }
+                    className="w-full"
+                  >
+                    Collect Fee Payment (V0)
+                  </AppButton>
+                )}
+                {query.data?.admissionId && (
+                  <AppButton
+                    variant="ghost"
+                    onClick={() =>
+                      setLocation(`/admissions/${query.data.admissionId}`)
+                    }
+                    className="w-full text-xs"
+                  >
+                    View Admission Record
+                  </AppButton>
+                )}
+                {payments.length > 0 && (
+                  <div className="mt-4">
+                    <div className="eyebrow">Recent payments</div>
+                    <div className="space-y-3 mt-2">
+                      {payments.slice(0, 5).map((payment) => (
+                        <div className="payment-line" key={payment.id}>
+                          <span>
+                            <strong>{money(feeAmount(payment.amount))}</strong>
+                            <small>
+                              {payment.paymentDate
+                                ? date(payment.paymentDate)
+                                : "No date"}
+                            </small>
+                          </span>
+                          <small className="text-muted-foreground">
+                            {payment.createdAt ? date(payment.createdAt) : ""}
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {feeConfigurationQuery.data && query.data?.admissionId && (
+                  <CollectAdmissionPaymentDialog
+                    open={v0PaymentDialogOpen}
+                    onOpenChange={setV0PaymentDialogOpen}
+                    admissionId={query.data.admissionId}
+                    studentId={id}
+                    feePaymentHeader={
+                      feeConfigurationQuery.data.feePaymentHeader
+                    }
+                    session={session}
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="field">
+                  <label htmlFor="student-fee-amount">Amount (INR)</label>
+                  <input
+                    id="student-fee-amount"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={paymentAmount}
+                    onChange={(event) => setPaymentAmount(event.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="student-fee-date">Payment date</label>
+                  <input
+                    id="student-fee-date"
+                    type="date"
+                    value={paymentDate}
+                    onChange={(event) => setPaymentDate(event.target.value)}
+                  />
+                </div>
+                <AppButton
+                  onClick={submitPayment}
+                  disabled={recordPayment.isPending || !feeState}
+                  className="w-full"
+                >
+                  {recordPayment.isPending ? "Recording…" : "Record payment"}
+                </AppButton>
+                {payments.length > 0 && (
+                  <div className="mt-4">
+                    <div className="eyebrow">Recent payments</div>
+                    <div className="space-y-3 mt-2">
+                      {payments.slice(0, 5).map((payment) => (
+                        <div className="payment-line" key={payment.id}>
+                          <span>
+                            <strong>{money(feeAmount(payment.amount))}</strong>
+                            <small>
+                              {payment.paymentDate
+                                ? date(payment.paymentDate)
+                                : "No date"}
+                            </small>
+                          </span>
+                          <small className="text-muted-foreground">
+                            {payment.createdAt ? date(payment.createdAt) : ""}
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </aside>
         </div>
       )}
@@ -2418,7 +3144,7 @@ export function ParamBasicDetail({
   return resource === "admissions" ? (
     <AdmissionDetailWithStudent id={id || ""} session={session} />
   ) : resource === "students" ? (
-    <StudentDetail id={id || ""} />
+    <StudentDetail id={id || ""} session={session} />
   ) : (
     <BasicDetail resource={resource} id={id || ""} session={session} />
   );

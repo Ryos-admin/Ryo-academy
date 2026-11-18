@@ -11,6 +11,7 @@ import { ScheduleCalculatorService } from "./schedule-calculator.service.js";
 import { InstallmentTemplateService } from "./installment-template.service.js";
 import {
   AdmissionStatus,
+  FeePricingVersion,
   InstallmentRowStatus,
   InstallmentScheduleType,
   LineageEventType,
@@ -102,14 +103,39 @@ export class AdmissionInstallmentScheduleService {
     }
   }
 
+  private validateAdmissionStatusForSchedule(
+    admission: { admissionStatus: AdmissionStatus },
+    header: { pricingVersion: FeePricingVersion },
+  ): void {
+    if (admission.admissionStatus === AdmissionStatus.CANCELLED) {
+      throw new BadRequestException(
+        "Installment schedule cannot be created or modified for cancelled admissions.",
+      );
+    }
+
+    if (header.pricingVersion === FeePricingVersion.V0_SNAPSHOTTED) {
+      if (
+        admission.admissionStatus !== AdmissionStatus.DRAFT &&
+        admission.admissionStatus !== AdmissionStatus.CONFIRMED
+      ) {
+        throw new BadRequestException(
+          `Installment schedule cannot be created or modified for admission in ${admission.admissionStatus} status. Supported statuses are DRAFT and CONFIRMED.`,
+        );
+      }
+    } else {
+      // Legacy admissions: strictly DRAFT only
+      if (admission.admissionStatus !== AdmissionStatus.DRAFT) {
+        throw new BadRequestException(
+          `Installment schedule cannot be modified for admission in ${admission.admissionStatus} status. Only DRAFT admissions can be scheduled.`,
+        );
+      }
+    }
+  }
+
   /**
    * Resolves the active FeePaymentHeader for the admission.
    */
-  private async resolveActiveHeader(
-    tx: any,
-    admissionId: string,
-    requestedHeaderId?: string,
-  ) {
+  private async resolveActiveHeader(tx: any, admissionId: string, requestedHeaderId?: string) {
     if (requestedHeaderId) {
       const header = await tx.feePaymentHeader.findFirst({
         where: { id: requestedHeaderId, admissionId, isActive: true },
@@ -156,7 +182,9 @@ export class AdmissionInstallmentScheduleService {
         );
       }
       if (!dto.firstDueDate) {
-        throw new BadRequestException("firstDueDate is required when previewing a template schedule.");
+        throw new BadRequestException(
+          "firstDueDate is required when previewing a template schedule.",
+        );
       }
 
       const calculated = this.calculatorService.calculateSchedule(
@@ -184,7 +212,9 @@ export class AdmissionInstallmentScheduleService {
     if (dto.manualSchedule) {
       const manual = dto.manualSchedule;
       if (!manual.justification || !manual.justification.trim()) {
-        throw new BadRequestException("Justification is mandatory for custom manual installment schedules.");
+        throw new BadRequestException(
+          "Justification is mandatory for custom manual installment schedules.",
+        );
       }
       if (!manual.installments || manual.installments.length === 0) {
         throw new BadRequestException("Manual schedule must contain at least one installment.");
@@ -199,7 +229,7 @@ export class AdmissionInstallmentScheduleService {
             `Installment sequences must be contiguous starting from 1. Found ${sorted[i].sequence} at index ${i}.`,
           );
         }
-        const amt = parseMoney(sorted[i].amount, 'installment amount');
+        const amt = parseMoney(sorted[i].amount, "installment amount");
         if (amt.lessThanOrEqualTo(0)) {
           throw new BadRequestException(
             `Installment sequence ${sorted[i].sequence} amount must be strictly positive.`,
@@ -218,7 +248,7 @@ export class AdmissionInstallmentScheduleService {
         sequence: it.sequence,
         subSequence: 0,
         label: it.label.trim(),
-        amount: parseMoney(it.amount, 'installment amount'),
+        amount: parseMoney(it.amount, "installment amount"),
         dueDate: this.calculatorService.parseDateUtc(it.dueDate),
         dueDateFormatted: it.dueDate,
       }));
@@ -233,7 +263,9 @@ export class AdmissionInstallmentScheduleService {
       };
     }
 
-    throw new BadRequestException("Either templateId or manualSchedule must be provided for preview.");
+    throw new BadRequestException(
+      "Either templateId or manualSchedule must be provided for preview.",
+    );
   }
 
   /**
@@ -254,17 +286,37 @@ export class AdmissionInstallmentScheduleService {
         where: { id: admission.id },
       });
 
-      if (currentAdmission.admissionStatus !== AdmissionStatus.DRAFT) {
-        throw new BadRequestException(
-          `Installment schedule cannot be modified for admission in ${currentAdmission.admissionStatus} status. Only DRAFT admissions can be scheduled.`,
-        );
-      }
-
       // 2. Lock and resolve FeePaymentHeader
       const header = await this.resolveActiveHeader(tx, admission.id, dto.feePaymentHeaderId);
       await this.lockHeader(tx, header.id);
 
-      // 3. Resolve active template
+      this.validateAdmissionStatusForSchedule(currentAdmission, header);
+
+      // 3. Payment history freeze check
+      const paymentCount = await tx.feePayment.count({
+        where: { feePaymentHeaderId: header.id },
+      });
+      if (paymentCount > 0) {
+        throw new ConflictException({
+          code: "SCHEDULE_FROZEN_PAYMENT_EXISTS",
+          message:
+            "Installment schedule cannot be created or modified once fee payments have been recorded for this header.",
+        });
+      }
+
+      // 4. Check if an existing schedule exists for this header
+      const existingSchedule = await tx.admissionInstallmentSchedule.findUnique({
+        where: { feePaymentHeaderId: header.id },
+      });
+      if (existingSchedule) {
+        throw new ConflictException({
+          code: "SCHEDULE_ALREADY_EXISTS",
+          message:
+            "An installment schedule already exists for this fee header. Use the update endpoint to modify an unpaid schedule.",
+        });
+      }
+
+      // 5. Resolve active template
       const template = await tx.installmentTemplate.findFirst({
         where: { id: dto.templateId, schoolId: admission.schoolId },
         include: { items: { orderBy: { sequence: "asc" } } },
@@ -280,7 +332,7 @@ export class AdmissionInstallmentScheduleService {
         );
       }
 
-      // 4. Calculate schedule amounts and due dates
+      // 6. Calculate schedule amounts and due dates
       const netAmount = new Decimal(header.netAmount.toString());
       const calculated = this.calculatorService.calculateSchedule(
         netAmount,
@@ -293,46 +345,18 @@ export class AdmissionInstallmentScheduleService {
         dto.allowFinalAbsorption ?? false,
       );
 
-      // 5. Check if an existing schedule exists for this header
-      const existingSchedule = await tx.admissionInstallmentSchedule.findUnique({
-        where: { feePaymentHeaderId: header.id },
+      const created = await tx.admissionInstallmentSchedule.create({
+        data: {
+          schoolId: admission.schoolId,
+          admissionId: admission.id,
+          feePaymentHeaderId: header.id,
+          templateId: template.id,
+          scheduleType: InstallmentScheduleType.TEMPLATE,
+          totalAmount: calculated.netAmount,
+          installmentCount: calculated.installmentCount,
+        },
       });
-
-      let scheduleId: string;
-
-      if (existingSchedule) {
-        scheduleId = existingSchedule.id;
-        await this.lockSchedule(tx, scheduleId);
-        await this.lockInstallments(tx, scheduleId);
-
-        // Safe DRAFT replacement: delete existing draft transfer edges, events, and installments
-        await tx.installmentLineageTransferEdge.deleteMany({ where: { scheduleId } });
-        await tx.installmentLineageEvent.deleteMany({ where: { scheduleId } });
-        await tx.admissionInstallment.deleteMany({ where: { scheduleId } });
-
-        await tx.admissionInstallmentSchedule.update({
-          where: { id: scheduleId },
-          data: {
-            templateId: template.id,
-            scheduleType: InstallmentScheduleType.TEMPLATE,
-            totalAmount: calculated.netAmount,
-            installmentCount: calculated.installmentCount,
-          },
-        });
-      } else {
-        const created = await tx.admissionInstallmentSchedule.create({
-          data: {
-            schoolId: admission.schoolId,
-            admissionId: admission.id,
-            feePaymentHeaderId: header.id,
-            templateId: template.id,
-            scheduleType: InstallmentScheduleType.TEMPLATE,
-            totalAmount: calculated.netAmount,
-            installmentCount: calculated.installmentCount,
-          },
-        });
-        scheduleId = created.id;
-      }
+      const scheduleId = created.id;
 
       // 6. Create installment rows
       const createdInstallments: any[] = [];
@@ -390,16 +414,14 @@ export class AdmissionInstallmentScheduleService {
    * Creates or replaces a custom manual installment schedule without a template.
    * Requires a non-empty justification.
    */
-  async createManual(
-    admissionId: string,
-    dto: CreateManualScheduleDto,
-    actorUserId?: string,
-  ) {
+  async createManual(admissionId: string, dto: CreateManualScheduleDto, actorUserId?: string) {
     const admission = await this.getAdmissionWithAccess(admissionId, actorUserId);
 
     const justification = dto.justification?.trim();
     if (!justification) {
-      throw new BadRequestException("Justification is mandatory for custom manual installment schedules.");
+      throw new BadRequestException(
+        "Justification is mandatory for custom manual installment schedules.",
+      );
     }
 
     if (!dto.installments || dto.installments.length === 0) {
@@ -414,19 +436,39 @@ export class AdmissionInstallmentScheduleService {
         where: { id: admission.id },
       });
 
-      if (currentAdmission.admissionStatus !== AdmissionStatus.DRAFT) {
-        throw new BadRequestException(
-          `Installment schedule cannot be modified for admission in ${currentAdmission.admissionStatus} status.`,
-        );
-      }
-
       // 2. Lock Header
       const header = await this.resolveActiveHeader(tx, admission.id, dto.feePaymentHeaderId);
       await this.lockHeader(tx, header.id);
 
+      this.validateAdmissionStatusForSchedule(currentAdmission, header);
+
+      // 3. Payment history freeze check
+      const paymentCount = await tx.feePayment.count({
+        where: { feePaymentHeaderId: header.id },
+      });
+      if (paymentCount > 0) {
+        throw new ConflictException({
+          code: "SCHEDULE_FROZEN_PAYMENT_EXISTS",
+          message:
+            "Installment schedule cannot be created or modified once fee payments have been recorded for this header.",
+        });
+      }
+
+      // 4. Check if an existing schedule exists for this header
+      const existingSchedule = await tx.admissionInstallmentSchedule.findUnique({
+        where: { feePaymentHeaderId: header.id },
+      });
+      if (existingSchedule) {
+        throw new ConflictException({
+          code: "SCHEDULE_ALREADY_EXISTS",
+          message:
+            "An installment schedule already exists for this fee header. Use the update endpoint to modify an unpaid schedule.",
+        });
+      }
+
       const netAmount = new Decimal(header.netAmount.toString());
 
-      // 3. Validate installment items
+      // 5. Validate installment items
       const sorted = [...dto.installments].sort((a, b) => a.sequence - b.sequence);
       let sum = new Decimal(0);
       const parsedItems: any[] = [];
@@ -437,7 +479,7 @@ export class AdmissionInstallmentScheduleService {
             `Installment sequences must be contiguous starting from 1. Found sequence ${sorted[i].sequence} at index ${i}.`,
           );
         }
-        const amt = parseMoney(sorted[i].amount, 'installment amount');
+        const amt = parseMoney(sorted[i].amount, "installment amount");
         if (amt.lessThanOrEqualTo(0)) {
           throw new BadRequestException(
             `Installment sequence ${sorted[i].sequence} amount must be strictly positive (found ₹${amt.toFixed(2)}).`,
@@ -460,45 +502,19 @@ export class AdmissionInstallmentScheduleService {
         );
       }
 
-      // 4. Upsert Schedule
-      const existingSchedule = await tx.admissionInstallmentSchedule.findUnique({
-        where: { feePaymentHeaderId: header.id },
+      // 6. Create Schedule
+      const created = await tx.admissionInstallmentSchedule.create({
+        data: {
+          schoolId: admission.schoolId,
+          admissionId: admission.id,
+          feePaymentHeaderId: header.id,
+          templateId: null,
+          scheduleType: InstallmentScheduleType.CUSTOM,
+          totalAmount: sum,
+          installmentCount: parsedItems.length,
+        },
       });
-
-      let scheduleId: string;
-
-      if (existingSchedule) {
-        scheduleId = existingSchedule.id;
-        await this.lockSchedule(tx, scheduleId);
-        await this.lockInstallments(tx, scheduleId);
-
-        await tx.installmentLineageTransferEdge.deleteMany({ where: { scheduleId } });
-        await tx.installmentLineageEvent.deleteMany({ where: { scheduleId } });
-        await tx.admissionInstallment.deleteMany({ where: { scheduleId } });
-
-        await tx.admissionInstallmentSchedule.update({
-          where: { id: scheduleId },
-          data: {
-            templateId: null,
-            scheduleType: InstallmentScheduleType.CUSTOM,
-            totalAmount: sum,
-            installmentCount: parsedItems.length,
-          },
-        });
-      } else {
-        const created = await tx.admissionInstallmentSchedule.create({
-          data: {
-            schoolId: admission.schoolId,
-            admissionId: admission.id,
-            feePaymentHeaderId: header.id,
-            templateId: null,
-            scheduleType: InstallmentScheduleType.CUSTOM,
-            totalAmount: sum,
-            installmentCount: parsedItems.length,
-          },
-        });
-        scheduleId = created.id;
-      }
+      const scheduleId = created.id;
 
       // 5. Insert installment rows
       const createdInstallments: any[] = [];
@@ -554,11 +570,7 @@ export class AdmissionInstallmentScheduleService {
   /**
    * Retrieves an admission's active installment schedule.
    */
-  async getSchedule(
-    admissionId: string,
-    actorUserId?: string,
-    feePaymentHeaderId?: string,
-  ) {
+  async getSchedule(admissionId: string, actorUserId?: string, feePaymentHeaderId?: string) {
     const admission = await this.getAdmissionWithAccess(admissionId, actorUserId);
     const header = await this.resolveActiveHeader(
       this.databaseService,
@@ -583,10 +595,18 @@ export class AdmissionInstallmentScheduleService {
       },
     });
 
+    const paymentCount = await this.databaseService.feePayment.count({
+      where: { feePaymentHeaderId: header.id },
+    });
+    const isFrozen =
+      header.pricingVersion === FeePricingVersion.V0_SNAPSHOTTED
+        ? paymentCount > 0
+        : admission.admissionStatus === AdmissionStatus.CONFIRMED || paymentCount > 0;
+
     return {
       admissionId: admission.id,
       admissionStatus: admission.admissionStatus,
-      isFrozen: admission.admissionStatus === AdmissionStatus.CONFIRMED,
+      isFrozen,
       header: {
         id: header.id,
         grossAmount: header.grossAmount,
@@ -622,17 +642,25 @@ export class AdmissionInstallmentScheduleService {
         where: { id: admission.id },
       });
 
-      if (currentAdmission.admissionStatus !== AdmissionStatus.DRAFT) {
-        throw new BadRequestException(
-          `Installment schedule cannot be modified after admission confirmation. Current status: ${currentAdmission.admissionStatus}.`,
-        );
-      }
-
       // 2. Lock Header
       const header = await this.resolveActiveHeader(tx, admission.id, dto.feePaymentHeaderId);
       await this.lockHeader(tx, header.id);
 
-      // 3. Lock Schedule
+      this.validateAdmissionStatusForSchedule(currentAdmission, header);
+
+      // 3. Payment history freeze check
+      const paymentCount = await tx.feePayment.count({
+        where: { feePaymentHeaderId: header.id },
+      });
+      if (paymentCount > 0) {
+        throw new ConflictException({
+          code: "SCHEDULE_FROZEN_PAYMENT_EXISTS",
+          message:
+            "Installment schedule cannot be modified once fee payments have been recorded for this header.",
+        });
+      }
+
+      // 4. Lock Schedule
       const schedule = await tx.admissionInstallmentSchedule.findUnique({
         where: { feePaymentHeaderId: header.id },
       });
@@ -659,7 +687,7 @@ export class AdmissionInstallmentScheduleService {
             `Installment sequences must be contiguous starting from 1. Found sequence ${sorted[i].sequence} at index ${i}.`,
           );
         }
-        const amt = parseMoney(sorted[i].amount, 'installment amount');
+        const amt = parseMoney(sorted[i].amount, "installment amount");
         if (amt.lessThanOrEqualTo(0)) {
           throw new BadRequestException(
             `Installment sequence ${sorted[i].sequence} amount must be strictly positive (found ₹${amt.toFixed(2)}).`,
@@ -749,11 +777,7 @@ export class AdmissionInstallmentScheduleService {
   /**
    * Retrieves schedule history and lineage events for administrative inspection.
    */
-  async getScheduleLineage(
-    admissionId: string,
-    actorUserId?: string,
-    feePaymentHeaderId?: string,
-  ) {
+  async getScheduleLineage(admissionId: string, actorUserId?: string, feePaymentHeaderId?: string) {
     const admission = await this.getAdmissionWithAccess(admissionId, actorUserId);
     const header = await this.resolveActiveHeader(
       this.databaseService,

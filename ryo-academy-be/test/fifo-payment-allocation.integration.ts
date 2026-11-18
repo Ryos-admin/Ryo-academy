@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertQaDatabase } from '../src/test/assert-qa-database.js';
 import {
   BadRequestException,
   ConflictException,
@@ -10,6 +11,7 @@ import { InstallmentAllocationService } from '../src/admission/installment/insta
 import {
   AdmissionStatus,
   DiscountType,
+  FeePricingVersion,
   InstallmentCalculationType,
   InstallmentRowStatus,
   InstallmentScheduleType,
@@ -35,6 +37,7 @@ class FailingLogStudentService extends StudentService {
 async function main() {
   const db = new DatabaseService({ getOrThrow: () => databaseUrl } as any);
   await db.$connect();
+  await assertQaDatabase(db);
 
   const allocationService = new InstallmentAllocationService();
   const studentService = new StudentService(db, allocationService);
@@ -163,6 +166,7 @@ async function main() {
 
       const header = await db.feePaymentHeader.create({
         data: {
+          pricingVersion: FeePricingVersion.LEGACY,
           admissionId: adm.id,
           academicYearId: yearAId,
           feeStructureId: fs.id,
@@ -354,6 +358,7 @@ async function main() {
       });
       const header2 = await db.feePaymentHeader.create({
         data: {
+          pricingVersion: FeePricingVersion.LEGACY,
           admissionId: fixture.admission.id,
           academicYearId: yearAId,
           feeStructureId: fs2.id,
@@ -410,7 +415,7 @@ async function main() {
       try {
         await studentService.recordStudentFeePayment(
           fixture.student.id,
-          { amount: '5000' },
+          { amount: '5000', idempotencyKey: '00000000-0000-4000-8000-000000000001' },
           officeAdminAId,
         );
       } catch (e: any) {
@@ -461,7 +466,7 @@ async function main() {
       try {
         await studentService.recordStudentFeePayment(
           'non-existent-student-id',
-          { amount: '1000' },
+          { amount: '1000', idempotencyKey: '00000000-0000-4000-8000-000000000003' },
           officeAdminAId,
         );
       } catch (e: any) {
@@ -486,7 +491,7 @@ async function main() {
       try {
         await studentService.recordStudentFeePayment(
           manufacturedStudent.id,
-          { amount: '1000' },
+          { amount: '1000', idempotencyKey: '00000000-0000-4000-8000-000000000004' },
           officeAdminAId,
         );
       } catch (e: any) {
@@ -724,11 +729,11 @@ async function main() {
       try {
         await studentService.recordStudentFeePayment(
           fixture.student.id,
-          { amount: 2500.123 as any },
+          { amount: 2500.123 as any, idempotencyKey: '00000000-0000-4000-8000-000000000005' },
           officeAdminAId,
         );
       } catch (e: any) {
-        if (e instanceof BadRequestException && /cannot have more than two decimal places/i.test(e.message)) {
+        if (e instanceof BadRequestException && (/cannot have more than two decimal places/i.test(e.message) || /no more than two fractional digits/i.test(e.message))) {
           decRejected = true;
         }
       }
@@ -821,14 +826,14 @@ async function main() {
       // Pay before due date (e.g. 2026-09-01) -> PAID_EARLY
       await studentService.recordStudentFeePayment(
         fixture.student.id,
-        { amount: '5000', paymentDate: '2026-09-01' },
+        { amount: '5000', paymentDate: '2026-09-01', idempotencyKey: 'sc12-p1-' + Date.now() },
         officeAdminAId,
       );
 
       // Pay on or after due date (e.g. 2026-10-15) -> PAID
       await studentService.recordStudentFeePayment(
         fixture.student.id,
-        { amount: '5000', paymentDate: '2026-10-15' },
+        { amount: '5000', paymentDate: '2026-10-15', idempotencyKey: 'sc12-p2-' + Date.now() },
         officeAdminAId,
       );
 
@@ -852,6 +857,7 @@ async function main() {
       DELETE FROM "InstallmentLineageTransferEdge" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
       DELETE FROM "InstallmentLineageEvent" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
       DELETE FROM "FeePaymentInstallmentAllocation" WHERE "feePaymentHeaderId" IN (SELECT id FROM "FeePaymentHeader" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')));
+      DELETE FROM "FeePaymentDetailAttribution" WHERE "feePaymentHeaderId" IN (SELECT id FROM "FeePaymentHeader" WHERE "admissionId" IN (SELECT id FROM "Admission" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}')));
       DELETE FROM "FeePayment" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}');
       DELETE FROM "AdmissionInstallment" WHERE "scheduleId" IN (SELECT id FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}'));
       DELETE FROM "AdmissionInstallmentSchedule" WHERE "schoolId" IN ('${schoolAId}', '${schoolBId}');
