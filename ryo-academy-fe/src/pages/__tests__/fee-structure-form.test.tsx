@@ -42,6 +42,7 @@ vi.mock("@/lib/fees-api", () => ({
   useFeeComponents: () => ({ data: [], isLoading: false, isError: false }),
   useFeeStructures: () => ({ data: [], isLoading: false, isError: false }),
   useUpdateFeeComponent: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSyncFeeStructure: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock("@/hooks/use-toast", () => ({ toast: mocks.toast }));
 vi.mock("wouter", async (importOriginal) => ({ ...(await importOriginal<typeof import("wouter")>()), useLocation: () => ["", mocks.navigate] }));

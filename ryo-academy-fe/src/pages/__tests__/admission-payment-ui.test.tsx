@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -435,6 +435,88 @@ describe("FE-M3: V0 Payment Collection UI & History Suite", () => {
         ).toBeInTheDocument();
       });
     });
+
+    it("handles ADMISSION_FEE_DETAILS_OUTDATED by blocking submission, preserving inputs, and suppressing ambiguous retry", async () => {
+      const user = userEvent.setup();
+
+      mockCalls.post.mockRejectedValueOnce(
+        new MockApiError(409, {
+          code: "ADMISSION_FEE_DETAILS_OUTDATED",
+          message:
+            'Active master fee component "Lab Fee" is missing from admission fee details.',
+        }),
+      );
+
+      renderWithClient(
+        <CollectAdmissionPaymentDialog
+          open={true}
+          onOpenChange={vi.fn()}
+          admissionId="adm-1"
+          feePaymentHeader={sampleHeader}
+          session={feesAdminUser}
+        />,
+      );
+
+      const libraryInput = screen.getByLabelText(/Allocation for Library Fee/i) as HTMLInputElement;
+      await user.type(libraryInput, "1500.00");
+
+      const dateInput = screen.getByLabelText(/Payment Date/i) as HTMLInputElement;
+      expect(dateInput.value).toBeTruthy();
+      const enteredDate = dateInput.value;
+
+      const submitBtn = screen.getByRole("button", { name: /Record Payment/i });
+      await user.click(submitBtn);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Fee Structure Synchronization Required/i),
+        ).toBeInTheDocument();
+      });
+
+      // Assert clear administrator guidance is displayed
+      expect(
+        screen.getByText(
+          /Payment collection is blocked until an authorized administrator synchronizes the Fee Structure\./i,
+        ),
+      ).toBeInTheDocument();
+
+      // Assert ambiguous retry button is NOT rendered
+      expect(
+        screen.queryByRole("button", { name: /Retry Prior Submission/i }),
+      ).not.toBeInTheDocument();
+
+      // Assert "Prior Submission Unresolved" is NOT rendered
+      expect(
+        screen.queryByText(/Prior Submission Unresolved/i),
+      ).not.toBeInTheDocument();
+
+      // Assert user input is preserved
+      expect(libraryInput.value).toBe("1500.00");
+      expect(dateInput.value).toBe(enteredDate);
+
+      // Assert payment submission is disabled while stale
+      const recordBtn = screen.getByRole("button", { name: /Record Payment/i });
+      expect(recordBtn).toBeDisabled();
+
+      // Assert calls.post was only called once (no automatic resubmission)
+      expect(mockCalls.post).toHaveBeenCalledTimes(1);
+
+      // Assert recovery: clicking "Refresh Fee Data" refetches and clears the block
+      const refreshBtn = screen.getByRole("button", { name: /Refresh Fee Data/i });
+      await user.click(refreshBtn);
+
+      await waitFor(() => {
+        expect(
+          screen.queryByText(/Fee Structure Synchronization Required/i),
+        ).not.toBeInTheDocument();
+      });
+
+      // Once refreshed, "Record Payment" is re-enabled for staff to review and submit
+      expect(screen.getByRole("button", { name: /Record Payment/i })).not.toBeDisabled();
+      // Allocations and date still preserved
+      expect(libraryInput.value).toBe("1500.00");
+      expect(dateInput.value).toBe(enteredDate);
+    });
   });
 
   describe("3. Idempotency State-Machine & Ambiguous Failure Retry", () => {
@@ -820,6 +902,118 @@ describe("FE-M3: V0 Payment Collection UI & History Suite", () => {
       expect(
         screen.queryByRole("button", { name: /Collect Fee Payment \(V0\)/i }),
       ).not.toBeInTheDocument();
+    });
+
+    it("handles ADMISSION_FEE_DETAILS_OUTDATED rejection by displaying alert banner, disabling submission, preserving entered values, and recovering on refresh", async () => {
+      mockCalls.get.mockImplementation(async (url: string) => {
+        if (url.includes("/students/std-drift/fees")) {
+          return {
+            student: { id: "std-drift", studentNumber: "STD-DRIFT", studentName: "Drift Student" },
+            admission: { id: "adm-drift", admissionNumber: "ADM-DRIFT", admissionStatus: "CONFIRMED" },
+            fee: { id: "fee-drift", totalAmount: 10000, paidAmount: 0, outstandingAmount: 10000, components: [] },
+            payments: [],
+          };
+        }
+        if (url.includes("/students/std-drift")) {
+          return {
+            id: "std-drift",
+            admissionId: "adm-drift",
+            studentNumber: "STD-DRIFT",
+            studentName: "Drift Student",
+            gender: "Male",
+            dateOfBirth: "2008-01-01",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+            studentSequence: 3,
+            admission: { admissionNumber: "ADM-DRIFT" },
+          };
+        }
+        if (url.includes("/fee-configuration")) {
+          return {
+            admissionId: "adm-drift",
+            feePaymentHeader: {
+              ...sampleHeader,
+              pricingVersion: "LEGACY",
+            },
+          };
+        }
+        if (url.includes("/admissions/adm-drift/concessions")) {
+          return { admissionId: "adm-drift", components: [] };
+        }
+        if (url.includes("/admissions/adm-drift/installment-schedule")) {
+          return { schedule: null, isFrozen: false };
+        }
+        if (url.includes("/admissions/adm-drift/payments")) {
+          return [];
+        }
+        if (url.includes("/admissions/adm-drift")) {
+          return {
+            id: "adm-drift",
+            admissionNumber: "ADM-DRIFT",
+            applicantName: "Drift Student",
+            admissionStatus: "CONFIRMED",
+          };
+        }
+        return [];
+      });
+
+      renderWithClient(
+        <StudentDetail id="std-drift" session={feesAdminUser} />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Amount \(INR\)/i)).toBeInTheDocument();
+      });
+
+      const amountInput = screen.getByLabelText(/Amount \(INR\)/i);
+      const dateInput = screen.getByLabelText(/Payment date/i);
+      const submitBtn = screen.getByRole("button", { name: /Record payment/i });
+
+      fireEvent.change(amountInput, { target: { value: "2500" } });
+      fireEvent.change(dateInput, { target: { value: "2026-11-20" } });
+
+      mockCalls.post.mockRejectedValueOnce(
+        new MockApiError(409, {
+          code: "ADMISSION_FEE_DETAILS_OUTDATED",
+          message: "Admission fee details do not match master components.",
+        }),
+      );
+
+      fireEvent.click(submitBtn);
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeInTheDocument();
+      });
+
+      expect(
+        screen.getByText(/Fee Structure Synchronization Required/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /The fee details for this admission no longer match the latest Fee Structure configuration\. Payment collection is blocked until an administrator synchronizes this Fee Structure\./i,
+        ),
+      ).toBeInTheDocument();
+
+      // Form values are preserved
+      expect(amountInput).toHaveValue(2500);
+      expect(dateInput).toHaveValue("2026-11-20");
+
+      // Submit button is disabled while drift is active
+      expect(submitBtn).toBeDisabled();
+
+      // Recovery via Refresh Fee Data
+      const refreshBtn = screen.getByRole("button", { name: /Refresh Fee Data/i });
+      expect(refreshBtn).toBeInTheDocument();
+
+      fireEvent.click(refreshBtn);
+
+      await waitFor(() => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      });
+
+      expect(submitBtn).not.toBeDisabled();
+      expect(amountInput).toHaveValue(2500);
+      expect(dateInput).toHaveValue("2026-11-20");
     });
   });
 

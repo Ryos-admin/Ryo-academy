@@ -150,6 +150,13 @@ describe("FE-M3: admission-payments-api unit tests", () => {
       );
     });
 
+    it("handles ADMISSION_FEE_DETAILS_OUTDATED conflict response with clear administrator guidance", () => {
+      const err = new ApiError(409, "Conflict", { code: "ADMISSION_FEE_DETAILS_OUTDATED" });
+      expect(admissionPaymentErrorMessage(err, "Fallback")).toBe(
+        "The fee details for this admission no longer match the latest Fee Structure configuration. Payment collection is blocked until an administrator synchronizes this Fee Structure.",
+      );
+    });
+
     it("extracts custom conflict and bad request messages", () => {
       const conflictErr = new ApiError(409, "Custom conflict", {
         message: "The idempotency key was already used with a different payment amount",

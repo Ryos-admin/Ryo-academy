@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Coins,
   Receipt,
@@ -9,6 +10,7 @@ import {
   ChevronUp,
   RotateCcw,
   Calendar,
+  RefreshCw,
 } from "lucide-react";
 import {
   Dialog,
@@ -19,6 +21,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { AppButton, money } from "@/pages/page-primitives";
+import { toast } from "@/hooks/use-toast";
 import {
   useAdmissionPayments,
   useRecordAdmissionPayment,
@@ -35,14 +38,18 @@ import {
 } from "@/lib/admission-payments-api";
 import { formatCalendarDate } from "@/pages/installment-schedule-components";
 import { type User, hasPermission } from "@/lib/mock-erp";
-import type { FeeConfigurationDetail } from "@/lib/concessions-api";
+import {
+  type FeeConfigurationDetail,
+  admissionFeeConfigurationQueryKey,
+} from "@/lib/concessions-api";
 
 export type IntentStatus =
   | "IDLE"
   | "SUBMITTING"
   | "AMBIGUOUS_ERROR"
   | "COMPLETED"
-  | "CONFLICT";
+  | "CONFLICT"
+  | "STALE_SNAPSHOT";
 
 export interface PaymentIntent {
   key: string;
@@ -100,6 +107,34 @@ export function CollectAdmissionPaymentDialog({
   const recordPaymentMutation = useRecordAdmissionPayment(admissionId, {
     studentId,
   });
+
+  const queryClient = useQueryClient();
+  const [isRefreshingSnapshot, setIsRefreshingSnapshot] = useState(false);
+
+  const handleRefreshFeeData = async () => {
+    setIsRefreshingSnapshot(true);
+    try {
+      await queryClient.refetchQueries({
+        queryKey: admissionFeeConfigurationQueryKey(admissionId),
+      });
+      setIntent((prev) => ({
+        ...prev,
+        status: "IDLE",
+        error: null,
+      }));
+      toast({
+        title: "Fee details refreshed",
+        description: "Authoritative fee configuration has been reloaded.",
+      });
+    } catch {
+      toast({
+        title: "Could not refresh fee data",
+        description: "Please check your network connection and try again.",
+      });
+    } finally {
+      setIsRefreshingSnapshot(false);
+    }
+  };
 
   // Filter only active and included components
   const eligibleComponents = useMemo(() => {
@@ -229,6 +264,12 @@ export function CollectAdmissionPaymentDialog({
       });
       setAllocations({});
       setFormError(null);
+    } else if (intent.status === "STALE_SNAPSHOT") {
+      setIntent((prev) => ({
+        ...prev,
+        status: "IDLE",
+        error: null,
+      }));
     }
   };
 
@@ -310,6 +351,12 @@ export function CollectAdmissionPaymentDialog({
         setIntent((prev) => ({
           ...prev,
           status: "IDLE",
+          error: msg,
+        }));
+      } else if (code === "ADMISSION_FEE_DETAILS_OUTDATED") {
+        setIntent((prev) => ({
+          ...prev,
+          status: "STALE_SNAPSHOT",
           error: msg,
         }));
       } else if (
@@ -510,8 +557,41 @@ export function CollectAdmissionPaymentDialog({
               </div>
             )}
 
+            {/* Stale Snapshot (ADMISSION_FEE_DETAILS_OUTDATED) Callout */}
+            {intent.status === "STALE_SNAPSHOT" && (
+              <div
+                role="alert"
+                className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/40 p-4 text-amber-900 dark:text-amber-200 text-xs space-y-2"
+              >
+                <div className="flex items-center gap-1.5 font-semibold text-sm text-amber-800 dark:text-amber-100">
+                  <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400" />
+                  Fee Structure Synchronization Required
+                </div>
+                <p className="leading-relaxed">
+                  This admission's fee details no longer match the active Fee Structure. Payment collection is
+                  blocked until an authorized administrator synchronizes the Fee Structure.
+                </p>
+                <p className="leading-relaxed text-muted-foreground dark:text-amber-300/80">
+                  Please request administrator assistance to synchronize this Fee Structure from the Fee Structure Master.
+                  Your entered payment allocations and payment date have been preserved.
+                </p>
+                <div className="pt-1">
+                  <AppButton
+                    type="button"
+                    variant="ghost"
+                    onClick={handleRefreshFeeData}
+                    disabled={isRefreshingSnapshot}
+                    className="h-8 text-xs border border-amber-300 dark:border-amber-700 bg-amber-100/50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200"
+                  >
+                    <RefreshCw size={13} className={`mr-1.5 ${isRefreshingSnapshot ? "animate-spin" : ""}`} />
+                    {isRefreshingSnapshot ? "Refreshing Fee Data…" : "Refresh Fee Data"}
+                  </AppButton>
+                </div>
+              </div>
+            )}
+
             {/* General or Conflict Error Callout */}
-            {intent.error && intent.status !== "AMBIGUOUS_ERROR" && (
+            {intent.error && intent.status !== "AMBIGUOUS_ERROR" && intent.status !== "STALE_SNAPSHOT" && (
               <div
                 role="alert"
                 className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-3 text-red-700 dark:text-red-300 text-xs flex items-start gap-2"
@@ -691,7 +771,8 @@ export function CollectAdmissionPaymentDialog({
                   disabled={
                     isSubmitting ||
                     !allocationValidation.isValid ||
-                    allocationValidation.totalPaymentMinor <= 0n
+                    allocationValidation.totalPaymentMinor <= 0n ||
+                    intent.status === "STALE_SNAPSHOT"
                   }
                 >
                   {isSubmitting ? "Recording Payment…" : "Record Payment"}

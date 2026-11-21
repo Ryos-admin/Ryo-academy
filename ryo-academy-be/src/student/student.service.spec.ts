@@ -49,6 +49,7 @@ const studentWith = (headers: unknown[], status = 'CONFIRMED', payments: unknown
 
 type Harness = {
   service: StudentService;
+  mockAdmissionPaymentService: any;
   findUnique: jest.Mock;
   detailUpdate: jest.Mock;
   headerUpdate: jest.Mock;
@@ -58,7 +59,7 @@ type Harness = {
   attributionCreateMany: jest.Mock;
 };
 
-function build(headers: unknown[], status = 'CONFIRMED', payments: unknown[] = []): Harness {
+function build(headers: unknown[], status = 'CONFIRMED', payments: unknown[] = [], customPaymentService?: any): Harness {
   const findUnique = jest.fn().mockResolvedValue(studentWith(headers, status, payments));
   const actorFindUnique = jest.fn().mockResolvedValue({ schoolId: 'school-1' });
   const detailUpdate = jest.fn().mockResolvedValue({});
@@ -83,7 +84,20 @@ function build(headers: unknown[], status = 'CONFIRMED', payments: unknown[] = [
     feePayment: { findUnique: paymentFindUnique },
     $transaction: jest.fn((fn: (t: unknown) => unknown) => fn(tx)),
   } as unknown as DatabaseService;
-  return { service: new StudentService(db), findUnique, detailUpdate, headerUpdate, queryRaw, paymentFindUnique, paymentCreate, attributionCreateMany };
+  const mockAdmissionPaymentService = customPaymentService ?? {
+    assertAdmissionFeeDetailsCurrent: jest.fn().mockResolvedValue(undefined),
+  };
+  return {
+    service: new StudentService(db, undefined, mockAdmissionPaymentService as any),
+    mockAdmissionPaymentService,
+    findUnique,
+    detailUpdate,
+    headerUpdate,
+    queryRaw,
+    paymentFindUnique,
+    paymentCreate,
+    attributionCreateMany,
+  };
 }
 
 const DTO = (amount: string, idempotencyKey?: string): CreateStudentFeePaymentDto =>
@@ -356,5 +370,67 @@ describe('StudentService.recordStudentFeePayment', () => {
       'actor-1',
       expect.anything()
     );
+  });
+
+  describe('Incremental Fee Synchronization — Task 2 Pre-Payment Eligibility Validation Gate', () => {
+    it('executes assertAdmissionFeeDetailsCurrent under Level 2 header lock inside transaction', async () => {
+      const h = build([HEADER]);
+      await h.service.recordStudentFeePayment('stu-1', DTO('50000.00'), 'actor-1');
+
+      // Verify Level 2 lock was acquired
+      expect(h.queryRaw).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.stringContaining('SELECT id FROM "FeePaymentHeader" WHERE id =')]),
+        'header-1',
+      );
+
+      // Verify shared validation gate was invoked with transaction and target header
+      expect(h.mockAdmissionPaymentService.assertAdmissionFeeDetailsCurrent).toHaveBeenCalledWith(
+        expect.anything(),
+        'header-1',
+      );
+    });
+
+    it('rejects stale snapshot with 409 ADMISSION_FEE_DETAILS_OUTDATED and leaves zero partial writes', async () => {
+      const customPaymentService = {
+        assertAdmissionFeeDetailsCurrent: jest.fn().mockRejectedValue(
+          new ConflictException({
+            code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+            message: 'Master pricing for fee component has changed.',
+          }),
+        ),
+      };
+      const h = build([HEADER], 'CONFIRMED', [], customPaymentService);
+
+      await expect(
+        h.service.recordStudentFeePayment('stu-1', DTO('50000.00'), 'actor-1'),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+        }),
+      });
+
+      // Verify zero partial financial writes
+      expect(h.paymentCreate).not.toHaveBeenCalled();
+      expect(h.detailUpdate).not.toHaveBeenCalled();
+      expect(h.headerUpdate).not.toHaveBeenCalled();
+      expect(h.attributionCreateMany).not.toHaveBeenCalled();
+    });
+
+    it('valid synchronized snapshots pass the gate cleanly and complete payment', async () => {
+      const customPaymentService = {
+        assertAdmissionFeeDetailsCurrent: jest.fn().mockResolvedValue(undefined),
+      };
+      const h = build([HEADER], 'CONFIRMED', [], customPaymentService);
+
+      await h.service.recordStudentFeePayment('stu-1', DTO('50000.00'), 'actor-1');
+      expect(customPaymentService.assertAdmissionFeeDetailsCurrent).toHaveBeenCalledWith(
+        expect.anything(),
+        'header-1',
+      );
+      expect(h.paymentCreate).toHaveBeenCalled();
+      expect(h.detailUpdate).toHaveBeenCalled();
+      expect(h.headerUpdate).toHaveBeenCalled();
+    });
   });
 });

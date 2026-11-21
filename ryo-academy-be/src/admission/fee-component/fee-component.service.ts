@@ -51,6 +51,7 @@ export class FeeComponentService {
             isMandatory: dto.isMandatory ?? true,
           },
         });
+        
         await this.recomputeMasterTotal(tx, master.id);
         return component;
       });
@@ -86,14 +87,53 @@ export class FeeComponentService {
         if (!master.isActive || master.deletedAt)
           throw new ConflictException("Fee structure is inactive.");
 
-        const activeComponent = master.feeComponents.find((item) => item.id === id);
+        const activeComponent = master.feeComponents.find((item: any) => item.id === id);
         if (!activeComponent)
           throw new NotFoundException(`Active fee component with ID "${id}" does not exist.`);
         const amount = dto.amount === undefined ? undefined : parseMoney(dto.amount, "amount");
         if (amount !== undefined && amount.lte(0))
           throw new BadRequestException("Fee component amount must be greater than zero.");
 
+        if (master.isConsumed) {
+          // Reject component amount decreases on consumed structures
+          if (amount !== undefined && amount.lt(activeComponent.amount)) {
+            throw new BadRequestException(
+              "COMPONENT_AMOUNT_DECREASE_PROHIBITED_ON_CONSUMED_STRUCTURE: Component amount cannot be decreased on a consumed fee structure.",
+            );
+          }
+
+          // Reject discountApplicable: false -> true on consumed structures
+          if (!activeComponent.discountApplicable && dto.discountApplicable === true) {
+            throw new BadRequestException(
+              "DISCOUNT_APPLICABILITY_INCREASE_PROHIBITED: Cannot enable discount applicability on a consumed fee structure component.",
+            );
+          }
+        }
+
         this.assertMasterTotalMatches(master);
+
+        // A discountApplicable: true -> false transition grandfathers existing concessions with requiresReview
+        if (activeComponent.discountApplicable === true && dto.discountApplicable === false) {
+          if (typeof tx.admissionFeeConcession?.findMany === "function") {
+            const concessionsToReview = await tx.admissionFeeConcession.findMany({
+              where: {
+                feePaymentDetails: {
+                  feeComponentId: id,
+                },
+              },
+              select: { id: true },
+            });
+            if (concessionsToReview.length > 0) {
+              await tx.admissionFeeConcession.updateMany({
+                where: {
+                  id: { in: concessionsToReview.map((c: any) => c.id) },
+                },
+                data: { requiresReview: true },
+              });
+            }
+          }
+        }
+
         const updated = await tx.feeComponent.update({
           where: { id },
           data: {
@@ -126,16 +166,53 @@ export class FeeComponentService {
         select: { feeStructureId: true },
       });
       if (!component) throw new NotFoundException(`Fee component with ID "${id}" does not exist.`);
-      const master = await this.lockAndReadMaster(tx, component.feeStructureId);
+      const master: any = await this.lockAndReadMaster(tx, component.feeStructureId);
       if (!master) throw new NotFoundException("Fee structure does not exist.");
       if (!master.isActive || master.deletedAt)
         throw new ConflictException("Fee structure is inactive.");
 
-      const activeComponent = master.feeComponents.find((item) => item.id === id);
+      const activeComponent = master.feeComponents.find((item: any) => item.id === id);
       if (!activeComponent) throw new ConflictException("Fee component already deleted.");
-      const detail = await tx.feePaymentDetails.findFirst({ where: { feeComponentId: id } });
-      if (detail)
-        throw new ConflictException("Fee component cannot be deleted while payment details exist.");
+
+      if (master.isConsumed) {
+        // Deactivation must reject when an applicable DRAFT or CONFIRMED admission has an outstanding balance attributable to the component
+        const referencingDetails =
+          typeof tx.feePaymentDetails?.findMany === "function"
+            ? await tx.feePaymentDetails.findMany({
+                where: {
+                  feeComponentId: id,
+                  isIncluded: true,
+                  feePaymentHeader: {
+                    admission: {
+                      admissionStatus: { in: ["DRAFT", "CONFIRMED"] },
+                    },
+                  },
+                },
+                select: {
+                  id: true,
+                  amountPaid: true,
+                  totalAmountToBePaid: true,
+                },
+              })
+            : [];
+
+        const hasOutstandingBalance = referencingDetails.some((d: any) => {
+          const paid = new Prisma.Decimal(d.amountPaid.toString());
+          const total = new Prisma.Decimal(d.totalAmountToBePaid.toString());
+          return total.minus(paid).gt(0);
+        });
+
+        if (hasOutstandingBalance) {
+          throw new ConflictException(
+            "COMPONENT_DEACTIVATION_REDUCES_ADMISSION_OBLIGATION: Fee component cannot be deactivated while applicable admissions have an outstanding balance attributable to it.",
+          );
+        }
+      } else {
+        const detail = await tx.feePaymentDetails.findFirst({ where: { feeComponentId: id } });
+        if (detail)
+          throw new ConflictException("Fee component cannot be deleted while payment details exist.");
+      }
+
       this.assertMasterTotalMatches(master);
 
       const deleted = await tx.feeComponent.update({
@@ -167,15 +244,16 @@ export class FeeComponentService {
     });
     if (!preCheck) return null;
 
-    // const ayId = preCheck.academicYearId ?? preCheck.academicYear?.id;
-    // if (ayId) {
-    //   const ayRows = await tx.$queryRaw<Array<{ id: string; status: AcademicYearStatus }>>`
-    //     SELECT id, status FROM "AcademicYear" WHERE id = ${ayId} FOR SHARE
-    //   `;
-    //   if (ayRows.length > 0 && ayRows[0].status && ayRows[0].status !== AcademicYearStatus.DRAFT) {
-    //     throw new ConflictException('Fee components can only be modified in DRAFT academic years');
-    //   }
-    // }
+    const ayId = preCheck.academicYearId ?? preCheck.academicYear?.id;
+    if (ayId) {
+      const ayRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+        SELECT id, status FROM "AcademicYear" WHERE id = ${ayId} FOR SHARE
+      `;
+      const ayStatus = ayRows.length > 0 && ayRows[0].status ? ayRows[0].status : (preCheck.academicYear as any)?.status;
+      if (ayStatus && ayStatus === 'CLOSED') {
+        throw new ConflictException('Fee components cannot be modified in CLOSED academic years');
+      }
+    }
 
     const rows = await tx.$queryRaw<
       { id: string }[]
@@ -186,11 +264,6 @@ export class FeeComponentService {
       typeof tx.feePaymentHeader?.findFirst === "function"
         ? await tx.feePaymentHeader.findFirst({ where: { feeStructureId: id } })
         : null;
-    // if (consumed) {
-    //   throw new ConflictException(
-    //     'Fee components belonging to a consumed fee structure cannot be modified, created, or deleted.',
-    //   );
-    // }
 
     const master = await tx.feeStructure.findUnique({
       where: { id },
@@ -199,7 +272,12 @@ export class FeeComponentService {
         feeComponents: { where: { isActive: true } },
       },
     });
-    return master;
+    if (!master) return null;
+
+    return {
+      ...master,
+      isConsumed: Boolean(consumed),
+    };
   }
 
   private assertMasterTotalMatches(master: {

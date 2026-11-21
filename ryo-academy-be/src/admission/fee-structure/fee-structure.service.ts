@@ -132,17 +132,25 @@ export class FeeStructureService {
         }
 
         if (ayId) {
-          await tx.$queryRaw`SELECT "id" FROM "AcademicYear" WHERE "id" = ${ayId} FOR SHARE`;
+          const ayRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+            SELECT id, status FROM "AcademicYear" WHERE id = ${ayId} FOR SHARE
+          `;
           const academicYear = (await tx.academicYear.findUnique({
             where: { id: ayId },
           })) ?? preCheck.academicYear;
           if (!academicYear || academicYear.isActive === false || academicYear.deletedAt) {
             throw new NotFoundException(`Academic year with ID "${ayId}" does not exist.`);
           }
+          const ayStatus = ayRows.length > 0 && ayRows[0].status ? ayRows[0].status : (academicYear as any)?.status;
+          if (ayStatus && ayStatus !== 'DRAFT') {
+            throw new ConflictException(
+              "Fee structure can only be modified in DRAFT academic years",
+            );
+          }
         }
 
         await tx.$queryRaw`SELECT "id" FROM "FeeStructure" WHERE "id" = ${id} FOR UPDATE`;
-        // await this.assertNotConsumed(tx, id);
+        await this.assertNotConsumed(tx, id);
 
         if (dto.isActive === false) await this.assertNoHistoricalReferences(tx, id);
 
@@ -183,23 +191,26 @@ export class FeeStructureService {
       if (!preCheck.isActive || preCheck.deletedAt)
         throw new ConflictException("Fee structure already deleted.");
 
-      // const ayId = preCheck.academicYearId ?? preCheck.academicYear?.id;
-      // let academicYear: any = null;
-      // if (ayId) {
-      //   await tx.$queryRaw`SELECT "id" FROM "AcademicYear" WHERE "id" = ${ayId} FOR SHARE`;
-      //   academicYear = (await tx.academicYear.findUnique({
-      //     where: { id: ayId },
-      //   })) ?? preCheck.academicYear;
-      //   if (academicYear?.status && academicYear.status !== AcademicYearStatus.DRAFT) {
-      //     throw new ConflictException(
-      //       "Fee structure can only be deleted in DRAFT academic years",
-      //     );
-      //   }
-      // }
+      const ayId = preCheck.academicYearId ?? preCheck.academicYear?.id;
+      let academicYear: any = null;
+      if (ayId) {
+        const ayRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+          SELECT id, status FROM "AcademicYear" WHERE id = ${ayId} FOR SHARE
+        `;
+        academicYear = (await tx.academicYear.findUnique({
+          where: { id: ayId },
+        })) ?? preCheck.academicYear;
+        const ayStatus = ayRows.length > 0 && ayRows[0].status ? ayRows[0].status : (academicYear as any)?.status;
+        if (ayStatus && ayStatus !== 'DRAFT') {
+          throw new ConflictException(
+            "Fee structure can only be deleted in DRAFT academic years",
+          );
+        }
+      }
 
-      // await tx.$queryRaw`SELECT "id" FROM "FeeStructure" WHERE "id" = ${id} FOR UPDATE`;
-      // await this.assertNotConsumed(tx, id);
-      // await this.assertNoHistoricalReferences(tx, id);
+      await tx.$queryRaw`SELECT "id" FROM "FeeStructure" WHERE "id" = ${id} FOR UPDATE`;
+      await this.assertNotConsumed(tx, id);
+      await this.assertNoHistoricalReferences(tx, id);
 
       return tx.feeStructure.update({
         where: { id },
@@ -209,16 +220,16 @@ export class FeeStructureService {
     });
   }
 
-  // private async assertNotConsumed(tx: Prisma.TransactionClient, id: string) {
-  //   const consumption = await tx.feePaymentHeader.findFirst({
-  //     where: { feeStructureId: id },
-  //   });
-  //   if (consumption) {
-  //     throw new ConflictException(
-  //       "Fee structure is permanently frozen because it has been consumed by admissions.",
-  //     );
-  //   }
-  // }
+  private async assertNotConsumed(tx: Prisma.TransactionClient, id: string) {
+    const consumption = await tx.feePaymentHeader.findFirst({
+      where: { feeStructureId: id },
+    });
+    if (consumption) {
+      throw new ConflictException(
+        "Fee structure is permanently frozen because it has been consumed by admissions.",
+      );
+    }
+  }
 
   private parseAndValidateGstPercentage(gstInput?: string | null): Prisma.Decimal {
     if (gstInput === undefined || gstInput === null || gstInput === "") {

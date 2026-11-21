@@ -325,6 +325,9 @@ export function admissionPaymentErrorMessage(
   if (body?.code === "SCHEDULE_REQUIRED") {
     return "An installment schedule must be configured before collecting the first payment on this admission.";
   }
+  if (body?.code === "ADMISSION_FEE_DETAILS_OUTDATED") {
+    return "The fee details for this admission no longer match the latest Fee Structure configuration. Payment collection is blocked until an administrator synchronizes this Fee Structure.";
+  }
   if (error.status === 409) {
     if (typeof body?.message === "string") {
       return body.message;

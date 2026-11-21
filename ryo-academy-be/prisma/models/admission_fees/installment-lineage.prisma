@@ -3,6 +3,7 @@ enum LineageEventType {
   MANUAL_RESCHEDULE
   PAYMENT_AUTO_SPLIT
   REVERSAL_RESTORE
+  FEE_REVISION
 }
 
 model InstallmentLineageEvent {

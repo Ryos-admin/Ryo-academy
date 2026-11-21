@@ -18,7 +18,7 @@ This document tracks backend readiness and frontend real-API migration progress.
 | Students             | Partial backend capability                            | Partially API-integrated (Fee views & payments real; student profile partial)                                                                                | Yes                                                     | Confirm full student profile scope           |
 | Academic Calendar    | Implemented                                           | Not migrated                                                                                                                                                 | Yes                                                     | Frontend migration                           |
 | Attendance           | Implemented                                           | Mock-backed                                                                                                                                                  | Yes                                                     | Frontend migration and live validation       |
-| Fees                 | Implemented (V1 & BE-ND2 Complete)                    | Real API-backed (Fee structures, components, payments, reversals, concessions, schedules)                                                                    | Timetable remains mocked                                | Ready for V0 browser QA                      |
+| Fees                 | Implemented (V1, BE-ND2 & Incremental Fee Sync Complete) | Real API-backed (Fee structures, components, payments, reversals, concessions, schedules, manual sync & drift alerts) | Timetable remains mocked                                | Ready for V0 browser QA                      |
 | Timetable            | Not fully available                                   | Mock-backed                                                                                                                                                  | Yes                                                     | Keep mock until V0 browser QA sign-off       |
 | Dashboard            | Aggregated frontend view                              | Mock-backed                                                                                                                                                  | Yes                                                     | Migrate only after source modules are real   |
 
@@ -75,6 +75,41 @@ Known limitation: `/auth/me` currently exposes only the user ID, so frontend rol
 - Class resolved through real Classes data
 - Class remains immutable during editing
 - Delete confirmation warns about permanent Teaching Assignment removal
+
+### Milestone 8 — Incremental Fee Synchronization (Tasks 1–4.4)
+
+Status: Complete
+
+#### Scope
+Full-stack implementation of incremental fee synchronization: master structure upward-only mutation restrictions, shared pre-payment eligibility validation gates, atomic administrator synchronization pipeline, and frontend synchronization & payment drift handling.
+
+#### Tasks Completed
+- **Task 1: Master Mutation Restrictions:** Upward-only price adjustments on consumed fee structures (`COMPONENT_AMOUNT_DECREASE_PROHIBITED_ON_CONSUMED_STRUCTURE`, `DISCOUNT_APPLICABILITY_INCREASE_PROHIBITED`, `COMPONENT_DEACTIVATION_REDUCES_ADMISSION_OBLIGATION`). Master mutations decoupled from admission snapshots.
+- **Task 2: Shared Pre-Payment Validation Gate:** `assertAdmissionFeeDetailsCurrent` in `AdmissionPaymentService` and `StudentService`. Rejects stale snapshots with HTTP 409 `ADMISSION_FEE_DETAILS_OUTDATED` under Level 2 serializing transaction locks before payment writes.
+- **Task 3: Synchronization Execution & Admin API:** `POST /fee-structure/:id/sync` endpoint in `FeeStructureSyncController` and pipeline in `FeeStructureSyncService`. Reconciles applicable `DRAFT` and `CONFIRMED` admissions (`CANCELLED` excluded). Updates in-place details, recomputes concessions (`recomputeV0`), checks negative due (`NEGATIVE_DUE_PROHIBITED`), increments un-split pending roots (Case A), or generates supplementary root installments and `InstallmentLineageEvent` records (`LineageEventType.FEE_REVISION`). 5-level lock hierarchy guarantees single-writer concurrency.
+- **Task 4.1: Frontend API Client & Hook:** `feesApi.syncStructure()` and `useSyncFeeStructure()` mutation hook in `ryo-academy-fe/src/lib/fees-api.ts`.
+- **Task 4.2: Fee Structure Master Synchronization UI:** `FeeStructureSyncDialog` in `ryo-academy-fe/src/pages/fee-structure-sync-dialog.tsx` and "Synchronize Admissions" action in `RealFeeDetail` (`fee-pages.tsx`), restricted to `FEES_UPDATE`.
+- **Task 4.3: Admission Payment Drift Gate Integration:** `CollectAdmissionPaymentDialog` in `admission-payment-components.tsx` intercepts `ADMISSION_FEE_DETAILS_OUTDATED`, disables submission, preserves allocation inputs, and exposes "Refresh Fee Data" refetch recovery.
+- **Task 4.4: Student Inline Payment Drift Gate Integration:** `RealStudentDetail` in `admissions-students-pages.tsx` intercepts `ADMISSION_FEE_DETAILS_OUTDATED`, displays amber alert banner with administrator guidance, preserves payment amount and date, disables payment recording, and provides refetch recovery.
+
+#### Backend Endpoints
+- `POST /fee-structure/:id/sync`:
+  - Request DTO: `SyncFeeStructureDto` (`supplementaryDueDate?: string`)
+  - Response DTO: `FeeStructureSyncExecutionResult` (`feeStructureId`, `synchronizedAt`, `eligibleAdmissionCount`, `synchronizedAdmissionCount`, `admissionsWithScheduleCount`, `admissionsWithoutScheduleCount`, `caseAIncreasesCount`, `supplementaryRootsCreatedCount`, `detailsInsertedCount`, `detailsUpdatedCount`)
+  - Authorization: `FEES_UPDATE` (`PermissionsGuard`) and tenant school matching.
+
+#### Error Codes & Invariants
+- `ADMISSION_FEE_DETAILS_OUTDATED`: Stale fee snapshot detected prior to payment.
+- `NEGATIVE_DUE_PROHIBITED`: Thrown if total fee net amount is less than total paid amount. Clamping or synthetic credit prohibited.
+- `ACADEMIC_YEAR_ENDED_SUPPLEMENTARY_DATE_REQUIRED`: Supplementary due date required if academic year has ended.
+- `COMPONENT_AMOUNT_DECREASE_PROHIBITED_ON_CONSUMED_STRUCTURE`: Component decreases prohibited.
+- `DISCOUNT_APPLICABILITY_INCREASE_PROHIBITED`: Expansion of discount applicability on consumed structures prohibited.
+- `COMPONENT_DEACTIVATION_REDUCES_ADMISSION_OBLIGATION`: Deactivation of components with attributable unpaid admission balances prohibited.
+
+#### Known Outstanding QA Fixture Findings
+1. `test/fee-structure-sync-stage3.integration.ts`: References obsolete `createComponentWithSyncPlan` draft API; scheduled for authorized QA maintenance to use decoupled `executeSynchronization`.
+2. `test/fifo-payment-allocation.integration.ts`: Historical test fixture seeds inconsistent `discountApplicable: false` on detail snapshot while master is `true`. The pre-payment gate functions correctly and rejects; fixture data will be aligned in a future authorized QA task.
+3. `src/pages/__tests__/admission-fee-preview.test.tsx`: Pre-existing test failure associated with uncommitted edit in `admissions-students-pages.tsx:2132` and missing `QueryClientProvider` wrapper in legacy test harness.
 
 ## Module Tracking Template
 

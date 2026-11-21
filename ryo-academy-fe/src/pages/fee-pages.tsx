@@ -8,6 +8,7 @@ import {
   ArrowRight,
   CircleDollarSign,
   Plus,
+  RefreshCw,
   Settings2,
   Trash2,
   X,
@@ -60,6 +61,7 @@ import {
   money,
 } from "@/pages/page-primitives";
 import { Field, SelectField } from "@/pages/academic-pages";
+import { FeeStructureSyncDialog } from "./fee-structure-sync-dialog";
 const feeSchema = z
   .object({
     name: z.string().min(2, "Name is required"),
@@ -240,6 +242,7 @@ export function RealFeeDetail({ id, session }: { id: string; session: User }) {
   const query = useFeeStructure(id);
   const deactivate = useDeactivateFeeStructure();
   const [, setLocation] = useLocation();
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const canUpdate = hasPermission(session, "FEES_UPDATE");
   const canCreate = hasPermission(session, "FEES_CREATE");
   if (query.isLoading) return <Loading />;
@@ -322,6 +325,16 @@ export function RealFeeDetail({ id, session }: { id: string; session: User }) {
                 Add fee component
               </Link>
             )}
+            {canUpdate && (
+              <AppButton
+                type="button"
+                variant="ghost"
+                onClick={() => setSyncDialogOpen(true)}
+              >
+                <RefreshCw size={15} />
+                Synchronize Admissions
+              </AppButton>
+            )}
             {item.isActive && canUpdate && (
               <AppButton
                 type="button"
@@ -387,6 +400,14 @@ export function RealFeeDetail({ id, session }: { id: string; session: User }) {
           )}
         </aside>
       </div>
+      {canUpdate && item && (
+        <FeeStructureSyncDialog
+          open={syncDialogOpen}
+          onOpenChange={setSyncDialogOpen}
+          feeStructureId={id}
+          feeStructureName={item.name}
+        />
+      )}
     </>
   );
 }

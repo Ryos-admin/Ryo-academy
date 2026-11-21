@@ -84,3 +84,34 @@ flowchart TD
    - Financial reads (`GET /students/:id/fees`, `GET /admissions/:id/installment-schedule`) remain highly available.
 3. **Single-Writer Guarantee:**
    - When processing payments or schedule updates for a student/admission, transactions must serialize on the parent header to prevent race conditions during FIFO allocation.
+
+---
+
+## 6. Incremental Fee Synchronization & Lineage Invariants
+
+1. **Upward-Only Master Mutation on Consumed Structures:**
+   - Consumed fee structures permit adding new components and increasing existing component amounts.
+   - Component price decreases throw `COMPONENT_AMOUNT_DECREASE_PROHIBITED_ON_CONSUMED_STRUCTURE`.
+   - Discount applicability expansion (`false -> true`) throws `DISCOUNT_APPLICABILITY_INCREASE_PROHIBITED`.
+   - Deactivation of components with attributable unpaid admission balances throws `COMPONENT_DEACTIVATION_REDUCES_ADMISSION_OBLIGATION`.
+   - Master modifications do **not** automatically mutate admission fee snapshots.
+
+2. **Pre-Payment Eligibility Validation Gate:**
+   - Both `AdmissionPaymentService.createAdmissionPayment()` and `StudentService.recordStudentFeePayment()` enforce `assertAdmissionFeeDetailsCurrent()`.
+   - Validation executes under Level 2 `FeePaymentHeader` transaction locks *before* any payment writes.
+   - If material drift exists (component names, amounts, mandatory status, or discount applicability), the transaction rolls back with HTTP 409 `ADMISSION_FEE_DETAILS_OUTDATED`.
+
+3. **DAG Lineage Fee Revisions (`FEE_REVISION`):**
+   - Reconciling installment schedules against fee increases uses `LineageEventType.FEE_REVISION`.
+   - **Case A (In-Place Root Increase):** Applied only when the last pending installment satisfies all 9 un-split root invariance checks. Increment is applied to `amount` and initial transfer edge.
+   - **Case B & C (Supplementary Roots):** When leaves are already split by partial payments or fully settled, prior installment rows and allocations remain immutable. A supplementary root installment (`sequence = maxSequence + 1`, `subSequence = 0`) is created with an `InstallmentLineageEvent` and a root `InstallmentLineageTransferEdge`.
+   - Settled leaves (`status === PAID`) and historical allocations are permanently immutable.
+
+4. **Negative Due Prohibition:**
+   - Header recomputation in `recomputeV0()` requires $\text{totalDueAmount} = \text{netAmount} - \text{totalPaidAmount} \ge 0$.
+   - Any negative due throws `NEGATIVE_DUE_PROHIBITED`. Synthetic credit or silent balance clamping is strictly prohibited.
+
+5. **5-Level Concurrency & Synchronization Hierarchy:**
+   - Synchronization is explicitly administrator-initiated via `POST /fee-structure/:id/sync` (`FEES_UPDATE`).
+   - All eligible `DRAFT` and `CONFIRMED` admissions (`CANCELLED` strictly excluded) are locked and updated inside a single transaction with sorted locks:
+     `FeeStructure` $\rightarrow$ `Admission` $\rightarrow$ `FeePaymentHeader` $\rightarrow$ `AdmissionInstallmentSchedule` $\rightarrow$ `AdmissionInstallment`.

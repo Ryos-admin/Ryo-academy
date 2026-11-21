@@ -325,6 +325,11 @@ export class StudentService {
         // Level 2 Lock: FeePaymentHeader
         await this.lockFeePaymentHeader(tx, targetHeader.id);
 
+        // Shared Pre-Payment Validation Gate (Task 2)
+        const paymentValidationService =
+          this.admissionPaymentService ?? new AdmissionPaymentService(this.databaseService);
+        await paymentValidationService.assertAdmissionFeeDetailsCurrent(tx, targetHeader.id);
+
         // Re-fetch header with details inside transaction
         const freshHeader =
           (await tx.feePaymentHeader.findUnique?.({

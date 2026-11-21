@@ -6902,5 +6902,56 @@ Delivered the dedicated frontend Fee Management Dashboard at `/fee-management` i
 - **Frontend Typecheck:** `npm run typecheck`: Exit code 0, 0 errors.
 - **Frontend Production Build:** `npm run build`: Exit code 0 (1866 modules transformed in 8.08s).
 
+# Milestone — Incremental Fee Synchronization Frontend Integration (Tasks 4.1–4.4)
 
+Status: Complete
 
+## Scope
+
+Implemented complete frontend UI integration for manual fee synchronization and admission/student fee drift handling across Fee Structure Master, Admission Payment Dialog, and Student Detail screens.
+
+## Files Created
+
+- `src/pages/fee-structure-sync-dialog.tsx`: Dedicated modal dialog for administrator-initiated FeeStructure synchronization, optional supplementary due date picker, client validation against `Asia/Kolkata` business date, and actual backend execution metric breakdown.
+- `src/pages/__tests__/fee-structure-sync.test.tsx`: Test suite covering synchronization dialog authorization, supplementary date validation, error recovery, query invalidation, and execution metric display.
+
+## Files Modified
+
+- `src/lib/fees-api.ts`: Added `SyncFeeStructureRequest` and `SyncFeeStructureResult` interfaces, `feesApi.syncStructure()` adapter, and `useSyncFeeStructure()` React Query mutation hook.
+- `src/lib/__tests__/fees-api.test.ts`: Added unit tests for `syncStructure` API endpoint and `useSyncFeeStructure` hook.
+- `src/pages/fee-pages.tsx`: Integrated "Synchronize Admissions" button into `RealFeeDetail` header, guarded by `FEES_UPDATE`.
+- `src/pages/__tests__/fee-structure-form.test.tsx`: Updated mock provider to include `useSyncFeeStructure`.
+- `src/lib/admission-payments-api.ts`: Updated `admissionPaymentErrorMessage()` to detect `ADMISSION_FEE_DETAILS_OUTDATED` and return standardized administrator guidance.
+- `src/pages/admission-payment-components.tsx`: Integrated drift gate into `CollectAdmissionPaymentDialog` with amber alert banner, input preservation, submission disabling, and "Refresh Fee Data" refetch recovery.
+- `src/lib/__tests__/admission-payments-api.test.ts`: Added unit tests for `ADMISSION_FEE_DETAILS_OUTDATED` error extraction.
+- `src/lib/student-fees-api.ts`: Updated `studentFeesErrorMessage()` to detect `ADMISSION_FEE_DETAILS_OUTDATED`, HTTP 409 conflict responses, and return standardized administrator guidance.
+- `src/lib/__tests__/student-fees.test.tsx`: Added unit tests for `studentFeesErrorMessage` covering drift, RBAC, and conflict cases.
+- `src/pages/admissions-students-pages.tsx`: Integrated drift gate into `RealStudentDetail` inline payment form with alert banner, input preservation, submission disabling, and "Refresh Fee Data" refetch recovery.
+- `src/pages/__tests__/admission-payment-ui.test.tsx`: Added integration tests verifying drift detection, input preservation, submission disablement, and recovery refetch across both admission dialog and student detail flows.
+
+## Backend Endpoints Consumed
+
+- `POST /fee-structure/:id/sync`:
+  - Request: `{ supplementaryDueDate?: string }`
+  - Response: `{ feeStructureId, synchronizedAt, eligibleAdmissionCount, synchronizedAdmissionCount, admissionsWithScheduleCount, admissionsWithoutScheduleCount, caseAIncreasesCount, supplementaryRootsCreatedCount, detailsInsertedCount, detailsUpdatedCount }`
+  - Authorization: `FEES_UPDATE`
+
+## Frontend Behavior & Safeguards
+
+- **Task 4.1:** Type-safe API client and hook with targeted invalidation across `["fee-structures"]`, `["admissions"]`, `["student-fees"]`, and `["fee-configuration"]`.
+- **Task 4.2:** "Synchronize Admissions" button rendered only for users with `FEES_UPDATE`. Dialog validates optional supplementary due dates against current `Asia/Kolkata` business date. Prompts for date if backend returns `ACADEMIC_YEAR_ENDED_SUPPLEMENTARY_DATE_REQUIRED`.
+- **Task 4.3:** Admission payment dialog intercepts `ADMISSION_FEE_DETAILS_OUTDATED`. Freezes submission, suppresses ambiguous payment retry states, preserves component allocations and payment date, and exposes "Refresh Fee Data" button.
+- **Task 4.4:** Inline student payment flow in `StudentDetail` intercepts `ADMISSION_FEE_DETAILS_OUTDATED`. Renders amber warning banner, preserves payment amount and date, disables payment recording, and provides "Refresh Fee Data" recovery refetch.
+- **Zero Ambiguous Retries:** Neither payment flow automatically retries rejected payments, preventing phantom or duplicate payment submissions.
+
+## Verification Evidence
+
+- **Frontend Fee Synchronization Suite:**
+  - `src/lib/__tests__/fees-api.test.ts`: 13 passed (13).
+  - `src/pages/__tests__/fee-structure-sync.test.tsx`: 12 passed (12).
+  - `src/lib/__tests__/admission-payments-api.test.ts`: 16 passed (16).
+  - `src/pages/__tests__/admission-payment-ui.test.tsx`: 24 passed (24).
+  - `src/lib/__tests__/student-fees.test.tsx`: 23 passed (23).
+  - **Combined Fee Test Run:** 5 test files passed, 88/88 tests passed (100%).
+- **Frontend Typecheck:** `npm run typecheck`: Exit code 0, 0 errors.
+- **Frontend Production Build:** `npm run build`: Exit code 0 (1,867 modules transformed in 8.05s).

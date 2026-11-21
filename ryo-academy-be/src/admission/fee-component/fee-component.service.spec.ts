@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { FeeComponentService } from './fee-component.service.js';
 
@@ -6,20 +6,21 @@ const year = {
   id: 'year-1',
   startDate: new Date('2026-06-01T00:00:00.000Z'),
   endDate: new Date('2027-05-31T00:00:00.000Z'),
+  status: 'DRAFT',
 };
 
 function harness(initialAmount = '100.00', storedTotal = initialAmount) {
   let total = new Prisma.Decimal(storedTotal);
   let components: any[] = [{
     id: 'component-1', name: 'Tuition', amount: new Prisma.Decimal(initialAmount),
-    feeStructureId: 'fs-1', isActive: true, deletedAt: null,
+    feeStructureId: 'fs-1', isActive: true, deletedAt: null, discountApplicable: true,
   }];
   const state = {
     get total() { return total; },
     get components() { return components; },
   };
   const tx: any = {
-    $queryRaw: jest.fn().mockResolvedValue([{ id: 'fs-1' }]),
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'fs-1', status: 'DRAFT' }]),
     feeStructure: {
       findUnique: jest.fn().mockImplementation(async () => ({
         id: 'fs-1', isActive: true, deletedAt: null, totalAmount: total,
@@ -50,7 +51,39 @@ function harness(initialAmount = '100.00', storedTotal = initialAmount) {
         return components.find((item) => item.id === where.id);
       }),
     },
-    feePaymentDetails: { findFirst: jest.fn().mockResolvedValue(null) },
+    feePaymentDetails: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    admissionFeeConcession: {
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      update: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
+    },
+    feePaymentDetailAttribution: {
+      update: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    feePayment: {
+      update: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    feePaymentInstallmentAllocation: {
+      update: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    paymentReversalEvent: {
+      update: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
   };
   const db: any = {
     $transaction: jest.fn(async (callback: (tx: any) => unknown) => {
@@ -224,79 +257,223 @@ describe('FeeComponentService mutation consistency', () => {
     await expect(service.update('missing', {} as any)).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  describe('BE-ND2 Stage 2: FeeComponent Consumption and Lifecycle Freeze', () => {
-    it('blocks component creation when parent FeeStructure is consumed by admissions with 409 Conflict', async () => {
+  describe('Task 1: Master FeeComponent Mutation, Freeze & Upward-Only Gates', () => {
+    it('allows component creation on consumed structure in DRAFT academic year', async () => {
       const h = harness();
       h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+
+      const result = await h.service.create({
+        feeStructureId: 'fs-1',
+        name: 'Activity Fee',
+        amount: '50.00',
+      } as any);
+
+      expect(result).toBeDefined();
+      expect(h.tx.feeComponent.create).toHaveBeenCalledTimes(1);
+      expect(h.tx.feeStructure.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows component creation on consumed structure in ACTIVE academic year', async () => {
+      const h = harness();
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+      h.tx.$queryRaw = jest.fn().mockResolvedValue([{ id: 'fs-1', status: 'ACTIVE' }]);
+
+      const result = await h.service.create({
+        feeStructureId: 'fs-1',
+        name: 'Sports Fee',
+        amount: '75.00',
+      } as any);
+
+      expect(result).toBeDefined();
+      expect(h.tx.feeComponent.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks component creation when AcademicYear is in CLOSED status', async () => {
+      const h = harness();
+      h.tx.$queryRaw = jest.fn().mockResolvedValue([{ id: 'fs-1', status: 'CLOSED' }]);
 
       await expect(
         h.service.create({ feeStructureId: 'fs-1', name: 'Activity Fee', amount: '50.00' } as any),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(h.tx.feeComponent.create).not.toHaveBeenCalled();
-      expect(h.tx.feeStructure.update).not.toHaveBeenCalled();
     });
 
-    it('blocks component update when parent FeeStructure is consumed by admissions with 409 Conflict', async () => {
+    it('blocks component update when AcademicYear is in CLOSED status', async () => {
       const h = harness();
-      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+      h.tx.$queryRaw = jest.fn().mockResolvedValue([{ id: 'fs-1', status: 'CLOSED' }]);
 
       await expect(
         h.service.update('component-1', { amount: '150.00' } as any),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(h.tx.feeComponent.update).not.toHaveBeenCalled();
-      expect(h.tx.feeStructure.update).not.toHaveBeenCalled();
     });
 
-    it('blocks component deletion when parent FeeStructure is consumed by admissions with 409 Conflict', async () => {
+    it('blocks component deactivation when AcademicYear is in CLOSED status', async () => {
       const h = harness();
-      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+      h.tx.$queryRaw = jest.fn().mockResolvedValue([{ id: 'fs-1', status: 'CLOSED' }]);
 
       await expect(
         h.service.delete('component-1', 'actor-admin'),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(h.tx.feeComponent.update).not.toHaveBeenCalled();
-      expect(h.tx.feeStructure.update).not.toHaveBeenCalled();
     });
 
-    it.each(['ACTIVE', 'CLOSED'])(
-      'blocks component mutations when AcademicYear is in %s status',
-      async (ayStatus) => {
-        const h = harness();
-        h.tx.$queryRaw = jest.fn().mockResolvedValue([{ id: 'fs-1', status: ayStatus }]);
+    it('allows component amount increase on consumed structure', async () => {
+      const h = harness('100.00');
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
 
-        await expect(
-          h.service.create({ feeStructureId: 'fs-1', name: 'Activity Fee', amount: '50.00' } as any),
-        ).rejects.toBeInstanceOf(ConflictException);
+      const updated = await h.service.update('component-1', { amount: '150.00' } as any);
+      expect(updated).toBeDefined();
+      expect(h.tx.feeComponent.update).toHaveBeenCalledTimes(1);
+      expect(h.tx.feeStructure.update).toHaveBeenCalledTimes(1);
+    });
 
-        await expect(
-          h.service.update('component-1', { amount: '150.00' } as any),
-        ).rejects.toBeInstanceOf(ConflictException);
-
-        await expect(
-          h.service.delete('component-1', 'actor-admin'),
-        ).rejects.toBeInstanceOf(ConflictException);
-      },
-    );
-
-    it.each([
-      ['past startDate', new Date('2026-06-15T12:00:00.000Z')],
-      ['future startDate', new Date('2026-01-15T12:00:00.000Z')],
-    ])('blocks mutation of components in consumed DRAFT FeeStructure regardless of dates (%s)', async (_label, fakeDate) => {
-      jest.useFakeTimers().setSystemTime(fakeDate);
-      const h = harness();
+    it('rejects component amount decrease on consumed structure with BadRequestException', async () => {
+      const h = harness('100.00');
       h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
 
       await expect(
-        h.service.create({ feeStructureId: 'fs-1', name: 'Activity Fee', amount: '50.00' } as any),
-      ).rejects.toBeInstanceOf(ConflictException);
+        h.service.update('component-1', { amount: '80.00' } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(h.tx.feeComponent.update).not.toHaveBeenCalled();
+      expect(h.tx.feeStructure.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects discountApplicable transition false -> true on consumed structure with BadRequestException', async () => {
+      const h = harness('100.00');
+      // Set existing component discountApplicable to false
+      h.state.components[0].discountApplicable = false;
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
 
       await expect(
-        h.service.update('component-1', { amount: '150.00' } as any),
-      ).rejects.toBeInstanceOf(ConflictException);
+        h.service.update('component-1', { discountApplicable: true } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(h.tx.feeComponent.update).not.toHaveBeenCalled();
+    });
+
+    it('allows discountApplicable transition true -> false on consumed structure and flags requiresReview', async () => {
+      const h = harness('100.00');
+      h.state.components[0].discountApplicable = true;
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+      h.tx.admissionFeeConcession.findMany.mockResolvedValue([{ id: 'concession-1' }]);
+
+      const updated = await h.service.update('component-1', { discountApplicable: false } as any);
+      expect(updated).toBeDefined();
+      expect(h.tx.admissionFeeConcession.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['concession-1'] } },
+        data: { requiresReview: true },
+      });
+    });
+
+    it('rejects deactivation when active admission has outstanding balance attributable to component', async () => {
+      const h = harness('100.00');
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+      h.tx.feePaymentDetails.findMany.mockResolvedValue([
+        { id: 'detail-1', amountPaid: new Prisma.Decimal('40.00'), totalAmountToBePaid: new Prisma.Decimal('100.00') },
+      ]);
 
       await expect(
         h.service.delete('component-1', 'actor-admin'),
       ).rejects.toBeInstanceOf(ConflictException);
+      expect(h.tx.feeComponent.update).not.toHaveBeenCalled();
+    });
+
+    it('allows deactivation when all referencing details are fully paid', async () => {
+      const h = harness('100.00');
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+      h.tx.feePaymentDetails.findMany.mockResolvedValue([
+        { id: 'detail-1', amountPaid: new Prisma.Decimal('100.00'), totalAmountToBePaid: new Prisma.Decimal('100.00') },
+      ]);
+
+      const deleted = await h.service.delete('component-1', 'actor-admin');
+      expect(deleted).toBeDefined();
+      expect(h.tx.feeComponent.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ isActive: false }),
+      }));
+    });
+
+    it('allows deactivation when all referencing details are non-contributing (zero payable)', async () => {
+      const h = harness('100.00');
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+      h.tx.feePaymentDetails.findMany.mockResolvedValue([
+        { id: 'detail-1', amountPaid: new Prisma.Decimal('0.00'), totalAmountToBePaid: new Prisma.Decimal('0.00') },
+      ]);
+
+      const deleted = await h.service.delete('component-1', 'actor-admin');
+      expect(deleted).toBeDefined();
+      expect(h.tx.feeComponent.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves unconsumed structure behavior: rejects deactivation if any payment detail exists', async () => {
+      const h = harness('100.00');
+      // Not consumed (feePaymentHeader findFirst returns null)
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue(null) };
+      h.tx.feePaymentDetails.findFirst.mockResolvedValue({ id: 'detail-orphan' });
+
+      await expect(
+        h.service.delete('component-1', 'actor-admin'),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(h.tx.feeComponent.update).not.toHaveBeenCalled();
+    });
+
+    it('allows deactivation when an applicable admission detail has isIncluded === true, totalAmountToBePaid === 0, and amountPaid === 0', async () => {
+      const h = harness('100.00');
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+      h.tx.feePaymentDetails.findMany.mockResolvedValue([
+        { id: 'detail-zero', amountPaid: new Prisma.Decimal('0.00'), totalAmountToBePaid: new Prisma.Decimal('0.00') },
+      ]);
+
+      const deleted = await h.service.delete('component-1', 'actor-admin');
+      expect(deleted).toBeDefined();
+      expect(h.tx.feeComponent.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ isActive: false }),
+      }));
+    });
+
+    it('proves CANCELLED admissions with outstanding details do not block deactivation (query strictly filters DRAFT and CONFIRMED)', async () => {
+      const h = harness('100.00');
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+      // Simulating that the database query only returns DRAFT and CONFIRMED admissions (so CANCELLED admissions with balance are excluded from referencingDetails)
+      h.tx.feePaymentDetails.findMany.mockImplementation(async ({ where }) => {
+        expect(where.feePaymentHeader.admission.admissionStatus).toEqual({ in: ['DRAFT', 'CONFIRMED'] });
+        // Return empty array because the only admission with an unpaid balance is CANCELLED (which was filtered out)
+        return [];
+      });
+
+      const deleted = await h.service.delete('component-1', 'actor-admin');
+      expect(deleted).toBeDefined();
+      expect(h.tx.feeComponent.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('proves master component deactivation does not mutate or delete historical details, concessions, attributions, payments, or reversals', async () => {
+      const h = harness('100.00');
+      h.tx.feePaymentHeader = { findFirst: jest.fn().mockResolvedValue({ id: 'fph-consumed' }) };
+      // Detail is fully paid, so deactivation proceeds
+      h.tx.feePaymentDetails.findMany.mockResolvedValue([
+        { id: 'detail-paid', amountPaid: new Prisma.Decimal('100.00'), totalAmountToBePaid: new Prisma.Decimal('100.00') },
+      ]);
+
+      const deleted = await h.service.delete('component-1', 'actor-admin');
+      expect(deleted).toBeDefined();
+
+      // Verify that NO historical records were mutated or deleted
+      expect(h.tx.feePaymentDetails.update).not.toHaveBeenCalled();
+      expect(h.tx.feePaymentDetails.delete).not.toHaveBeenCalled();
+      expect(h.tx.feePaymentDetails.deleteMany).not.toHaveBeenCalled();
+      expect(h.tx.admissionFeeConcession.update).not.toHaveBeenCalled();
+      expect(h.tx.admissionFeeConcession.delete).not.toHaveBeenCalled();
+      expect(h.tx.feePaymentDetailAttribution.update).not.toHaveBeenCalled();
+      expect(h.tx.feePaymentDetailAttribution.delete).not.toHaveBeenCalled();
+      expect(h.tx.feePayment.update).not.toHaveBeenCalled();
+      expect(h.tx.feePayment.delete).not.toHaveBeenCalled();
+      expect(h.tx.feePaymentInstallmentAllocation.update).not.toHaveBeenCalled();
+      expect(h.tx.feePaymentInstallmentAllocation.delete).not.toHaveBeenCalled();
+      expect(h.tx.paymentReversalEvent.update).not.toHaveBeenCalled();
+      expect(h.tx.paymentReversalEvent.delete).not.toHaveBeenCalled();
+
+      // Only master FeeComponent was updated (soft-deleted) and FeeStructure total recomputed
+      expect(h.tx.feeComponent.update).toHaveBeenCalledTimes(1);
+      expect(h.tx.feeStructure.update).toHaveBeenCalledTimes(1);
     });
   });
 });

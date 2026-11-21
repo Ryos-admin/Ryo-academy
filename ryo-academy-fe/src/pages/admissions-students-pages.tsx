@@ -4,16 +4,19 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { Link, useLocation, useParams } from "wouter";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Check,
   Lock,
   Plus,
+  RefreshCw,
   Settings2,
   Tag,
   Trash2,
   X,
 } from "lucide-react";
+import { ApiError } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -73,7 +76,10 @@ import {
   CollectAdmissionPaymentDialog,
   AdmissionPaymentHistoryCard,
 } from "./admission-payment-components";
-import { parseMoneyMinor, useAdmissionPayments } from "@/lib/admission-payments-api";
+import {
+  parseMoneyMinor,
+  useAdmissionPayments,
+} from "@/lib/admission-payments-api";
 type AdmissionFeeDetailView = Omit<
   FeeConfigurationDetail,
   "name" | "concession"
@@ -910,9 +916,9 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
     useState<FeeConfigurationDetail | null>(null);
   const [concessionPayableInput, setConcessionPayableInput] = useState("");
   const [concessionActionError, setConcessionActionError] = useState("");
-  const [removingConcessionId, setRemovingConcessionId] = useState<string | null>(
-    null,
-  );
+  const [removingConcessionId, setRemovingConcessionId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     if (editing && admissionFeeConfig.data) {
@@ -931,18 +937,18 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
   const paymentsError = Boolean(editing && admissionPayments.isError);
   const paymentsAuthoritative = Boolean(
     editing &&
-      !paymentsLoading &&
-      !paymentsError &&
-      Array.isArray(admissionPayments.data),
+    !paymentsLoading &&
+    !paymentsError &&
+    Array.isArray(admissionPayments.data),
   );
   const hasRecordedPayments = Boolean(
     admissionPayments.data && admissionPayments.data.length > 0,
   );
   const hasNonZeroPaidAmount = Boolean(
     admissionFeeConfig.data?.feePaymentHeader.totalPaidAmount &&
-      (parseMoneyMinor(
-        admissionFeeConfig.data.feePaymentHeader.totalPaidAmount,
-      ) ?? 0n) !== 0n,
+    (parseMoneyMinor(
+      admissionFeeConfig.data.feePaymentHeader.totalPaidAmount,
+    ) ?? 0n) !== 0n,
   );
   const hasPayments = hasRecordedPayments || hasNonZeroPaidAmount;
   const canUpdate = hasPermission(session, "ADMISSION_UPDATE");
@@ -957,14 +963,17 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
           ? "Fee obligations are confirmed and frozen. Component selection cannot be modified."
           : `Fee selection is locked for ${admissionStatusLabel(itemQuery.data?.admissionStatus)} admissions.`;
     } else if (paymentsLoading) {
-      feeConfigLockReason = "Checking payment history and financial lock status…";
+      feeConfigLockReason =
+        "Checking payment history and financial lock status…";
     } else if (paymentsError || !paymentsAuthoritative) {
-      feeConfigLockReason = "Fee selection is locked because payment history could not be verified.";
+      feeConfigLockReason =
+        "Fee selection is locked because payment history could not be verified.";
     } else if (hasPayments) {
       feeConfigLockReason =
         "Fee selection is locked because financial transactions (payments or reversals) have been recorded for this admission.";
     } else if (!canUpdate) {
-      feeConfigLockReason = "You do not have permission to update fee selection.";
+      feeConfigLockReason =
+        "You do not have permission to update fee selection.";
     }
   }
 
@@ -992,9 +1001,12 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
 
   const handleOpenEditConcession = (detail: FeeConfigurationDetail) => {
     setSelectedConcessionDetail(detail);
-    const existingDiscount = parseMoneyMinor(String(detail.discountAmount ?? "0")) ?? 0n;
-    const original = parseMoneyMinor(String(detail.originalAmount ?? "0")) ?? 0n;
-    const preTaxPayable = original > existingDiscount ? original - existingDiscount : original;
+    const existingDiscount =
+      parseMoneyMinor(String(detail.discountAmount ?? "0")) ?? 0n;
+    const original =
+      parseMoneyMinor(String(detail.originalAmount ?? "0")) ?? 0n;
+    const preTaxPayable =
+      original > existingDiscount ? original - existingDiscount : original;
     setConcessionPayableInput(
       detail.taxableAmount ?? (Number(preTaxPayable) / 100).toFixed(2),
     );
@@ -1005,7 +1017,9 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
   const handleSaveConcession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedConcessionDetail || !id) return;
-    const original = parsePayableMinor(String(selectedConcessionDetail.originalAmount));
+    const original = parsePayableMinor(
+      String(selectedConcessionDetail.originalAmount),
+    );
     const payableMinor = validatePayableAmount(
       concessionPayableInput,
       selectedConcessionDetail.originalAmount,
@@ -1016,7 +1030,10 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
       );
       return;
     }
-    if (!selectedConcessionDetail.discountApplicable && payableMinor !== original) {
+    if (
+      !selectedConcessionDetail.discountApplicable &&
+      payableMinor !== original
+    ) {
       setConcessionActionError(
         "A discount is not applicable to this component; payable must equal the original amount.",
       );
@@ -1377,7 +1394,9 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                             <tr
                               key={component.id}
                               className={
-                                !isSelected ? "opacity-60 bg-muted/20" : undefined
+                                !isSelected
+                                  ? "opacity-60 bg-muted/20"
+                                  : undefined
                               }
                             >
                               <td className="text-center">
@@ -1493,18 +1512,27 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                       Gross Fee Baseline
                     </span>
                     <div className="text-xl font-bold mt-1 text-foreground">
-                      {displayMoney(admissionFeeConfig.data.feePaymentHeader.grossAmount)}
+                      {displayMoney(
+                        admissionFeeConfig.data.feePaymentHeader.grossAmount,
+                      )}
                     </div>
-                    <span className="text-[11px] text-muted-foreground">Before concessions</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Before concessions
+                    </span>
                   </div>
                   <div className="rounded-lg border border-border bg-card p-3">
                     <span className="text-xs uppercase font-semibold text-amber-600 block">
                       Approved Concessions
                     </span>
                     <div className="text-xl font-bold mt-1 text-amber-600">
-                      - {displayMoney(admissionFeeConfig.data.feePaymentHeader.discountAmount)}
+                      -{" "}
+                      {displayMoney(
+                        admissionFeeConfig.data.feePaymentHeader.discountAmount,
+                      )}
                     </div>
-                    <span className="text-[11px] text-muted-foreground">Component reductions</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Component reductions
+                    </span>
                   </div>
                   <div className="rounded-lg border border-border bg-card p-3">
                     <span className="text-xs uppercase font-semibold text-muted-foreground block">
@@ -1512,32 +1540,50 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                     </span>
                     <div className="text-xl font-bold mt-1 text-foreground">
                       {displayMoney(
-                        admissionFeeConfig.data.feePaymentHeader.taxableAmount ??
+                        admissionFeeConfig.data.feePaymentHeader
+                          .taxableAmount ??
                           displayMinor(
-                            (parseMoneyMinor(admissionFeeConfig.data.feePaymentHeader.grossAmount) ?? 0n) -
-                              (parseMoneyMinor(admissionFeeConfig.data.feePaymentHeader.discountAmount) ?? 0n),
+                            (parseMoneyMinor(
+                              admissionFeeConfig.data.feePaymentHeader
+                                .grossAmount,
+                            ) ?? 0n) -
+                              (parseMoneyMinor(
+                                admissionFeeConfig.data.feePaymentHeader
+                                  .discountAmount,
+                              ) ?? 0n),
                           ),
                       )}
                     </div>
-                    <span className="text-[11px] text-muted-foreground">Pre-tax taxable base</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Pre-tax taxable base
+                    </span>
                   </div>
                   <div className="rounded-lg border border-border bg-card p-3">
                     <span className="text-xs uppercase font-semibold text-muted-foreground block">
                       GST
                     </span>
                     <div className="text-xl font-bold mt-1 text-foreground">
-                      {displayMoney(admissionFeeConfig.data.feePaymentHeader.gstAmount ?? "0.00")}
+                      {displayMoney(
+                        admissionFeeConfig.data.feePaymentHeader.gstAmount ??
+                          "0.00",
+                      )}
                     </div>
-                    <span className="text-[11px] text-muted-foreground">Applicable taxes</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Applicable taxes
+                    </span>
                   </div>
                   <div className="rounded-lg border border-border bg-card p-3">
                     <span className="text-xs uppercase font-semibold text-primary block">
                       Net Payable Obligation
                     </span>
                     <div className="text-xl font-bold mt-1 text-primary">
-                      {displayMoney(admissionFeeConfig.data.feePaymentHeader.netAmount)}
+                      {displayMoney(
+                        admissionFeeConfig.data.feePaymentHeader.netAmount,
+                      )}
                     </div>
-                    <span className="text-[11px] text-muted-foreground">Target for payments</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Target for payments
+                    </span>
                   </div>
                 </div>
 
@@ -1564,9 +1610,10 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                             !canEditFeeConfig ||
                             detail.isMandatory ||
                             !detail.isActive;
-                          const concessionData = concessionsQuery.data?.components?.find(
-                            (c) => c.id === detail.id,
-                          )?.concession;
+                          const concessionData =
+                            concessionsQuery.data?.components?.find(
+                              (c) => c.id === detail.id,
+                            )?.concession;
                           return (
                             <tr
                               key={detail.id}
@@ -1635,29 +1682,45 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                               </td>
                               <td>
                                 {!detail.isActive ? (
-                                  <span className="text-xs text-muted-foreground">Inactive</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    Inactive
+                                  </span>
                                 ) : !isSelected ? (
-                                  <span className="text-xs text-muted-foreground">Excluded</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    Excluded
+                                  </span>
                                 ) : concessionData || detail.concession ? (
                                   <div className="flex flex-col">
                                     <span className="font-semibold text-xs text-emerald-700 dark:text-emerald-300">
-                                      {concessionData?.categoryName ?? "Payable concession"}
+                                      {concessionData?.categoryName ??
+                                        "Payable concession"}
                                     </span>
                                     <span className="text-xs text-muted-foreground">
-                                      - {displayMoney(concessionData?.calculatedDiscountAmount ?? detail.discountAmount)}
+                                      -{" "}
+                                      {displayMoney(
+                                        concessionData?.calculatedDiscountAmount ??
+                                          detail.discountAmount,
+                                      )}
                                     </span>
                                   </div>
                                 ) : (
-                                  <span className="text-xs text-muted-foreground">No concession</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    No concession
+                                  </span>
                                 )}
                               </td>
                               <td className="text-right">
-                                {canEditFeeConfig && isSelected && detail.isActive && detail.discountApplicable ? (
+                                {canEditFeeConfig &&
+                                isSelected &&
+                                detail.isActive &&
+                                detail.discountApplicable ? (
                                   detail.concession || concessionData ? (
                                     <div className="inline-flex items-center gap-1">
                                       <button
                                         type="button"
-                                        onClick={() => handleOpenEditConcession(detail)}
+                                        onClick={() =>
+                                          handleOpenEditConcession(detail)
+                                        }
                                         className="text-xs font-semibold text-primary hover:underline px-1.5 py-0.5"
                                       >
                                         Edit
@@ -1666,17 +1729,21 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                                         type="button"
                                         onClick={() =>
                                           handleRemoveConcession(
-                                            detail.concession?.id ?? concessionData?.id ?? "",
+                                            detail.concession?.id ??
+                                              concessionData?.id ??
+                                              "",
                                           )
                                         }
                                         disabled={
                                           removingConcessionId ===
-                                          (detail.concession?.id ?? concessionData?.id)
+                                          (detail.concession?.id ??
+                                            concessionData?.id)
                                         }
                                         className="text-xs font-semibold text-destructive hover:underline px-1.5 py-0.5 disabled:opacity-50"
                                       >
                                         {removingConcessionId ===
-                                        (detail.concession?.id ?? concessionData?.id)
+                                        (detail.concession?.id ??
+                                          concessionData?.id)
                                           ? "Removing…"
                                           : "Remove"}
                                       </button>
@@ -1684,7 +1751,9 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                                   ) : (
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenAssignConcession(detail)}
+                                      onClick={() =>
+                                        handleOpenAssignConcession(detail)
+                                      }
                                       className="text-xs font-semibold text-primary hover:underline px-1.5 py-0.5"
                                     >
                                       Assign Concession
@@ -1692,7 +1761,11 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                                   )
                                 ) : (
                                   <span className="text-xs text-muted-foreground">
-                                    {!canEditFeeConfig ? "Locked" : !isSelected ? "Excluded" : "Not eligible"}
+                                    {!canEditFeeConfig
+                                      ? "Locked"
+                                      : !isSelected
+                                        ? "Excluded"
+                                        : "Not eligible"}
                                   </span>
                                 )}
                               </td>
@@ -1760,7 +1833,10 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                   </DialogDescription>
                 </DialogHeader>
 
-                <form onSubmit={handleSaveConcession} className="space-y-4 py-2">
+                <form
+                  onSubmit={handleSaveConcession}
+                  className="space-y-4 py-2"
+                >
                   <div>
                     <label
                       htmlFor="edit-concession-payable"
@@ -1773,7 +1849,9 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                       type="text"
                       inputMode="decimal"
                       value={concessionPayableInput}
-                      onChange={(e) => setConcessionPayableInput(e.target.value)}
+                      onChange={(e) =>
+                        setConcessionPayableInput(e.target.value)
+                      }
                       className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
                       placeholder="e.g. 800.00"
                       required
@@ -1783,8 +1861,14 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                   {selectedConcessionDetail && (
                     <div className="rounded-lg bg-muted/50 p-3 border border-border/60 text-xs space-y-1">
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Original Baseline:</span>
-                        <span>{displayMoney(selectedConcessionDetail.originalAmount)}</span>
+                        <span className="text-muted-foreground">
+                          Original Baseline:
+                        </span>
+                        <span>
+                          {displayMoney(
+                            selectedConcessionDetail.originalAmount,
+                          )}
+                        </span>
                       </div>
                       <div className="flex justify-between font-semibold text-emerald-600">
                         <span>Calculated Discount:</span>
@@ -1792,10 +1876,20 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                           -{" "}
                           {displayMoney(
                             displayMinor(
-                              (parsePayableMinor(String(selectedConcessionDetail.originalAmount)) ?? 0n) -
-                                (parsePayableMinor(concessionPayableInput) ?? 0n) > 0n
-                                ? (parsePayableMinor(String(selectedConcessionDetail.originalAmount)) ?? 0n) -
-                                    (parsePayableMinor(concessionPayableInput) ?? 0n)
+                              (parsePayableMinor(
+                                String(selectedConcessionDetail.originalAmount),
+                              ) ?? 0n) -
+                                (parsePayableMinor(concessionPayableInput) ??
+                                  0n) >
+                                0n
+                                ? (parsePayableMinor(
+                                    String(
+                                      selectedConcessionDetail.originalAmount,
+                                    ),
+                                  ) ?? 0n) -
+                                    (parsePayableMinor(
+                                      concessionPayableInput,
+                                    ) ?? 0n)
                                 : 0n,
                             ),
                           )}
@@ -1803,13 +1897,18 @@ export function AdmissionForm({ session, id }: { session: User; id?: string }) {
                       </div>
                       <div className="flex justify-between font-bold text-foreground pt-1 border-t border-border/40">
                         <span>Payable Amount:</span>
-                        <span>{displayMoney(concessionPayableInput || "0.00")}</span>
+                        <span>
+                          {displayMoney(concessionPayableInput || "0.00")}
+                        </span>
                       </div>
                     </div>
                   )}
 
                   {concessionActionError && (
-                    <p className="text-xs text-red-600 font-medium" role="alert">
+                    <p
+                      className="text-xs text-red-600 font-medium"
+                      role="alert"
+                    >
                       {concessionActionError}
                     </p>
                   )}
@@ -2033,7 +2132,7 @@ export function AdmissionList({ session }: { session: User }) {
                         <Settings2 size={15} />
                       </Link>
 
-                      {item.admissionStatus === "DRAFT" &&
+                      {item.admissionStatus !== "CANCELLED" &&
                         hasPermission(session, "ADMISSION_UPDATE") && (
                           <button
                             type="button"
@@ -2126,15 +2225,15 @@ export function AdmissionDetail({
     config?.feePaymentHeader?.pricingVersion === "V0_SNAPSHOTTED";
   const isFeeConfigMissing = Boolean(
     !feeConfigurationQuery.isLoading &&
-      !feeConfigurationQuery.isError &&
-      !config,
+    !feeConfigurationQuery.isError &&
+    !config,
   );
   const totalDueMinor = config
-    ? parseMoneyMinor(
+    ? (parseMoneyMinor(
         config.feePaymentHeader.totalDueAmount ??
           config.feePaymentHeader.netAmount ??
           "0",
-      ) ?? 0n
+      ) ?? 0n)
     : 0n;
   const hasDueBalance = totalDueMinor > 0n;
 
@@ -2537,11 +2636,7 @@ export function AdmissionDetail({
                               {displayMoney(comp.amountPaid ?? "0.00")}
                             </td>
                             <td className="text-right font-medium text-foreground">
-                              {displayMoney(
-                                displayMinor(
-                                  compDueMinor,
-                                ),
-                              )}
+                              {displayMoney(displayMinor(compDueMinor))}
                             </td>
                           </tr>
                         );
@@ -2776,6 +2871,9 @@ export function StudentDetail({ id, session }: { id: string; session?: User }) {
   const [idempotencyKey, setIdempotencyKey] = useState(() =>
     crypto.randomUUID(),
   );
+  const [staleFeeDriftDetected, setStaleFeeDriftDetected] = useState(false);
+  const [staleDriftMessage, setStaleDriftMessage] = useState<string | null>(null);
+  const [isRefreshingFeeData, setIsRefreshingFeeData] = useState(false);
   const recordPayment = useRecordStudentFeePayment(id);
   const submitPayment = async () => {
     const outstanding = fees.data?.fee?.outstandingAmount ?? "0";
@@ -2800,11 +2898,53 @@ export function StudentDetail({ id, session }: { id: string; session?: User }) {
       setPaymentAmount("");
       setPaymentDate("");
       setIdempotencyKey(crypto.randomUUID());
+      setStaleFeeDriftDetected(false);
+      setStaleDriftMessage(null);
     } catch (error) {
+      if (
+        error instanceof ApiError &&
+        (error.body as any)?.code === "ADMISSION_FEE_DETAILS_OUTDATED"
+      ) {
+        const msg = studentFeesErrorMessage(
+          error,
+          "The fee details for this admission no longer match the latest Fee Structure configuration. Payment collection is blocked until an administrator synchronizes this Fee Structure.",
+        );
+        setStaleFeeDriftDetected(true);
+        setStaleDriftMessage(msg);
+        toast({
+          title: "Payment blocked: Fee snapshot outdated",
+          description: msg,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Could not record payment",
+          description: studentFeesErrorMessage(error, "Please try again later."),
+        });
+      }
+    }
+  };
+  const handleRefreshStudentFeeData = async () => {
+    setIsRefreshingFeeData(true);
+    try {
+      await Promise.all([
+        fees.refetch(),
+        feeConfigurationQuery.refetch(),
+        admission.refetch(),
+      ]);
+      setStaleFeeDriftDetected(false);
+      setStaleDriftMessage(null);
       toast({
-        title: "Could not record payment",
-        description: studentFeesErrorMessage(error, "Please try again later."),
+        title: "Fee details refreshed",
+        description: "Student fee snapshot has been reloaded.",
       });
+    } catch {
+      toast({
+        title: "Could not refresh fee data",
+        description: "Please check your network connection and try again.",
+      });
+    } finally {
+      setIsRefreshingFeeData(false);
     }
   };
   if (query.isLoading) return <Loading />;
@@ -3052,6 +3192,36 @@ export function StudentDetail({ id, session }: { id: string; session?: User }) {
               </div>
             ) : (
               <div className="space-y-4">
+                {staleFeeDriftDetected && (
+                  <div
+                    role="alert"
+                    className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/40 p-4 text-amber-900 dark:text-amber-200 text-xs space-y-2 mb-4"
+                  >
+                    <div className="flex items-center gap-1.5 font-semibold text-sm text-amber-800 dark:text-amber-100">
+                      <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400" />
+                      Fee Structure Synchronization Required
+                    </div>
+                    <p className="leading-relaxed">
+                      {staleDriftMessage ||
+                        "The fee details for this admission no longer match the latest Fee Structure configuration. Payment collection is blocked until an administrator synchronizes this Fee Structure."}
+                    </p>
+                    <p className="leading-relaxed text-muted-foreground dark:text-amber-300/80">
+                      Please request administrator assistance to synchronize this Fee Structure from the Fee Structure Master. Your entered payment amount and date have been preserved.
+                    </p>
+                    <div className="pt-1">
+                      <AppButton
+                        type="button"
+                        variant="ghost"
+                        onClick={handleRefreshStudentFeeData}
+                        disabled={isRefreshingFeeData}
+                        className="h-8 text-xs border border-amber-300 dark:border-amber-700 bg-amber-100/50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200"
+                      >
+                        <RefreshCw size={13} className={`mr-1.5 ${isRefreshingFeeData ? "animate-spin" : ""}`} />
+                        {isRefreshingFeeData ? "Refreshing Fee Data…" : "Refresh Fee Data"}
+                      </AppButton>
+                    </div>
+                  </div>
+                )}
                 <div className="field">
                   <label htmlFor="student-fee-amount">Amount (INR)</label>
                   <input
@@ -3074,7 +3244,7 @@ export function StudentDetail({ id, session }: { id: string; session?: User }) {
                 </div>
                 <AppButton
                   onClick={submitPayment}
-                  disabled={recordPayment.isPending || !feeState}
+                  disabled={recordPayment.isPending || !feeState || staleFeeDriftDetected}
                   className="w-full"
                 >
                   {recordPayment.isPending ? "Recording…" : "Record payment"}

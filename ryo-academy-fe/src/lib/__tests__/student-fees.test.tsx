@@ -4,11 +4,13 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import {
   studentFeesApi,
+  studentFeesErrorMessage,
   studentFeesQueryKey,
   useRecordStudentFeePayment,
   parsePaymentMinor,
   validatePaymentAmount,
 } from "@/lib/student-fees-api";
+import { ApiError } from "@/lib/api-client";
 
 const STUDENT_ID = "student-1";
 
@@ -99,5 +101,57 @@ describe("student fee inclusion response", () => {
       { isActive: true, isIncluded: true },
       { isActive: true, isIncluded: false },
     ]);
+  });
+});
+
+describe("studentFeesErrorMessage", () => {
+  it("returns fallback for non-error or unknown value", () => {
+    expect(studentFeesErrorMessage(null, "Fallback error")).toBe("Fallback error");
+    expect(studentFeesErrorMessage(undefined, "Fallback error")).toBe("Fallback error");
+    expect(studentFeesErrorMessage({}, "Fallback error")).toBe("Fallback error");
+  });
+
+  it("returns standard error message for generic Error instances", () => {
+    expect(studentFeesErrorMessage(new Error("Network failed"), "Fallback error")).toBe("Network failed");
+  });
+
+  it("handles ADMISSION_FEE_DETAILS_OUTDATED with specific administrator guidance", () => {
+    const error = new ApiError(409, {
+      code: "ADMISSION_FEE_DETAILS_OUTDATED",
+      message: "The admission fee details do not match master components.",
+    });
+    expect(studentFeesErrorMessage(error, "Fallback error")).toBe(
+      "The fee details for this admission no longer match the latest Fee Structure configuration. Payment collection is blocked until an administrator synchronizes this Fee Structure.",
+    );
+  });
+
+  it("handles 401, 403, and 404 HTTP errors", () => {
+    expect(studentFeesErrorMessage(new ApiError(401), "Fallback")).toBe(
+      "Your session has expired. Please sign in again.",
+    );
+    expect(studentFeesErrorMessage(new ApiError(403), "Fallback")).toBe(
+      "You do not have permission to record student fee payments.",
+    );
+    expect(studentFeesErrorMessage(new ApiError(404), "Fallback")).toBe(
+      "The requested student fee snapshot was not found.",
+    );
+  });
+
+  it("handles general 409 conflict errors with body message or default", () => {
+    const errorWithMessage = new ApiError(409, { message: "Concurrent modification detected" });
+    expect(studentFeesErrorMessage(errorWithMessage, "Fallback")).toBe("Concurrent modification detected");
+
+    const errorWithoutMessage = new ApiError(409, {});
+    expect(studentFeesErrorMessage(errorWithoutMessage, "Fallback")).toBe(
+      "A payment conflict occurred. Please refresh and try again.",
+    );
+  });
+
+  it("handles backendMessage array or string", () => {
+    const arrayError = new ApiError(400, { message: ["Amount is required", "Invalid date"] });
+    expect(studentFeesErrorMessage(arrayError, "Fallback")).toBe("Amount is required Invalid date");
+
+    const stringError = new ApiError(400, { message: "Custom error occurred" });
+    expect(studentFeesErrorMessage(stringError, "Fallback")).toBe("Custom error occurred");
   });
 });

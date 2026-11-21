@@ -39,18 +39,60 @@ describe('AdmissionPaymentService (BE-M3 & BE-M5.2)', () => {
     let scheduleState = options?.schedule ?? null;
     let installmentsList = options?.installments ? options.installments.map((i) => ({ ...i })) : [];
 
+    const feeStructureId = 'fs-test-1';
+    const compTuitionId = 'comp-tuition-1';
+    const compExamId = 'comp-exam-1';
+    const compLabId = 'comp-lab-1';
+
+    const feeStructureState: any = {
+      id: feeStructureId,
+      name: 'Test Fee Structure',
+      academicYearId: 'ay-test-1',
+      feeComponents: [
+        {
+          id: compTuitionId,
+          name: 'Tuition Fee',
+          amount: new Prisma.Decimal('1000.00'),
+          isActive: true,
+          isMandatory: true,
+          discountApplicable: true,
+        },
+        {
+          id: compExamId,
+          name: 'Examination Fee',
+          amount: new Prisma.Decimal('500.00'),
+          isActive: true,
+          isMandatory: true,
+          discountApplicable: true,
+        },
+        {
+          id: compLabId,
+          name: 'Lab Fee',
+          amount: new Prisma.Decimal('300.00'),
+          isActive: true,
+          isMandatory: false,
+          discountApplicable: true,
+        },
+      ],
+    };
+
     const detailsMap = new Map<string, any>([
       [
         detail1Id,
         {
           id: detail1Id,
           feePaymentHeaderId: headerId,
+          feeComponentId: compTuitionId,
           nameSnapshot: 'Tuition Fee',
           originalAmount: new Prisma.Decimal('1000.00'),
+          discountAmount: new Prisma.Decimal('0.00'),
+          finalAmount: new Prisma.Decimal('1000.00'),
           totalAmountToBePaid: new Prisma.Decimal('1000.00'),
           amountPaid: new Prisma.Decimal('200.00'),
           isActive: true,
           isIncluded: true,
+          isMandatory: true,
+          discountApplicable: true,
         },
       ],
       [
@@ -58,12 +100,17 @@ describe('AdmissionPaymentService (BE-M3 & BE-M5.2)', () => {
         {
           id: detail2Id,
           feePaymentHeaderId: headerId,
+          feeComponentId: compExamId,
           nameSnapshot: 'Examination Fee',
           originalAmount: new Prisma.Decimal('500.00'),
+          discountAmount: new Prisma.Decimal('0.00'),
+          finalAmount: new Prisma.Decimal('500.00'),
           totalAmountToBePaid: new Prisma.Decimal('500.00'),
           amountPaid: new Prisma.Decimal('0.00'),
           isActive: true,
           isIncluded: true,
+          isMandatory: true,
+          discountApplicable: true,
         },
       ],
       [
@@ -71,12 +118,17 @@ describe('AdmissionPaymentService (BE-M3 & BE-M5.2)', () => {
         {
           id: detailExcludedId,
           feePaymentHeaderId: headerId,
+          feeComponentId: compLabId,
           nameSnapshot: 'Lab Fee',
           originalAmount: new Prisma.Decimal('300.00'),
+          discountAmount: new Prisma.Decimal('0.00'),
+          finalAmount: new Prisma.Decimal('300.00'),
           totalAmountToBePaid: new Prisma.Decimal('300.00'),
           amountPaid: new Prisma.Decimal('0.00'),
           isActive: true,
           isIncluded: false, // Excluded!
+          isMandatory: false,
+          discountApplicable: true,
         },
       ],
     ]);
@@ -84,8 +136,11 @@ describe('AdmissionPaymentService (BE-M3 & BE-M5.2)', () => {
     let headerState: any = {
       id: headerId,
       admissionId,
+      feeStructureId,
       pricingVersion: options?.headerPricingVersion ?? FeePricingVersion.V0_SNAPSHOTTED,
       grossAmount: new Prisma.Decimal('1500.00'),
+      netAmount: new Prisma.Decimal('1500.00'),
+      discountAmount: new Prisma.Decimal('0.00'),
       totalFeeAmount: new Prisma.Decimal('1500.00'),
       totalPaidAmount: new Prisma.Decimal('200.00'),
       totalDueAmount: new Prisma.Decimal('1300.00'),
@@ -112,11 +167,24 @@ describe('AdmissionPaymentService (BE-M3 & BE-M5.2)', () => {
           where.id === admissionId ? admissionState : null
         ),
       },
-      feePaymentHeader: {
-        findMany: jest.fn().mockResolvedValue([headerState]),
+      feeStructure: {
         findUnique: jest.fn().mockImplementation(async ({ where }) =>
-          where.id === headerId ? headerState : null
+          where.id === feeStructureId ? feeStructureState : null
         ),
+      },
+      feePaymentHeader: {
+        findMany: jest.fn().mockImplementation(async () => [headerState]),
+        findUnique: jest.fn().mockImplementation(async ({ where }) => {
+          if (where.id === headerId) {
+            return {
+              ...headerState,
+              admission: admissionState,
+              feeStructure: feeStructureState,
+              feePaymentDetails: Array.from(detailsMap.values()),
+            };
+          }
+          return null;
+        }),
         update: jest.fn().mockImplementation(async ({ data }) => {
           headerState = { ...headerState, ...data };
           return headerState;
@@ -385,6 +453,8 @@ describe('AdmissionPaymentService (BE-M3 & BE-M5.2)', () => {
       tx,
       detailsMap,
       getHeaderState: () => headerState,
+      getAdmissionState: () => admissionState,
+      getFeeStructureState: () => feeStructureState,
       getSavedPayment: () => savedPayment,
       getSavedAttributions: () => savedAttributions,
       getSavedInstallmentAllocations: () => savedInstallmentAllocations,
@@ -1866,6 +1936,436 @@ describe('AdmissionPaymentService (BE-M3 & BE-M5.2)', () => {
       expect(getSavedInstallmentAllocations()).toHaveLength(0);
       expect(tx.admissionInstallment.update).not.toHaveBeenCalled();
       expect(getHeaderState().totalPaidAmount.toNumber()).toBe(200); // 200 initial + 200 - 200
+    });
+  });
+
+  describe('Incremental Fee Synchronization — Task 2 Pre-Payment Eligibility Validation Gate', () => {
+    it('Case 1: Missing active mandatory component rejects payment with 409 ADMISSION_FEE_DETAILS_OUTDATED', async () => {
+      const { service, getFeeStructureState } = buildHarness();
+      // Master structure has an extra active mandatory component not in details
+      getFeeStructureState().feeComponents.push({
+        id: 'comp-new-mandatory',
+        name: 'New Mandatory Lab Fee',
+        amount: new Prisma.Decimal('200.00'),
+        isActive: true,
+        isMandatory: true,
+        discountApplicable: true,
+      });
+
+      await expect(
+        service.createAdmissionPayment(
+          admissionId,
+          {
+            idempotencyKey: '00000000-0000-4000-8000-000000000801',
+            amount: '100.00',
+            paymentMethod: PaymentMethod.CASH,
+            paymentDate: '2026-11-05T10:00:00.000Z',
+            allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+          },
+          actorUserId,
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+        }),
+      });
+    });
+
+    it('Case 2: Missing active optional component rejects payment with 409 ADMISSION_FEE_DETAILS_OUTDATED', async () => {
+      const { service, getFeeStructureState } = buildHarness();
+      // Master structure has an extra active optional component not in details
+      getFeeStructureState().feeComponents.push({
+        id: 'comp-new-optional',
+        name: 'New Optional Transport Fee',
+        amount: new Prisma.Decimal('150.00'),
+        isActive: true,
+        isMandatory: false,
+        discountApplicable: true,
+      });
+
+      await expect(
+        service.createAdmissionPayment(
+          admissionId,
+          {
+            idempotencyKey: '00000000-0000-4000-8000-000000000802',
+            amount: '100.00',
+            paymentMethod: PaymentMethod.CASH,
+            paymentDate: '2026-11-05T10:00:00.000Z',
+            allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+          },
+          actorUserId,
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+        }),
+      });
+    });
+
+    it('Case 3: Master amount increase rejects a stale admission snapshot with 409 ADMISSION_FEE_DETAILS_OUTDATED', async () => {
+      const { service, getFeeStructureState } = buildHarness();
+      const currentMaster = getFeeStructureState();
+      // Tuition fee increased from 1000 to 1200 on master
+      const tuitionComp = currentMaster.feeComponents.find((c: any) => c.id === 'comp-tuition-1');
+      tuitionComp.amount = new Prisma.Decimal('1200.00');
+
+      await expect(
+        service.createAdmissionPayment(
+          admissionId,
+          {
+            idempotencyKey: '00000000-0000-4000-8000-000000000803',
+            amount: '100.00',
+            paymentMethod: PaymentMethod.CASH,
+            paymentDate: '2026-11-05T10:00:00.000Z',
+            allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+          },
+          actorUserId,
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+        }),
+      });
+    });
+
+    it('Case 4: isMandatory drift rejects payment with 409 ADMISSION_FEE_DETAILS_OUTDATED', async () => {
+      const { service, getFeeStructureState } = buildHarness();
+      const currentMaster = getFeeStructureState();
+      // Examination fee changed to mandatory = false on master (was true)
+      const examComp = currentMaster.feeComponents.find((c: any) => c.id === 'comp-exam-1');
+      examComp.isMandatory = false;
+
+      await expect(
+        service.createAdmissionPayment(
+          admissionId,
+          {
+            idempotencyKey: '00000000-0000-4000-8000-000000000804',
+            amount: '100.00',
+            paymentMethod: PaymentMethod.CASH,
+            paymentDate: '2026-11-05T10:00:00.000Z',
+            allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+          },
+          actorUserId,
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+        }),
+      });
+    });
+
+    it('Case 5: discountApplicable drift rejects payment with 409 ADMISSION_FEE_DETAILS_OUTDATED', async () => {
+      const { service, getFeeStructureState } = buildHarness();
+      const currentMaster = getFeeStructureState();
+      // Tuition fee became non-discountable on master, but detail still has discountApplicable = true without concession
+      const tuitionComp = currentMaster.feeComponents.find((c: any) => c.id === 'comp-tuition-1');
+      tuitionComp.discountApplicable = false;
+
+      await expect(
+        service.createAdmissionPayment(
+          admissionId,
+          {
+            idempotencyKey: '00000000-0000-4000-8000-000000000805',
+            amount: '100.00',
+            paymentMethod: PaymentMethod.CASH,
+            paymentDate: '2026-11-05T10:00:00.000Z',
+            allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+          },
+          actorUserId,
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+        }),
+      });
+    });
+
+    it('Case 6: Relevant inclusion and active status drift rejects payment with 409 ADMISSION_FEE_DETAILS_OUTDATED', async () => {
+      // 6a: detail isActive = false while master isActive = true
+      const h1 = buildHarness();
+      h1.detailsMap.get(detail1Id).isActive = false;
+
+      await expect(
+        h1.service.createAdmissionPayment(
+          admissionId,
+          {
+            idempotencyKey: '00000000-0000-4000-8000-000000000806',
+            amount: '100.00',
+            paymentMethod: PaymentMethod.CASH,
+            paymentDate: '2026-11-05T10:00:00.000Z',
+            allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+          },
+          actorUserId,
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+        }),
+      });
+
+      // 6b: mandatory detail isExcluded (isIncluded = false)
+      const h2 = buildHarness();
+      h2.detailsMap.get(detail1Id).isIncluded = false;
+      await expect(
+        h2.service.createAdmissionPayment(
+          admissionId,
+          {
+            idempotencyKey: '00000000-0000-4000-8000-000000000807',
+            amount: '100.00',
+            paymentMethod: PaymentMethod.CASH,
+            paymentDate: '2026-11-05T10:00:00.000Z',
+            allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+          },
+          actorUserId,
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+        }),
+      });
+    });
+
+    it('Case 7: PAYABLE concession with valid contractual absolute discount passes gate and records payment', async () => {
+      const { service, detailsMap, getHeaderState } = buildHarness();
+      // Configure Detail 1 with valid PAYABLE concession
+      const detail1 = detailsMap.get(detail1Id);
+      detail1.discountAmount = new Prisma.Decimal('200.00');
+      detail1.totalAmountToBePaid = new Prisma.Decimal('800.00');
+      detail1.finalAmount = new Prisma.Decimal('800.00');
+      detail1.concession = {
+        id: 'concession-payable-1',
+        calculationMode: 'PAYABLE',
+        calculatedDiscountAmount: new Prisma.Decimal('200.00'),
+        requiresReview: false,
+      };
+
+      // Adjust header aggregates: gross 1500, discount 200, net 1300, totalFee 1300, paid 200, due 1100
+      const header = getHeaderState();
+      header.grossAmount = new Prisma.Decimal('1500.00');
+      header.discountAmount = new Prisma.Decimal('200.00');
+      header.netAmount = new Prisma.Decimal('1300.00');
+      header.totalFeeAmount = new Prisma.Decimal('1300.00');
+      header.totalPaidAmount = new Prisma.Decimal('200.00');
+      header.totalDueAmount = new Prisma.Decimal('1100.00');
+
+      const res = await service.createAdmissionPayment(
+        admissionId,
+        {
+          idempotencyKey: '00000000-0000-4000-8000-000000000808',
+          amount: '100.00',
+          paymentMethod: PaymentMethod.CASH,
+          paymentDate: '2026-11-05T10:00:00.000Z',
+          allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+        },
+        actorUserId,
+      );
+
+      expect(res.statusCode).toBe(201);
+      expect(Number(res.amount)).toBe(100);
+    });
+
+    it('Case 8: Grandfathered concession with requiresReview retains approved historical behavior and passes gate', async () => {
+      const { service, detailsMap, getFeeStructureState, getHeaderState } = buildHarness();
+      // Master component became non-discountable
+      const currentMaster = getFeeStructureState();
+      const tuitionComp = currentMaster.feeComponents.find((c: any) => c.id === 'comp-tuition-1');
+      tuitionComp.discountApplicable = false;
+
+      // Existing concession was grandfathered with requiresReview = true
+      const detail1 = detailsMap.get(detail1Id);
+      detail1.discountApplicable = true; // Still snapshot from when it was created
+      detail1.discountAmount = new Prisma.Decimal('200.00');
+      detail1.totalAmountToBePaid = new Prisma.Decimal('800.00');
+      detail1.finalAmount = new Prisma.Decimal('800.00');
+      detail1.concession = {
+        id: 'concession-grandfathered-1',
+        calculationMode: 'PAYABLE',
+        calculatedDiscountAmount: new Prisma.Decimal('200.00'),
+        requiresReview: true, // Grandfathered!
+      };
+
+      // Header aggregates: gross 1500, discount 200, net 1300, totalFee 1300, paid 200, due 1100
+      const header = getHeaderState();
+      header.grossAmount = new Prisma.Decimal('1500.00');
+      header.discountAmount = new Prisma.Decimal('200.00');
+      header.netAmount = new Prisma.Decimal('1300.00');
+      header.totalFeeAmount = new Prisma.Decimal('1300.00');
+      header.totalPaidAmount = new Prisma.Decimal('200.00');
+      header.totalDueAmount = new Prisma.Decimal('1100.00');
+
+      const res = await service.createAdmissionPayment(
+        admissionId,
+        {
+          idempotencyKey: '00000000-0000-4000-8000-000000000809',
+          amount: '100.00',
+          paymentMethod: PaymentMethod.CASH,
+          paymentDate: '2026-11-05T10:00:00.000Z',
+          allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+        },
+        actorUserId,
+      );
+
+      expect(res.statusCode).toBe(201);
+      expect(Number(res.amount)).toBe(100);
+    });
+
+    it('Case 9: Deactivated component with an outstanding balance rejects payment with 409 ADMISSION_FEE_DETAILS_OUTDATED', async () => {
+      const { service, getFeeStructureState } = buildHarness();
+      const currentMaster = getFeeStructureState();
+      // Examination fee is deactivated on master, but detail2 has total 500, paid 0 (outstanding 500 > 0)
+      const examComp = currentMaster.feeComponents.find((c: any) => c.id === 'comp-exam-1');
+      examComp.isActive = false;
+
+      await expect(
+        service.createAdmissionPayment(
+          admissionId,
+          {
+            idempotencyKey: '00000000-0000-4000-8000-000000000810',
+            amount: '100.00',
+            paymentMethod: PaymentMethod.CASH,
+            paymentDate: '2026-11-05T10:00:00.000Z',
+            allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+          },
+          actorUserId,
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+        }),
+      });
+    });
+
+    it('Case 10: Fully settled deactivated component does not block payment against another valid component', async () => {
+      const { service, detailsMap, getFeeStructureState, getHeaderState } = buildHarness();
+      const currentMaster = getFeeStructureState();
+      // Examination fee is deactivated on master
+      const examComp = currentMaster.feeComponents.find((c: any) => c.id === 'comp-exam-1');
+      examComp.isActive = false;
+
+      // Detail 2 was fully settled: total 500, paid 500 (outstanding = 0)
+      const detail2 = detailsMap.get(detail2Id);
+      detail2.amountPaid = new Prisma.Decimal('500.00');
+
+      // Header aggregates: gross 1500, net 1500, totalFee 1500, paid 700 (200 + 500), due 800
+      const header = getHeaderState();
+      header.totalPaidAmount = new Prisma.Decimal('700.00');
+      header.totalDueAmount = new Prisma.Decimal('800.00');
+
+      // Pay against active Tuition fee
+      const res = await service.createAdmissionPayment(
+        admissionId,
+        {
+          idempotencyKey: '00000000-0000-4000-8000-000000000811',
+          amount: '100.00',
+          paymentMethod: PaymentMethod.CASH,
+          paymentDate: '2026-11-05T10:00:00.000Z',
+          allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+        },
+        actorUserId,
+      );
+
+      expect(res.statusCode).toBe(201);
+      expect(Number(res.amount)).toBe(100);
+    });
+
+    it('Case 11 & 12: Rejected payment executes under header lock and leaves zero partial writes', async () => {
+      const { service, tx, getFeeStructureState } = buildHarness();
+      const currentMaster = getFeeStructureState();
+      // Induce pricing drift
+      currentMaster.feeComponents[0].amount = new Prisma.Decimal('9999.00');
+
+      await expect(
+        service.createAdmissionPayment(
+          admissionId,
+          {
+            idempotencyKey: '00000000-0000-4000-8000-000000000812',
+            amount: '100.00',
+            paymentMethod: PaymentMethod.CASH,
+            paymentDate: '2026-11-05T10:00:00.000Z',
+            allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+          },
+          actorUserId,
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'ADMISSION_FEE_DETAILS_OUTDATED',
+        }),
+      });
+
+      // Proof of Level 2 row-lock execution
+      expect(tx.$queryRaw).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.stringContaining('SELECT id FROM "FeePaymentHeader" WHERE id =')]),
+        headerId,
+      );
+
+      // Proof of zero financial mutations on failure
+      expect(tx.feePayment.create).not.toHaveBeenCalled();
+      expect(tx.feePaymentDetailAttribution.createMany).not.toHaveBeenCalled();
+      expect(tx.feePaymentInstallmentAllocation.createMany).not.toHaveBeenCalled();
+      expect(tx.feePaymentHeader.update).not.toHaveBeenCalled();
+      expect(tx.feePaymentDetails.update).not.toHaveBeenCalled();
+    });
+
+    it('Case 13: Valid synchronized snapshots pass the gate cleanly', async () => {
+      const { service } = buildHarness();
+      const res = await service.createAdmissionPayment(
+        admissionId,
+        {
+          idempotencyKey: '00000000-0000-4000-8000-000000000813',
+          amount: '100.00',
+          paymentMethod: PaymentMethod.CASH,
+          paymentDate: '2026-11-05T10:00:00.000Z',
+          allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+        },
+        actorUserId,
+      );
+
+      expect(res.statusCode).toBe(201);
+      expect(res.isReplay).toBeFalsy();
+      expect(Number(res.amount)).toBe(100);
+    });
+
+    it('Case 14: Unrelated transaction and database errors are not translated to ADMISSION_FEE_DETAILS_OUTDATED', async () => {
+      const { service, tx, getAdmissionState } = buildHarness();
+
+      // Case 14a: Admission cancelled throws 400 Bad Request
+      getAdmissionState().admissionStatus = AdmissionStatus.CANCELLED;
+
+      await expect(
+        service.createAdmissionPayment(
+          admissionId,
+          {
+            idempotencyKey: '00000000-0000-4000-8000-000000000814',
+            amount: '100.00',
+            paymentMethod: PaymentMethod.CASH,
+            paymentDate: '2026-11-05T10:00:00.000Z',
+            allocations: [{ feePaymentDetailsId: detail1Id, amount: '100.00' }],
+          },
+          actorUserId,
+        ),
+      ).rejects.toThrow('Payment collection is not allowed for cancelled admissions.');
+
+      // Case 14b: Header not found throws 404 NotFoundException (not 409)
+      await expect(
+        service.assertAdmissionFeeDetailsCurrent(tx, 'non-existent-header'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      // Case 14c: Arbitrary database connection error is rethrown unchanged
+      const dbError = new Error('Database connection terminated unexpectedly');
+      tx.feePaymentHeader.findUnique.mockRejectedValueOnce(dbError);
+
+      await expect(
+        service.assertAdmissionFeeDetailsCurrent(tx, headerId),
+      ).rejects.toThrow('Database connection terminated unexpectedly');
     });
   });
 });

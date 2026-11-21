@@ -63,4 +63,60 @@ describe("AdmissionConcessionService payable contract", () => {
     await service.removeConcession("admission-1", "c-1");
     expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 10000, maxWait: 5000 });
   });
+
+  describe("recomputeV0 authoritative calculation", () => {
+    it("recalculates header aggregates and due amount", async () => {
+      tx.feePaymentHeader.findUnique.mockResolvedValue({
+        id: "hdr-1",
+        totalPaidAmount: d(200),
+      });
+      tx.feePaymentDetails.findMany.mockResolvedValue([
+        {
+          originalAmount: d(1000),
+          discountAmount: d(100),
+          taxableAmount: d(900),
+          gstAmount: d(90),
+          totalAmountToBePaid: d(990),
+        },
+      ]);
+      tx.feePaymentHeader.update.mockImplementation(async ({ data }: any) => data);
+
+      const res = await service.recomputeV0(tx, "hdr-1");
+      expect(tx.feePaymentHeader.update).toHaveBeenCalledWith({
+        where: { id: "hdr-1" },
+        data: {
+          grossAmount: d(1000),
+          discountAmount: d(100),
+          taxableAmount: d(900),
+          gstAmount: d(90),
+          netAmount: d(990),
+          totalFeeAmount: d(990),
+          totalPaidAmount: d(200),
+          totalDueAmount: d(790), // 990 - 200 = 790
+        },
+      });
+    });
+
+    it("throws 409 NEGATIVE_DUE_PROHIBITED when totalPaidAmount exceeds netAmount", async () => {
+      tx.feePaymentHeader.findUnique.mockResolvedValue({
+        id: "hdr-1",
+        totalPaidAmount: d(1200), // Paid 1200
+      });
+      tx.feePaymentDetails.findMany.mockResolvedValue([
+        {
+          originalAmount: d(1000),
+          discountAmount: d(0),
+          taxableAmount: d(1000),
+          gstAmount: d(0),
+          totalAmountToBePaid: d(1000), // Net 1000 < Paid 1200 -> negative due
+        },
+      ]);
+
+      await expect(service.recomputeV0(tx, "hdr-1")).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: "NEGATIVE_DUE_PROHIBITED",
+        }),
+      });
+    });
+  });
 });

@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiClient } from "./api-client";
 import { session } from "./session";
+import { admissionsQueryKey } from "./admissions-api";
+import { installmentSchedulesQueryKey } from "./installment-schedules-api";
+import { studentFeesQueryKey } from "./student-fees-api";
 
 export interface FeeComponentResponse {
   id: string;
@@ -71,6 +74,23 @@ export interface FeeStructureUpdateRequest {
   description?: string;
 }
 
+export interface SyncFeeStructureRequest {
+  supplementaryDueDate?: string;
+}
+
+export interface SyncFeeStructureResponse {
+  feeStructureId: string;
+  synchronizedAt: string;
+  eligibleAdmissionCount: number;
+  synchronizedAdmissionCount: number;
+  admissionsWithScheduleCount: number;
+  admissionsWithoutScheduleCount: number;
+  caseAIncreasesCount: number;
+  supplementaryRootsCreatedCount: number;
+  detailsInsertedCount: number;
+  detailsUpdatedCount: number;
+}
+
 export const feeStructuresQueryKey = ["feeStructures"] as const;
 export const feeComponentsQueryKey = ["feeComponents"] as const;
 
@@ -90,6 +110,8 @@ export const feesApi = {
   createComponent: (payload: FeeComponentCreateRequest) => apiClient.post<FeeComponentResponse>("/fee-structure-child", payload, authOptions()),
   updateComponent: (id: string, payload: FeeComponentUpdateRequest) => apiClient.put<FeeComponentResponse>(`/fee-structure-child/${id}`, payload, authOptions()),
   deleteComponent: (id: string) => apiClient.delete<FeeComponentResponse>(`/fee-structure-child/${id}`, authOptions()),
+  syncStructure: (id: string, payload?: SyncFeeStructureRequest) =>
+    apiClient.post<SyncFeeStructureResponse>(`/fee-structure/${id}/sync`, payload ?? {}, authOptions()),
 };
 
 export function useFeeStructures() {
@@ -194,6 +216,23 @@ export function useDeactivateFeeComponent() {
       queryClient.removeQueries({ queryKey: [...feeComponentsQueryKey, id] });
       await queryClient.invalidateQueries({ queryKey: feeComponentsQueryKey });
       await queryClient.invalidateQueries({ queryKey: feeStructuresQueryKey });
+    },
+  });
+}
+
+export function useSyncFeeStructure() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload?: SyncFeeStructureRequest }) =>
+      feesApi.syncStructure(id, payload),
+    retry: false,
+    onSuccess: async (_result, { id }) => {
+      await queryClient.invalidateQueries({ queryKey: [...feeStructuresQueryKey, id] });
+      await queryClient.invalidateQueries({ queryKey: feeStructuresQueryKey });
+      await queryClient.invalidateQueries({ queryKey: feeComponentsQueryKey });
+      await queryClient.invalidateQueries({ queryKey: admissionsQueryKey });
+      await queryClient.invalidateQueries({ queryKey: installmentSchedulesQueryKey });
+      await queryClient.invalidateQueries({ queryKey: studentFeesQueryKey });
     },
   });
 }

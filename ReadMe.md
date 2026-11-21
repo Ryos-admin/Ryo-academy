@@ -7,7 +7,7 @@ Welcome to the Ryo Academy ERP repository. This document serves as the master do
 ## 1. Canonical Architecture Documentation
 
 - [Financial Module V1 Architecture Specification](file:///home/qwerty/Qwerty_WorkSpace/ProjWorks/Poo%20anna/Ryo%20Academy/Backend/docs/architecture/financial-module-v1.md)
-  - Canonical specification covering the 18 financial entities, Discount Engine V1, Installment Management V1, FIFO Payment Allocation Engine, Full Payment Reversal V1, relational DAG lineage, monetary interval partitions, and concurrency lock hierarchies.
+  - Canonical specification covering the 18 financial entities, Discount Engine V1, Installment Management V1, FIFO Payment Allocation Engine, Full Payment Reversal V1, Incremental Fee Synchronization, relational DAG lineage, monetary interval partitions, and concurrency lock hierarchies.
 
 ---
 

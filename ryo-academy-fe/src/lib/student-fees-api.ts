@@ -95,11 +95,24 @@ export function useRecordStudentFeePayment(studentId: string) {
   });
 }
 
-export function studentFeesErrorMessage(error: unknown, fallback: string) {
-  if (!(error instanceof ApiError)) return fallback;
+export function studentFeesErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) {
+    if (error instanceof Error && error.message) return error.message;
+    return fallback;
+  }
+  const body = error.body as any;
+  if (body?.code === "ADMISSION_FEE_DETAILS_OUTDATED") {
+    return "The fee details for this admission no longer match the latest Fee Structure configuration. Payment collection is blocked until an administrator synchronizes this Fee Structure.";
+  }
   if (error.status === 401) return "Your session has expired. Please sign in again.";
   if (error.status === 403) return "You do not have permission to record student fee payments.";
   if (error.status === 404) return "The requested student fee snapshot was not found.";
+  if (error.status === 409) {
+    if (typeof body?.message === "string") return body.message;
+    return "A payment conflict occurred. Please refresh and try again.";
+  }
   if (Array.isArray(error.backendMessage)) return error.backendMessage.join(" ");
-  return error.backendMessage || fallback;
+  if (error.backendMessage) return error.backendMessage;
+  if (typeof body?.message === "string") return body.message;
+  return fallback;
 }

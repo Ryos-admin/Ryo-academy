@@ -7,7 +7,20 @@ const calls = vi.hoisted(() => ({ post: vi.fn(), put: vi.fn(), patch: vi.fn(), d
 vi.mock("@/lib/api-client", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api-client")>()), apiClient: calls }));
 vi.mock("@/lib/session", () => ({ session: { getAccessToken: () => "test-token" } }));
 
-import { feeComponentsQueryKey, feeStructuresQueryKey, feesApi, feeErrorMessage, useDeactivateFeeComponent, useDeactivateFeeStructure, useUpdateFeeStructure } from "@/lib/fees-api";
+import {
+  feeComponentsQueryKey,
+  feeStructuresQueryKey,
+  feesApi,
+  feeErrorMessage,
+  useDeactivateFeeComponent,
+  useDeactivateFeeStructure,
+  useUpdateFeeStructure,
+  useSyncFeeStructure,
+  type SyncFeeStructureResponse,
+} from "@/lib/fees-api";
+import { admissionsQueryKey } from "@/lib/admissions-api";
+import { installmentSchedulesQueryKey } from "@/lib/installment-schedules-api";
+import { studentFeesQueryKey } from "@/lib/student-fees-api";
 import { ApiError } from "@/lib/api-client";
 
 describe("fee component API money contract", () => {
@@ -103,5 +116,130 @@ describe("fee component API money contract", () => {
     expect(remove).toHaveBeenCalledWith({ queryKey: [...feeComponentsQueryKey, "component-1"] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: feeComponentsQueryKey });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: feeStructuresQueryKey });
+  });
+
+  describe("feesApi.syncStructure & useSyncFeeStructure", () => {
+    const mockSyncResponse: SyncFeeStructureResponse = {
+      feeStructureId: "fs-1",
+      synchronizedAt: "2026-11-20T05:30:00.000Z",
+      eligibleAdmissionCount: 10,
+      synchronizedAdmissionCount: 10,
+      admissionsWithScheduleCount: 8,
+      admissionsWithoutScheduleCount: 2,
+      caseAIncreasesCount: 3,
+      supplementaryRootsCreatedCount: 1,
+      detailsInsertedCount: 4,
+      detailsUpdatedCount: 12,
+    };
+
+    it("calls POST /fee-structure/:id/sync with correct endpoint and auth options", async () => {
+      calls.post.mockResolvedValueOnce(mockSyncResponse);
+      const res = await feesApi.syncStructure("fs-1", { supplementaryDueDate: "2026-12-31" });
+
+      expect(calls.post).toHaveBeenCalledWith(
+        "/fee-structure/fs-1/sync",
+        { supplementaryDueDate: "2026-12-31" },
+        { token: "test-token" },
+      );
+      expect(res).toEqual(mockSyncResponse);
+    });
+
+    it("serializes optional supplementaryDueDate and handles omitted date with empty object", async () => {
+      calls.post.mockResolvedValueOnce(mockSyncResponse);
+      await feesApi.syncStructure("fs-2");
+
+      expect(calls.post).toHaveBeenCalledWith(
+        "/fee-structure/fs-2/sync",
+        {},
+        { token: "test-token" },
+      );
+    });
+
+    it("does not accept or transmit any client-supplied school ID", async () => {
+      calls.post.mockResolvedValueOnce(mockSyncResponse);
+      await feesApi.syncStructure("fs-tenant-test", { supplementaryDueDate: "2027-01-15" });
+
+      const sentBody = calls.post.mock.calls[0][1];
+      expect(sentBody).not.toHaveProperty("schoolId");
+      expect(sentBody).toEqual({ supplementaryDueDate: "2027-01-15" });
+    });
+
+    it("executes mutation, returns accurate response typing, and invalidates all affected query keys", async () => {
+      calls.post.mockResolvedValueOnce(mockSyncResponse);
+      const client = new QueryClient();
+      const invalidate = vi.spyOn(client, "invalidateQueries");
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client }, children);
+
+      const { result } = renderHook(() => useSyncFeeStructure(), { wrapper });
+
+      let mutationResult: SyncFeeStructureResponse | undefined;
+      await act(async () => {
+        mutationResult = await result.current.mutateAsync({
+          id: "fs-1",
+          payload: { supplementaryDueDate: "2026-12-31" },
+        });
+      });
+
+      expect(mutationResult).toEqual(mockSyncResponse);
+      expect(calls.post).toHaveBeenCalledWith(
+        "/fee-structure/fs-1/sync",
+        { supplementaryDueDate: "2026-12-31" },
+        { token: "test-token" },
+      );
+
+      // Verify specific invalidations on affected domain entities
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: [...feeStructuresQueryKey, "fs-1"] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: feeStructuresQueryKey });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: feeComponentsQueryKey });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: admissionsQueryKey });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: installmentSchedulesQueryKey });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: studentFeesQueryKey });
+    });
+
+    it("propagates backend errors without swallow", async () => {
+      const conflictError = new ApiError(409, {
+        code: "ACADEMIC_YEAR_ENDED_SUPPLEMENTARY_DATE_REQUIRED",
+        message: "Academic year has ended; an explicit future supplementaryDueDate is required.",
+      });
+      calls.post.mockRejectedValueOnce(conflictError);
+
+      const client = new QueryClient();
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client }, children);
+
+      const { result } = renderHook(() => useSyncFeeStructure(), { wrapper });
+
+      await expect(
+        act(async () => {
+          await result.current.mutateAsync({ id: "fs-ended" });
+        }),
+      ).rejects.toThrow("Academic year has ended; an explicit future supplementaryDueDate is required.");
+    });
+
+    it("does not automatically retry after a failed financial mutation", async () => {
+      const networkOrServerError = new ApiError(500, {
+        code: "INTERNAL_SYNCHRONIZATION_ERROR",
+        message: "Internal error",
+      });
+      calls.post.mockRejectedValueOnce(networkOrServerError);
+
+      const client = new QueryClient();
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client }, children);
+
+      const { result } = renderHook(() => useSyncFeeStructure(), { wrapper });
+
+      await act(async () => {
+        try {
+          await result.current.mutateAsync({ id: "fs-error" });
+        } catch {
+          // Expected failure
+        }
+      });
+
+      // Assert calls.post was invoked exactly once (no retry)
+      expect(calls.post).toHaveBeenCalledTimes(1);
+    });
   });
 });

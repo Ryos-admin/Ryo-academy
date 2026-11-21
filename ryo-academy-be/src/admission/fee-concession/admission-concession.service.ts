@@ -421,8 +421,11 @@ export class AdmissionConcessionService {
     });
   }
 
-  private async recomputeV0(tx: any, headerId: string) {
+  public async recomputeV0(tx: any, headerId: string) {
     const header = await tx.feePaymentHeader.findUnique({ where: { id: headerId } });
+    if (!header) {
+      throw new NotFoundException(`Fee payment header with ID "${headerId}" not found.`);
+    }
     const details = await tx.feePaymentDetails.findMany({
       where: { feePaymentHeaderId: headerId, isActive: true, isIncluded: true },
     });
@@ -441,6 +444,14 @@ export class AdmissionConcessionService {
       net = net.plus(detail.totalAmountToBePaid);
     }
     const paid = new Prisma.Decimal(header.totalPaidAmount.toString());
+    const due = net.minus(paid);
+    if (due.lt(0)) {
+      throw new ConflictException({
+        code: "NEGATIVE_DUE_PROHIBITED",
+        message: `Calculated due amount for header "${headerId}" is negative (net ₹${net} < paid ₹${paid}). Clamping or synthetic credit is prohibited.`,
+        feePaymentHeaderId: headerId,
+      });
+    }
     return tx.feePaymentHeader.update({
       where: { id: headerId },
       data: {
@@ -451,7 +462,7 @@ export class AdmissionConcessionService {
         netAmount: net,
         totalFeeAmount: net,
         totalPaidAmount: paid,
-        totalDueAmount: net.minus(paid),
+        totalDueAmount: due,
       },
     });
   }

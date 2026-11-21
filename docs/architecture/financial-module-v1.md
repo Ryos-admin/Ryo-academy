@@ -2,7 +2,7 @@
 
 > **Canonical Architecture Document**
 > **Status:** Final / Implemented
-> **Milestones Closed:** Task 02, Task 02.1, Task 03A, Task 03B, Task 03C, Task 04B.1, Task 04B.2, Task 04B.3, Task 04B.4, Task 04B.5, Task 04B.5.2, Task 04B.5.2.2, Task 04B.5.2.3, BE-ND1, BE-ND2 Stage 1, Stage 2, Stage 3, Stage 4.
+> **Milestones Closed:** Task 02, Task 02.1, Task 03A, Task 03B, Task 03C, Task 04B.1, Task 04B.2, Task 04B.3, Task 04B.4, Task 04B.5, Task 04B.5.2, Task 04B.5.2.2, Task 04B.5.2.3, BE-ND1, BE-ND2 Stage 1, Stage 2, Stage 3, Stage 4, Incremental Fee Synchronization (Tasks 1, 2, 3, 4.1, 4.2, 4.3, 4.4).
 
 ---
 
@@ -381,6 +381,7 @@ All financial endpoints require authenticated session tokens (`JwtAuthGuard`) an
 | `GET` | `/admission/fee-configuration/applicable` | `AdmissionController` | `ADMISSION_READ` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | Fetch applicable active FeeStructure and components preview for given year, program, and class |
 | `POST` | `/admission-payments/admissions/:admissionId/payments` | `AdmissionPaymentController` | `FEES_CREATE` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | Record admission-level fee payment against active installment schedule |
 | `POST` | `/admission-payments/admissions/:admissionId/payments/:paymentId/reversals` | `AdmissionPaymentController` | `FEES_REVERSE` | `COLLEGE_ADMIN` only | Reverse admission-level fee payment with full audit trail and balance restoration |
+| `POST` | `/fee-structure/:id/sync` | `FeeStructureSyncController` | `FEES_UPDATE` | `COLLEGE_ADMIN`, `OFFICE_ADMIN` | Synchronize applicable DRAFT and CONFIRMED admissions against latest master FeeComponents |
 
 ---
 
@@ -463,4 +464,45 @@ All financial endpoints require authenticated session tokens (`JwtAuthGuard`) an
   All fee configuration updates, concession assignments, updates, removals, and payments execute within interactive transactions that first acquire `SELECT id FROM "Admission" WHERE id = ${id} FOR UPDATE`. This eliminates race conditions between payment creation and fee/concession modifications.
 - **Frontend Fail-Closed State:**
   If payment history or fee configuration is loading or errors out, the frontend edit form fails closed by disabling all component checkboxes and concession action buttons until queries resolve successfully.
+
+### 9.6 Incremental Fee Synchronization & Lineage Revisions (Tasks 1–4.4)
+- **Evolution of Consumption Freeze (Task 1):**
+  - Consumed fee structures (`isConsumed === true`) permit narrow, upward-only master component mutations while preserving existing admission snapshots untouched.
+  - Decreasing component amounts on consumed structures is strictly prohibited: throws HTTP 400 `COMPONENT_AMOUNT_DECREASE_PROHIBITED_ON_CONSUMED_STRUCTURE`.
+  - Expanding discount applicability (`discountApplicable: false -> true`) on consumed structures is prohibited: throws HTTP 400 `DISCOUNT_APPLICABILITY_INCREASE_PROHIBITED`.
+  - Deactivating a component when applicable `DRAFT` or `CONFIRMED` admissions have an outstanding balance attributable to it is prohibited: throws HTTP 409 `COMPONENT_DEACTIVATION_REDUCES_ADMISSION_OBLIGATION`.
+  - Master modifications do **not** automatically mutate admission fee snapshots. Master configuration and admission snapshots remain decoupled.
+
+- **Shared Pre-Payment Eligibility Validation Gate (Task 2):**
+  - Both `AdmissionPaymentService.createAdmissionPayment()` and `StudentService.recordStudentFeePayment()` enforce the shared validation gate `assertAdmissionFeeDetailsCurrent(tx, headerId)` inside the active payment transaction.
+  - Executes under Level 2 serializing transaction locks (`SELECT id FROM "FeePaymentHeader" WHERE id = ${targetHeader.id} FOR UPDATE`) *prior* to payment allocations, counter updates, or lineage generation.
+  - If snapshot component names, amounts, mandatory flags, or discount-applicability settings diverge from active master components, the transaction immediately rolls back and returns HTTP 409 `ConflictException` with code `ADMISSION_FEE_DETAILS_OUTDATED`.
+  - Zero payment records, detail attribution rows, or installment allocations are written when the gate rejects.
+
+- **Synchronization Execution & Concurrency Pipeline (Task 3):**
+  - Explicit administrative endpoint: `POST /fee-structure/:id/sync`, authorized under `FEES_UPDATE` and tenant school verification.
+  - Atomic bulk execution: all applicable admissions are reconciled within a single database transaction via `FeeStructureSyncService.runInSyncCoordination()`.
+  - Admissions Filter: Only `DRAFT` and `CONFIRMED` admissions referencing the fee structure are eligible. `CANCELLED` admissions are strictly excluded.
+  - 5-Level Deadlock-Free Lock Hierarchy:
+    1. `FeeStructure`: `SELECT id FROM "FeeStructure" WHERE id = ${id} FOR UPDATE`
+    2. `Admission`: `SELECT id, "admissionStatus", "schoolId" FROM "Admission" WHERE id IN (...) ORDER BY id ASC FOR UPDATE`
+    3. `FeePaymentHeader`: `SELECT id FROM "FeePaymentHeader" WHERE id IN (...) ORDER BY id ASC FOR UPDATE`
+    4. `AdmissionInstallmentSchedule`: `SELECT id FROM "AdmissionInstallmentSchedule" WHERE id IN (...) ORDER BY id ASC FOR UPDATE`
+    5. `AdmissionInstallment`: `SELECT id FROM "AdmissionInstallment" WHERE "scheduleId" IN (...) ORDER BY sequence ASC, subSequence ASC, id ASC FOR UPDATE`
+
+- **DAG Installment Lineage Revisions (`FEE_REVISION`):**
+  - When synchronization introduces an admission obligation increase (`admissionDelta > 0`) on an existing `AdmissionInstallmentSchedule`:
+    - **Case A (In-Place Root Increase):** If the schedule's last pending installment satisfies all 9 root-invariance conditions (status `PENDING`, `subSequence === 0`, `rootInstallmentId === null`, `offsetAmount === 0`, zero allocations, zero child descendants, single initial root edge), its amount is incremented in-place along with its initial `InstallmentLineageTransferEdge`. An `InstallmentLineageEvent` with `eventType = LineageEventType.FEE_REVISION` (`variant: "IN_PLACE_ROOT_INCREASE"`) is created.
+    - **Case B & C (Supplementary Root Installment):** If the last pending installment has been split by partial payments or if all installments are already settled (`status === PAID`), existing installment rows and allocations remain immutable. A supplementary root installment is created with `sequence = maxSequence + 1`, `subSequence = 0`, `offsetAmount = 0`, `amount = admissionDelta`, `dueDate = resolvedDueDate`, and status `PENDING`. An `InstallmentLineageEvent` (`LineageEventType.FEE_REVISION`, `variant: "SUPPLEMENTARY_ROOT"`) and an `InstallmentLineageTransferEdge` (`sourceInstallmentId = null`, `resultInstallmentId = supplementaryInst.id`, `amount = admissionDelta`) are appended.
+  - Settled/paid installment leaves (`status === PAID`) and historical `FeePaymentInstallmentAllocation` records are never altered, re-split, or deleted.
+
+- **Negative Due Protection:**
+  - Header recomputation in `AdmissionConcessionService.recomputeV0()` verifies that $\text{totalDueAmount} = \text{netAmount} - \text{totalPaidAmount} \ge 0$.
+  - If $\text{netAmount} < \text{totalPaidAmount}$, the transaction aborts with HTTP 409 `ConflictException` with code `NEGATIVE_DUE_PROHIBITED`. Synthetic credit or clamping to zero is strictly forbidden.
+
+- **Frontend User Interface Integration (Tasks 4.1–4.4):**
+  - **Task 4.1:** `feesApi.syncStructure()` and `useSyncFeeStructure()` mutation hook in `ryo-academy-fe/src/lib/fees-api.ts`.
+  - **Task 4.2:** `FeeStructureSyncDialog` in `ryo-academy-fe/src/pages/fee-structure-sync-dialog.tsx` provides date validation, surfaces real synchronization counts, and invalidates query caches.
+  - **Task 4.3:** `CollectAdmissionPaymentDialog` intercepts `ADMISSION_FEE_DETAILS_OUTDATED`, displays amber warning alert, disables submission, preserves allocation inputs, and exposes "Refresh Fee Data" button.
+  - **Task 4.4:** `RealStudentDetail` inline payment flow intercepts `ADMISSION_FEE_DETAILS_OUTDATED`, renders synchronization required warning banner, preserves entered amount and date, disables payment recording, and provides refetch recovery.
 
