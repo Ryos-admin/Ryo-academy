@@ -2,6 +2,26 @@ import { BadRequestException } from '@nestjs/common';
 import { AdmissionRepository } from './admission.repository.js';
 import { DatabaseService } from '../../database/database.service.js';
 
+describe('AdmissionRepository.findActiveFeeStructures', () => {
+  it('filters master dimensions and returns only active components in stable name order', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const repository = new AdmissionRepository({ feeStructure: { findMany } } as unknown as DatabaseService);
+
+    await repository.findActiveFeeStructures({
+      academicYearId: 'year-1', programId: 'program-1', classId: 'class-1',
+    });
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        academicYearId: 'year-1', programId: 'program-1', classId: 'class-1', isActive: true,
+      },
+      include: {
+        feeComponents: { where: { isActive: true }, orderBy: { name: 'asc' } },
+      },
+    });
+  });
+});
+
 const SCHOOL = { id: 'school-1', schoolCode: 'RYO' };
 const YEAR = { id: 'year-1', name: '2026-27', schoolId: 'school-1' };
 const PROGRAM = { id: 'program-1', name: 'Day Care' };
@@ -146,5 +166,138 @@ describe('AdmissionRepository.generateSequenceNumber', () => {
     // into a 400 that would blame the client.
     expect(caught).toBe(boom);
     expect(caught).not.toBeInstanceOf(BadRequestException);
+  });
+
+  it('succeeds with a UUID-format school ID (H3 fix)', async () => {
+    const uuid = 'c9bf9e57-1685-4c89-bafb-ff5af830be8a';
+    const h = build({ school: { id: uuid, schoolCode: 'RYO' } });
+    const result = await h.repository.generateSequenceNumber(
+      uuid,
+      'year-1',
+      'program-1',
+      'class-1',
+    );
+    expect(result.classCount).toBe(7);
+    expect(result.academicSeq).toContain('RYO');
+  });
+
+  it('succeeds with a parenthesized school name/code format (H3 fix)', async () => {
+    const h = build({ school: { id: 'school-1', schoolCode: 'RYO' } });
+    const result = await h.repository.generateSequenceNumber(
+      'Ryo Academy (RYO)',
+      'year-1',
+      'program-1',
+      'class-1',
+    );
+    expect(result.classCount).toBe(7);
+    expect(result.academicSeq).toContain('RYO');
+  });
+});
+
+describe('AdmissionRepository.getFeePaymentByAdmissionId (C3 fix)', () => {
+  it('returns a single typed header object with its fee payment details', async () => {
+    const mockHeader = {
+      id: 'header-1',
+      admissionId: 'adm-1',
+      feeStructureId: 'fs-1',
+      totalFeeAmount: 100000,
+      feePaymentDetails: [
+        { id: 'det-1', nameSnapshot: 'Tuition', amountPaid: 0 },
+      ],
+    };
+    const db = {
+      feePaymentHeader: {
+        findFirst: jest.fn().mockResolvedValue(mockHeader),
+      },
+    } as unknown as DatabaseService;
+
+    const repo = new AdmissionRepository(db);
+    const result = await repo.getFeePaymentByAdmissionId('adm-1');
+
+    expect(result).toBeDefined();
+    expect(result?.id).toBe('header-1');
+    expect(result?.feeStructureId).toBe('fs-1');
+    expect(Array.isArray(result?.feePaymentDetails)).toBe(true);
+    expect(result?.feePaymentDetails.length).toBe(1);
+    // Verifies it is NOT array-spread object like { '0': { ... } }
+    expect((result as any)['0']).toBeUndefined();
+  });
+
+  it('returns null when no fee payment header exists for admission', async () => {
+    const db = {
+      feePaymentHeader: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    } as unknown as DatabaseService;
+
+    const repo = new AdmissionRepository(db);
+    const result = await repo.getFeePaymentByAdmissionId('adm-none');
+    expect(result).toBeNull();
+  });
+});
+
+describe('AdmissionRepository.updateFeePaymentDet (C3 transactional execution)', () => {
+  it('updates existing header and details inside a single database transaction', async () => {
+    const headerUpdate = jest.fn().mockResolvedValue({ id: 'header-1', feeStructureId: 'fs-1' });
+    const detailUpdate = jest.fn().mockResolvedValue({ id: 'det-1' });
+    const tx = {
+      feePaymentHeader: {
+        update: headerUpdate,
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          id: 'header-1',
+          feeStructureId: 'fs-1',
+          feePaymentDetails: [{ id: 'det-1' }],
+        }),
+      },
+      feePaymentDetails: {
+        update: detailUpdate,
+      },
+    };
+    const db = {
+      $transaction: jest.fn((cb: any) => cb(tx)),
+    } as unknown as DatabaseService;
+
+    const repo = new AdmissionRepository(db);
+    const dto: any = {
+      id: 'header-1',
+      feeStructureId: 'fs-1',
+      totalPaidAmount: '50000',
+      feePaymentDetails: [{ id: 'det-1', originalAmount: '50000', discountAmount: '0', amountPaid: '50000' }],
+    };
+
+    const result = await repo.updateFeePaymentDet(dto, 'fs-1');
+    expect(db.$transaction).toHaveBeenCalled();
+    expect(headerUpdate).toHaveBeenCalled();
+    expect(detailUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'det-1' },
+      }),
+    );
+    expect(result.id).toBe('header-1');
+  });
+
+  it('rolls back transaction if a detail update fails', async () => {
+    const db = {
+      $transaction: jest.fn(async (cb: any) => {
+        const tx = {
+          feePaymentHeader: {
+            update: jest.fn().mockResolvedValue({ id: 'header-1' }),
+          },
+          feePaymentDetails: {
+            update: jest.fn().mockRejectedValue(new Error('Detail DB write failed')),
+          },
+        };
+        return cb(tx);
+      }),
+    } as unknown as DatabaseService;
+
+    const repo = new AdmissionRepository(db);
+    const dto: any = {
+      id: 'header-1',
+      feeStructureId: 'fs-1',
+      feePaymentDetails: [{ id: 'det-1', originalAmount: '50000', discountAmount: '0', amountPaid: '50000' }],
+    };
+
+    await expect(repo.updateFeePaymentDet(dto, 'fs-1')).rejects.toThrow('Detail DB write failed');
   });
 });

@@ -1,7 +1,10 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayNotEmpty,
+  ArrayUnique,
   IsBoolean,
+  IsArray,
   IsDate,
   IsEmail,
   IsEnum,
@@ -12,8 +15,11 @@ import {
   IsPhoneNumber,
   IsPostalCode,
   IsString,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { Gender, Relation } from '../../../../generated/prisma/enums.js';
+import { IsMoneyString } from '../../../common/money/money.util.js';
 
 export class CreateFeePaymentDetailsDto {
   @ApiProperty({
@@ -48,21 +54,21 @@ export class CreateFeePaymentDetailsDto {
 
   @ApiProperty({
     description: 'Original amount of the fee component before any discounts',
-    example: 1000.0,
-    type: Number,
+    example: '1000.00',
+    type: String,
   })
-  @IsNumber()
+  @IsMoneyString()
   @IsNotEmpty()
-  originalAmount!: number;
+  originalAmount!: string;
 
   @ApiProperty({
     description: 'Discount amount of the fee component before any discounts',
-    example: 100.0,
-    type: Number,
+    example: '100.00',
+    type: String,
   })
   @IsNotEmpty()
-  @IsNumber()
-  discountAmount!: number;
+  @IsMoneyString()
+  discountAmount!: string;
 
   @ApiProperty({
     description: 'Discount applicable of the fee component',
@@ -84,12 +90,12 @@ export class CreateFeePaymentDetailsDto {
 
   @ApiProperty({
     description: 'Total Payment Amount againist this component',
-    example: 1000,
-    type: Number,
+    example: '1000.00',
+    type: String,
   })
   @IsNotEmpty()
-  @IsNumber()
-  amountPaid!: number;
+  @IsMoneyString()
+  amountPaid!: string;
 
   @ApiProperty({
     description: 'last payment date',
@@ -159,57 +165,57 @@ export class CreateFeePaymentHeaderDto {
 
   @ApiProperty({
     description: 'Gross amount of the fee payment',
-    example: 1000.0,
-    type: Number,
+    example: '1000.00',
+    type: String,
   })
-  @IsNumber()
+  @IsMoneyString()
   @IsNotEmpty()
-  grossAmount!: number;
+  grossAmount!: string;
 
   @ApiProperty({
     description: 'Discount amount applied to the fee payment',
-    example: 100.0,
-    type: Number,
+    example: '100.00',
+    type: String,
   })
-  @IsNumber()
+  @IsMoneyString()
   @IsNotEmpty()
-  discountAmount!: number;
+  discountAmount!: string;
 
   @ApiProperty({
     description: 'Net amount after discount for the fee payment',
-    example: 900.0,
-    type: Number,
+    example: '900.00',
+    type: String,
   })
-  @IsNumber()
+  @IsMoneyString()
   @IsNotEmpty()
-  netAmount!: number;
+  netAmount!: string;
 
   @ApiProperty({
     description: 'Total amount paid for the fee payment',
-    example: 900.0,
-    type: Number,
+    example: '900.00',
+    type: String,
   })
-  @IsNumber()
+  @IsMoneyString()
   @IsNotEmpty()
-  totalPaidAmount!: number;
+  totalPaidAmount!: string;
 
   @ApiProperty({
     description: 'Total amount due for the fee payment',
-    example: 100.0,
-    type: Number,
+    example: '100.00',
+    type: String,
   })
-  @IsNumber()
+  @IsMoneyString()
   @IsNotEmpty()
-  totalDueAmount!: number;
+  totalDueAmount!: string;
 
   @ApiProperty({
     description: 'Total fee amount for the fee payment',
-    example: 1000.0,
-    type: Number,
+    example: '1000.00',
+    type: String,
   })
-  @IsNumber()
+  @IsMoneyString()
   @IsNotEmpty()
-  totalFeeAmount!: number;
+  totalFeeAmount!: string;
 
   @ApiProperty({
     description: 'List of fee payment details associated with the fee payment',
@@ -219,6 +225,27 @@ export class CreateFeePaymentHeaderDto {
   @IsNotEmpty()
   @IsObject()
   feePaymentDetails!: CreateFeePaymentDetailsDto[];
+}
+
+export class AdmissionFeeComponentSelectionDto {
+  @ApiProperty({
+    description: 'ID of the active fee component from the fee structure',
+    example: 'fee-component-123',
+    type: String,
+  })
+  @IsString()
+  @IsNotEmpty()
+  feeComponentId!: string;
+
+  @ApiPropertyOptional({
+    description: 'Discount percentage between 0.00 and 100.00',
+    example: '10.00',
+    type: String,
+  })
+  @ValidateIf((_obj, val) => val !== undefined)
+  @IsString({ message: 'discountPercentage must be a string; explicit null is not allowed.' })
+  @IsMoneyString({ message: 'discountPercentage must be a decimal string with at most two fractional digits.' })
+  discountPercentage?: string;
 }
 
 export class CreateAdmissionDto {
@@ -279,6 +306,30 @@ export class CreateAdmissionDto {
   @IsString()
   @IsNotEmpty()
   classId!: string;
+
+  @ApiPropertyOptional({
+    description: 'V0 explicit fee component selections and discount configurations',
+    type: () => [AdmissionFeeComponentSelectionDto],
+  })
+  @ValidateIf((o) => o.components !== undefined)
+  @IsArray()
+  @ArrayNotEmpty()
+  @ValidateNested({ each: true })
+  @Type(() => AdmissionFeeComponentSelectionDto)
+  components?: AdmissionFeeComponentSelectionDto[];
+
+  @ApiPropertyOptional({
+    description: 'IDs of active fee components selected for this admission (legacy format)',
+    example: ['tuition-component-id'],
+    type: [String],
+  })
+  @ValidateIf((o) => o.components === undefined || o.selectedFeeComponentIds !== undefined)
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsString({ each: true })
+  @IsNotEmpty({ each: true })
+  selectedFeeComponentIds?: string[];
 
   @ApiProperty({
     description: 'ID of the section for the admission',
@@ -416,14 +467,23 @@ export class CreateAdmissionDto {
   @IsNotEmpty()
   createdById!: string;
 
-  @ApiProperty({
-    description: 'Array of Fee structure for admission record',
-    type: () => [CreateFeePaymentHeaderDto],
-    required: false,
-  })
-  @IsOptional()
-  @IsObject()
-  feePaymentHeaders?: CreateFeePaymentHeaderDto;
+}
+
+export class ApplicableFeeConfigurationQueryDto {
+  @ApiProperty({ type: String, example: 'year-1' })
+  @IsString()
+  @IsNotEmpty()
+  academicYearId!: string;
+
+  @ApiProperty({ type: String, example: 'program-1' })
+  @IsString()
+  @IsNotEmpty()
+  programId!: string;
+
+  @ApiProperty({ type: String, example: 'class-1' })
+  @IsString()
+  @IsNotEmpty()
+  classId!: string;
 }
 
 export class CreateStudentDto {

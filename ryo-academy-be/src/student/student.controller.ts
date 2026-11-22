@@ -2,6 +2,8 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiConflictResponse,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -17,18 +19,23 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { StudentService } from './student.service.js';
+import { PaymentReversalService } from './payment-reversal.service.js';
 import { JwtAuthGuard } from '../security/token/jwt-auth.guard.js';
 import { PermissionsGuard } from '../auth/permissions.guard.js';
 import { RequirePermissions } from '../auth/require-permissions.decorator.js';
 import { PERMISSIONS } from '../auth/permissions/permission.constants.js';
 import { CreateStudentFeePaymentDto } from './dto/create-student-fee-payment.dto.js';
+import { ReverseStudentFeePaymentDto } from './dto/reverse-student-fee-payment.dto.js';
 
 @ApiTags('Students')
 @Controller('students')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class StudentController {
-  constructor(private readonly studentService: StudentService) {}
+  constructor(
+    private readonly studentService: StudentService,
+    private readonly paymentReversalService: PaymentReversalService,
+  ) {}
 
   @Get()
   @RequirePermissions(PERMISSIONS.STUDENT_READ)
@@ -69,5 +76,28 @@ export class StudentController {
     @Req() request: { user: { userId: string } },
   ) {
     return this.studentService.recordStudentFeePayment(id, dto, request.user.userId);
+  }
+
+  @Post(':id/fees/payments/:paymentId/reverse')
+  @RequirePermissions(PERMISSIONS.FEES_REVERSE)
+  @ApiOperation({ summary: 'Reverse a previously recorded student fee payment in full' })
+  @ApiBody({ type: ReverseStudentFeePaymentDto })
+  @ApiOkResponse({ description: 'Student fee payment reversed successfully' })
+  @ApiBadRequestResponse({ description: 'Invalid request or payment is not eligible for reversal' })
+  @ApiConflictResponse({ description: 'Payment has already been reversed or idempotency conflict' })
+  @ApiForbiddenResponse({ description: 'Actor lacks FEES_REVERSE permission or is not school-scoped' })
+  @ApiNotFoundResponse({ description: 'Student, admission, or fee payment not found' })
+  reverseStudentFeePayment(
+    @Param('id') id: string,
+    @Param('paymentId') paymentId: string,
+    @Body() dto: ReverseStudentFeePaymentDto,
+    @Req() request: { user: { userId: string } },
+  ) {
+    return this.paymentReversalService.reverseStudentFeePayment(
+      id,
+      paymentId,
+      dto,
+      request.user.userId,
+    );
   }
 }

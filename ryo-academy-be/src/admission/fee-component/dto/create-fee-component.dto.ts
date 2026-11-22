@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsBoolean, IsNotEmpty, IsNumber, isNumber, IsPositive, IsString } from "class-validator";
+import { IsBoolean, IsNotEmpty, IsString } from "class-validator";
+import { IsMoneyString } from "../../../common/money/money.util.js";
 
 export class CreateFeeComponentDto {
 
@@ -22,13 +23,12 @@ export class CreateFeeComponentDto {
 
     @ApiProperty({
         description: 'Amount for the fee component',
-        example: 5000,
-        type: Number,
+        example: "5000.00",
+        type: String,
     })
-    @IsNumber()
-    @IsPositive()
+    @IsMoneyString()
     @IsNotEmpty()
-    amount!: number;
+    amount!: string;
 
     @ApiProperty({
         description: 'ID of the fee structure to which this fee component belongs',

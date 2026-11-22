@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AdmissionService } from './admission.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { AdmissionRepository } from './admission.repository.js';
@@ -26,14 +26,14 @@ const DTO: CreateAdmissionDto = {
   country: 'India',
   postalCode: '411001',
   createdById: 'user-1',
-  feePaymentHeaders: {} as CreateAdmissionDto['feePaymentHeaders'],
+  selectedFeeComponentIds: ['fc-1'],
 };
 
 type Harness = {
   service: AdmissionService;
   sectionFindUnique: jest.Mock;
   generateSequenceNumber: jest.Mock;
-  findFeeStructurebyId: jest.Mock;
+  findActiveFeeStructures: jest.Mock;
   transaction: jest.Mock;
 };
 
@@ -51,14 +51,34 @@ function build(opts: {
       : () =>
           Promise.resolve({ academicSeq: 'ADM-2026-27-1', classCount: 0, schoolCode: 'school-1' }),
   );
-  const findFeeStructurebyId = jest
+  const findActiveFeeStructures = jest
     .fn()
     .mockResolvedValue(
       'feeStructure' in opts
         ? opts.feeStructure
-        : { id: 'fs-1', totalAmount: 100, feeComponents: [{ id: 'fc-1' }] },
+        : [{
+            id: 'fs-1',
+            name: 'Fees',
+            description: null,
+            totalAmount: 100,
+            academicYearId: 'year-1',
+            programId: 'program-1',
+            classId: 'class-1',
+            feeComponents: [{
+              id: 'fc-1', name: 'Tuition', description: null, amount: 100,
+              discountApplicable: true, isMandatory: true,
+            }],
+          }],
     );
-  const transaction = jest.fn();
+  const transaction = jest.fn(async (work: (tx: any) => Promise<unknown>) => work({
+    admission: {
+      create: jest.fn().mockResolvedValue({ id: 'adm-1', academicYearId: 'year-1' }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ feePaymentHeaders: [{ feePaymentDetails: [] }] }),
+    },
+    feeStructure: {},
+    feePaymentHeader: { create: jest.fn().mockResolvedValue({ id: 'header-1' }) },
+    feePaymentDetails: { createMany: jest.fn() },
+  }));
 
   const db = {
     section: { findUnique: sectionFindUnique },
@@ -67,10 +87,10 @@ function build(opts: {
 
   const repository = {
     generateSequenceNumber,
-    findFeeStructurebyId,
+    findActiveFeeStructures,
   } as unknown as AdmissionRepository;
 
-  return { service: new AdmissionService(db, repository), sectionFindUnique, generateSequenceNumber, findFeeStructurebyId, transaction };
+  return { service: new AdmissionService(db, repository), sectionFindUnique, generateSequenceNumber, findActiveFeeStructures, transaction };
 }
 
 describe('AdmissionService.create referenced-record handling', () => {
@@ -116,17 +136,15 @@ describe('AdmissionService.create referenced-record handling', () => {
     expect(h.transaction).not.toHaveBeenCalled();
   });
 
-  it('keeps the fee-structure business rule intact', async () => {
-    const h = build({ feeStructure: null });
+  it('returns a clear not-found error when there is no matching active fee structure', async () => {
+    const h = build({ feeStructure: [] });
     let caught: unknown;
     try {
       await h.service.create({ ...DTO });
     } catch (error) {
       caught = error;
     }
-    expect(caught).toBeInstanceOf(BadRequestException);
-    expect((caught as BadRequestException).message).toBe(
-      'An active Fee Structure with at least one active Fee Component is required.',
-    );
+    expect(caught).toBeInstanceOf(NotFoundException);
+    expect((caught as NotFoundException).message).toContain('No active fee structure');
   });
 });

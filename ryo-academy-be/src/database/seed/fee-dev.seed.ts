@@ -1,8 +1,9 @@
 import 'dotenv/config';
+import '../../common/money/decimal-precision.js';
 import argon2 from 'argon2';
 import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '../../../generated/prisma/client.js';
+import { PrismaClient, DayOfWeek } from '../../../generated/prisma/client.js';
 
 const databaseUrl = process.env['DIRECT_DATABASE_URL'] ?? process.env['DATABASE_URL'];
 if (!databaseUrl) {
@@ -89,7 +90,13 @@ async function main() {
       academicYearId: academicYear.id,
       name: 'Day Care Program',
       isPrimary: true,
-      daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+      daysOfWeek: [
+        DayOfWeek.MONDAY,
+        DayOfWeek.TUESDAY,
+        DayOfWeek.WEDNESDAY,
+        DayOfWeek.THURSDAY,
+        DayOfWeek.FRIDAY,
+      ],
       startTime: '08:00',
       endTime: '17:00',
     },

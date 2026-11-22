@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "LineageEventType" ADD VALUE IF NOT EXISTS 'FEE_REVISION';

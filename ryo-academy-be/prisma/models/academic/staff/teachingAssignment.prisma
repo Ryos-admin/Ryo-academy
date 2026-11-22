@@ -2,6 +2,8 @@ model TeachingAssignment {
     id String @id @default(uuid())
     staffId String?
     staff Staff? @relation(fields: [staffId], references: [id])
+    historicalStaffId String?
+    historicalStaff Staff? @relation("HistoricalTeachingAssignment", fields: [historicalStaffId], references: [id], onDelete: SetNull)
     subjectId String
     subject Subjects @relation(fields: [subjectId], references: [id])
     classId String

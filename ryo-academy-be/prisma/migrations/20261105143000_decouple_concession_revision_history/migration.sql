@@ -1,0 +1,2 @@
+ALTER TABLE "AdmissionFeeConcessionRevision"
+DROP CONSTRAINT "AdmissionFeeConcessionRevision_sourceConcessionId_fkey";

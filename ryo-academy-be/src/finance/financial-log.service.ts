@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { DatabaseService } from '../database/database.service.js';
 import { QueryFinancialLogDto } from './dto/query-financial-log.dto.js';
+import '../common/money/decimal-precision.js';
 
 @Injectable()
 export class FinancialLogService {
@@ -30,14 +31,40 @@ export class FinancialLogService {
   }
 
   private async summary(where: Prisma.FinancialLogWhereInput) {
-    const incomeWhere = where.flowType === 'EXPENSE' ? { ...where, id: '__no-income-for-flow-filter__' } : where.flowType === 'INCOME' ? where : { ...where, flowType: 'INCOME' as const };
-    const expenseWhere = where.flowType === 'INCOME' ? { ...where, id: '__no-expense-for-flow-filter__' } : where.flowType === 'EXPENSE' ? where : { ...where, flowType: 'EXPENSE' as const };
-    const [income, expense] = await Promise.all([
+    const incomeWhere =
+      where.flowType === 'EXPENSE' || where.flowType === 'REVERSAL'
+        ? { ...where, id: '__no-income-for-flow-filter__' }
+        : where.flowType === 'INCOME'
+          ? where
+          : { ...where, flowType: 'INCOME' as const };
+    const expenseWhere =
+      where.flowType === 'INCOME' || where.flowType === 'REVERSAL'
+        ? { ...where, id: '__no-expense-for-flow-filter__' }
+        : where.flowType === 'EXPENSE'
+          ? where
+          : { ...where, flowType: 'EXPENSE' as const };
+    const reversalWhere =
+      where.flowType === 'INCOME' || where.flowType === 'EXPENSE'
+        ? { ...where, id: '__no-reversal-for-flow-filter__' }
+        : where.flowType === 'REVERSAL'
+          ? where
+          : { ...where, flowType: 'REVERSAL' as const };
+
+    const [income, expense, reversals] = await Promise.all([
       this.db.financialLog.aggregate({ where: incomeWhere, _sum: { amount: true } }),
       this.db.financialLog.aggregate({ where: expenseWhere, _sum: { amount: true } }),
+      this.db.financialLog.aggregate({ where: reversalWhere, _sum: { amount: true } }),
     ]);
     const incomeAmount = income._sum.amount ?? new Prisma.Decimal(0);
     const expenseAmount = expense._sum.amount ?? new Prisma.Decimal(0);
-    return { income: incomeAmount.toString(), expenses: expenseAmount.toString(), net: incomeAmount.minus(expenseAmount).toString() };
+    const reversalAmount = reversals._sum.amount ?? new Prisma.Decimal(0);
+    const netAmount = incomeAmount.minus(reversalAmount).minus(expenseAmount);
+
+    return {
+      income: incomeAmount.toString(),
+      expenses: expenseAmount.toString(),
+      reversals: reversalAmount.toString(),
+      net: netAmount.toString(),
+    };
   }
 }

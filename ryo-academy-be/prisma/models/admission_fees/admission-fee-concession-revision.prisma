@@ -1,0 +1,15 @@
+model AdmissionFeeConcessionRevision {
+  id                     String                 @id @default(uuid())
+  sourceConcessionId     String
+  calculationMode        CalculationMode
+  discountType           DiscountType?
+  discountValue          Decimal?               @db.Decimal(65, 30)
+  concessionCategoryId   String?
+  previousPayableAmount  Decimal?               @db.Decimal(65, 30)
+  calculatedDiscountAmount Decimal              @db.Decimal(65, 30)
+  actorId                String
+  actor                  User                   @relation("ConcessionRevisionActor", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt              DateTime               @default(now())
+
+  @@index([sourceConcessionId])
+}

@@ -1,5 +1,6 @@
-import { ApiProperty } from "@nestjs/swagger"
-import { IsArray, IsBoolean, IsNotEmpty, IsString } from "class-validator"
+import { ApiProperty } from "@nestjs/swagger";
+import { ArrayNotEmpty, IsArray, IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString } from "class-validator";
+import { DayOfWeek } from "../../../../generated/prisma/client.js";
 
 export class UpdateProgramDto {
 
@@ -7,44 +8,52 @@ export class UpdateProgramDto {
         description: 'Unique code identifying the Program/shift',
         example: 'Day-Care',
         type: String,
+        required: false,
     })
     @IsString()
-    @IsNotEmpty()
-    name: string;
+    @IsOptional()
+    name?: string;
 
     @ApiProperty({
         description: 'Indicates if the program is primary',
         example: true,
         type: Boolean,
+        required: false,
     })
     @IsBoolean()
-    @IsNotEmpty()
-    isPrimary: boolean;
+    @IsOptional()
+    isPrimary?: boolean;
 
     @ApiProperty({
         description: 'Days of the week when the program is offered',
-        example: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
-        type: [String],
+        example: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+        enum: DayOfWeek,
+        isArray: true,
+        required: false,
     })
     @IsArray()
-    @IsNotEmpty()
-    daysOfWeek: string[];
+    @ArrayNotEmpty()
+    @IsEnum(DayOfWeek, { each: true })
+    @IsOptional()
+    daysOfWeek?: DayOfWeek[];
 
     @ApiProperty({
         description: 'Start time of the program',
         example: '08:00',
         type: String,
+        required: false,
     })
     @IsString()
-    @IsNotEmpty()
-    startTime: string;
+    @IsOptional()
+    startTime?: string;
 
     @ApiProperty({
         description: 'End time of the program',
         example: '17:00',
         type: String,
+        required: false,
     })
     @IsString()
-    @IsNotEmpty()
-    endTime: string;
+    @IsOptional()
+    endTime?: string;
 }

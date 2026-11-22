@@ -3,21 +3,28 @@ model FeePayment {
   idempotencyKey     String            @unique
   schoolId           String
   userId             String
-  studentId          String
+  studentId          String?
   admissionId        String
   feePaymentHeaderId String
   amount             Decimal
   paymentDate        DateTime
+  paymentMethod      PaymentMethod
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
   school           School           @relation(fields: [schoolId], references: [id])
   user             User             @relation("FeePaymentActor", fields: [userId], references: [id])
-  student          Student          @relation(fields: [studentId], references: [id])
+  student          Student?         @relation(fields: [studentId], references: [id])
   admission        Admission        @relation(fields: [admissionId], references: [id])
-  feePaymentHeader FeePaymentHeader @relation(fields: [feePaymentHeaderId], references: [id])
+  feePaymentHeader FeePaymentHeader @relation(fields: [feePaymentHeaderId, admissionId], references: [id, admissionId], onDelete: Restrict)
+  installmentAllocations FeePaymentInstallmentAllocation[]
+  reversalEvent PaymentReversalEvent?
+  lineageEvents InstallmentLineageEvent[]
+  detailAttributions FeePaymentDetailAttribution[] @relation("FeePaymentAttributions")
 
+  @@unique([id, feePaymentHeaderId], name: "uq_payment_id_header")
   @@index([schoolId, createdAt])
   @@index([studentId, createdAt])
   @@index([feePaymentHeaderId, createdAt])
+  @@index([admissionId, createdAt])
 }

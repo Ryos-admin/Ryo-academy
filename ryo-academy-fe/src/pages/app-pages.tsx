@@ -17,6 +17,7 @@ import {
   LogOut,
   Menu,
   UserRound,
+  Wallet,
   X,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -24,6 +25,7 @@ import { queryClient } from "@/lib/query-client";
 import { ApiError } from "@/lib/api-client";
 import { useCurrentUser, useLogin, useLogout, type CurrentUser } from "@/lib/auth-api";
 import { session } from "@/lib/session";
+import { useSchoolConfiguration } from "@/lib/schools-api";
 import NotFound from "@/pages/not-found";
 import { type Permission, type Role, type User, hasPermission, initials, toPermissions } from "@/lib/mock-erp";
 import {
@@ -61,6 +63,7 @@ import {
   RealFeeDetail,
   RealFeesPage,
 } from "@/pages/fee-pages";
+import { FeeManagementDashboardPage } from "@/pages/fee-dashboard-pages";
 import {
   RealAttendanceDetail,
   RealAttendanceMark,
@@ -216,6 +219,12 @@ const nav: NavItem[] = [
     permission: "ATTENDANCE_READ",
   },
   {
+    label: "Fee Management",
+    href: "/fee-management",
+    icon: Wallet,
+    permission: "FEES_READ",
+  },
+  {
     label: "Fees",
     href: "/fees",
     icon: CircleDollarSign,
@@ -238,7 +247,7 @@ const nav: NavItem[] = [
   },
 ];
 
-function Shell({
+export function Shell({
   children,
   session,
   onLogout,
@@ -250,6 +259,35 @@ function Shell({
   const [location, setLocation] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const schoolConfig = useSchoolConfiguration();
+
+  const chipContent = schoolConfig.isLoading ? (
+    <>
+      <span className="live-dot animate-pulse" />
+      <span>Loading AY...</span>
+    </>
+  ) : schoolConfig.isError ? (
+    <>
+      <span className="live-dot live-dot-red" />
+      <span>AY Unavailable</span>
+    </>
+  ) : schoolConfig.data?.isInvalid ? (
+    <>
+      <span className="live-dot live-dot-red" />
+      <span>Invalid AY</span>
+    </>
+  ) : schoolConfig.data?.isConfigured && schoolConfig.data.activeAcademicYear ? (
+    <>
+      <span className="live-dot" />
+      <span>{schoolConfig.data.activeAcademicYear.name}</span>
+    </>
+  ) : (
+    <>
+      <span className="live-dot live-dot-amber" />
+      <span>No AY Selected</span>
+    </>
+  );
+
   const visible = nav.filter(
     (item) =>
       (!item?.roles || item.roles.includes(session?.role)) &&
@@ -262,6 +300,12 @@ function Shell({
       .find((item) => matchesPath(item.href, location))?.label || "Profile";
   return (
     <div className="app-shell">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:shadow-md focus:ring-2 focus:ring-ring focus:outline-none text-sm font-medium"
+      >
+        Skip to main content
+      </a>
       <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""} overflow-y-auto`}>
         <div className="brand">
           <div className="brand-seal">N</div>
@@ -277,9 +321,8 @@ function Shell({
             <X size={18} />
           </button>
         </div>
-        <div className="workspace-chip">
-          <span className="live-dot" />
-          <span>AY 2025–26</span>
+        <div className="workspace-chip" data-testid="sidebar-workspace-chip">
+          {chipContent}
           <ChevronDown size={13} />
         </div>
         <div className="nav-label">Workspace</div>
@@ -351,7 +394,7 @@ function Shell({
           aria-label="Close navigation"
         />
       )}
-      <main className="main-area">
+      <main id="main-content" className="main-area">
         <header className="topbar">
           <button
             className="mobile-menu"
@@ -682,7 +725,7 @@ function ParamAttendanceDetail({ session }: { session: User }) {
 }
 function AcademicYearEditRoute() {
   const { id } = useParams();
-  return <AcademicYearForm id={id}  schoolId={session?.schoolId} />;
+  return <AcademicYearForm id={id} />;
 }
 function AcademicYearDetailRoute() {
   const { id } = useParams();
@@ -740,7 +783,7 @@ function RoutedApp({ session, onLogout }: { session: User; onLogout: () => void 
         </Route>
         <Route path="/academic-years/:id/edit">
           <Protected session={session} permission="CLASS_UPDATE">
-            <AcademicYearEditRoute  schoolId={session?.schoolId}  />
+            <AcademicYearEditRoute />
           </Protected>
         </Route>
         <Route path="/academic-years/:id">
@@ -926,6 +969,11 @@ function RoutedApp({ session, onLogout }: { session: User; onLogout: () => void 
         <Route path="/staff">
           <Protected session={session} permission="STAFF_READ">
             <StaffList session={session} />
+          </Protected>
+        </Route>
+        <Route path="/fee-management">
+          <Protected session={session} permission="FEES_READ">
+            <FeeManagementDashboardPage session={session} />
           </Protected>
         </Route>
         <Route path="/fees/new">

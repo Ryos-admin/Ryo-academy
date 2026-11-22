@@ -8,6 +8,9 @@ model FeePaymentHeader {
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
   feeStructureId String
   feeStructure FeeStructure @relation(fields: [feeStructureId], references: [id])
+  pricingVersion FeePricingVersion
+  taxableAmount Decimal? @db.Decimal(12, 2)
+  gstAmount Decimal? @db.Decimal(12, 2)
   grossAmount Decimal
   discountAmount Decimal
   netAmount Decimal
@@ -20,7 +23,12 @@ model FeePaymentHeader {
   
   feePaymentDetails FeePaymentDetails[]
   payments FeePayment[]
+  installmentSchedule AdmissionInstallmentSchedule?
+  installmentAllocations FeePaymentInstallmentAllocation[]
+  installments AdmissionInstallment[]
+  detailAttributions FeePaymentDetailAttribution[] @relation("HeaderAttributions")
 
   @@unique([academicYearId, admissionId, feeStructureId])
+  @@unique([id, admissionId], name: "uq_header_id_admission")
   @@index([academicYearId, admissionId, feeStructureId])
 }

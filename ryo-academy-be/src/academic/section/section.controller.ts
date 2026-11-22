@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards, Req } from "@nestjs/common";
 import { ApiBadGatewayResponse, ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { SectionService } from "./section.service.js";
 import { CreateSectionDto } from "./dto/create-section.dto.js";
@@ -55,8 +55,8 @@ export class SectionController {
 
   @Delete(':id')
   @RequirePermissions(PERMISSIONS.CLASS_UPDATE)
-  async remove(@Param('id') id: string) {
-    return this.sectionService.remove(id);
+  async remove(@Param('id') id: string, @Req() req) {
+    return this.sectionService.remove(id, req.user.userId);
   }
 
 }

@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
-import {  IsArray, IsBoolean, IsNotEmpty, IsString } from "class-validator";
+import { ArrayNotEmpty, IsArray, IsBoolean, IsEnum, IsNotEmpty, IsString } from "class-validator";
+import { DayOfWeek } from "../../../../generated/prisma/client.js";
 
 export class CreateProgramDto {
     @ApiProperty({
@@ -31,12 +32,14 @@ export class CreateProgramDto {
 
     @ApiProperty({
         description: 'Days of the week when the program is offered',
-        example: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
-        type: [String],
+        example: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+        enum: DayOfWeek,
+        isArray: true,
     })
     @IsArray()
-    @IsNotEmpty()
-    daysOfWeek: string[];
+    @ArrayNotEmpty()
+    @IsEnum(DayOfWeek, { each: true })
+    daysOfWeek: DayOfWeek[];
 
     @ApiProperty({
         description: 'Start time of the program',

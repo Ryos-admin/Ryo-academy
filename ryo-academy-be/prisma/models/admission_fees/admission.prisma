@@ -75,6 +75,8 @@ model Admission {
     updatedAt DateTime @updatedAt
     feePaymentHeaders FeePaymentHeader[]
     feePayments FeePayment[]
+    concessions AdmissionFeeConcession[]
+    installmentSchedules AdmissionInstallmentSchedule[]
 
     student Student?
     

@@ -14,12 +14,17 @@ import { SectionModule } from './academic/section/section.module.js';
 import { FeeStructureModule } from './admission/fee-structure/fee-structure.module.js';
 import { FeeComponentModule } from './admission/fee-component/fee-component.module.js';
 import { AdmissionModule } from './admission/admission-fee-log/admission.module.js';
+import { AdmissionPaymentModule } from './admission/admission-payment/admission-payment.module.js';
+import { FeeConcessionModule } from './admission/fee-concession/fee-concession.module.js';
+import { InstallmentTemplateModule } from './admission/installment/installment-template.module.js';
 import { FinanceModule } from './finance/finance.module.js';
 import { SubjectModule } from './academic/subject/subject.module.js';
 import { StaffModule } from './academic/staff/staff.module.js';
 import { AcademicCalendarModule } from './academic/academic-calendar/academic-calendar.module.js';
 import { AttendanceModule } from './attendance/attendance.module.js';
 import { StudentModule } from './student/student.module.js';
+import { SchoolsModule } from './schools/schools.module.js';
+import { FeeManagementModule } from './fee-management/fee-management.module.js';
 
 @Module({
   imports: [
@@ -38,12 +43,17 @@ import { StudentModule } from './student/student.module.js';
     FeeStructureModule,
     FeeComponentModule,
     AdmissionModule,
+    AdmissionPaymentModule,
+    FeeConcessionModule,
+    InstallmentTemplateModule,
     FinanceModule,
     SubjectModule,
     StaffModule,
     AcademicCalendarModule,
     AttendanceModule,
     StudentModule,
+    SchoolsModule,
+    FeeManagementModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -40,19 +40,20 @@ export function AppButton({
     ...props
 }: {
     children: ReactNode;
-    variant?: "primary" | "ghost" | "soft" | "danger";
+    variant?: "primary" | "ghost" | "soft" | "danger" | "confirm";
     className?: string;
 } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
     const styles = {
         primary: "bg-primary text-primary-foreground shadow-sm hover:brightness-95",
         ghost: "border border-border bg-card text-foreground hover:bg-muted",
         soft: "bg-secondary text-secondary-foreground hover:bg-secondary/70",
+        confirm: "bg-green-500 text-secondary-foreground hover:bg-secondary/70",
         danger: "border border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
     };
 
     return (
         <button
-            className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all duration-200 active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]} ${className}`}
+            className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all duration-200 active:scale-[.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]} ${className}`}
             {...props}
         >
             {children}

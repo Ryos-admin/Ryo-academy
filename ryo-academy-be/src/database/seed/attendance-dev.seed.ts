@@ -4,7 +4,9 @@ import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   AdmissionStatus,
+  DayOfWeek,
   DayType,
+  FeePricingVersion,
   Gender,
   type Prisma,
 } from '../../../generated/prisma/client.js';
@@ -146,6 +148,7 @@ async function ensureFeeSnapshot(params: {
       admissionId: params.admissionId,
       academicYearId: params.academicYearId,
       feeStructureId: feeStructure.id,
+      pricingVersion: FeePricingVersion.V0_SNAPSHOTTED,
       discountAmount: 0,
       grossAmount: 0,
       netAmount: 0,
@@ -266,7 +269,13 @@ async function main() {
       academicYearId: academicYear.id,
       name: 'Day Care Program',
       isPrimary: true,
-      daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+      daysOfWeek: [
+        DayOfWeek.MONDAY,
+        DayOfWeek.TUESDAY,
+        DayOfWeek.WEDNESDAY,
+        DayOfWeek.THURSDAY,
+        DayOfWeek.FRIDAY,
+      ],
       startTime: '08:00',
       endTime: '17:00',
     },

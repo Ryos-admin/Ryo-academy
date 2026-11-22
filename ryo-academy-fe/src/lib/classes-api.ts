@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiClient } from "./api-client";
 import { session } from "./session";
 
-export interface ClassResponse { id: string; name: string; programId: string; isActive?: boolean; createdAt?: string; updatedAt?: string }
+export interface ClassResponse { id: string; name: string; programId: string; program?: { id?: string; academicYearId?: string }; isActive?: boolean; createdAt?: string; updatedAt?: string }
 export interface ClassCreateRequest { name: string; programId: string }
 export interface ClassUpdateRequest { name: string }
 export const classesQueryKey = ["classes"] as const;

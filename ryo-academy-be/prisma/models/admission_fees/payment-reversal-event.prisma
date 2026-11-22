@@ -1,0 +1,40 @@
+enum AllocationReversalType {
+  FULL_PAYMENT_REVERSAL
+}
+
+model PaymentReversalEvent {
+  id               String                          @id @default(uuid())
+  feePaymentId     String                          @unique
+  schoolId         String
+  reversalAmount   Decimal                         @db.Decimal(12, 2)
+  reason           String
+  idempotencyKey   String                          @unique
+  reversedByUserId String
+  createdAt        DateTime                        @default(now())
+
+  feePayment       FeePayment                      @relation(fields: [feePaymentId], references: [id], onDelete: Restrict)
+  school           School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  reversedByUser   User                            @relation("ReversalActor", fields: [reversedByUserId], references: [id], onDelete: Restrict)
+  allocations      InstallmentAllocationReversalEvent[]
+
+  @@unique([id, feePaymentId], name: "uq_payment_reversal_event_id_payment")
+  @@index([feePaymentId])
+  @@index([schoolId])
+}
+
+model InstallmentAllocationReversalEvent {
+  id                     String                          @id @default(uuid())
+  paymentReversalEventId String
+  allocationId           String
+  feePaymentId           String
+  amount                 Decimal                         @db.Decimal(12, 2)
+  createdAt              DateTime                        @default(now())
+
+  paymentReversalEvent   PaymentReversalEvent            @relation(fields: [paymentReversalEventId], references: [id], onDelete: Restrict)
+  allocation             FeePaymentInstallmentAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentReversalEventId, allocationId], map: "InstallmentAllocationReversalEvent_reversalEventId_allocId_key")
+  @@index([paymentReversalEventId])
+  @@index([allocationId])
+  @@index([feePaymentId])
+}

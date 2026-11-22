@@ -3,53 +3,62 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
-import { DatabaseService } from '../../database/database.service.js';
-import { CreateAcademicCalendarDto } from './dto/create-academic-calendar.dto.js';
-import { QueryAcademicCalendarDto } from './dto/query-academic-calendar.dto.js';
-import { UpdateAcademicCalendarDto } from './dto/update-academic-calendar.dto.js';
-import {
-  SeedAcademicCalendarDto,
-  WeekdayDto,
-} from './dto/seed-academic-calendar.dto.js';
-import { BulkUpdateAcademicCalendarDto } from './dto/bulk-update-academic-calendar.dto.js';
-import { DayType } from '../../../generated/prisma/enums.js';
+} from "@nestjs/common";
+import { DatabaseService } from "../../database/database.service.js";
+import { CreateAcademicCalendarDto } from "./dto/create-academic-calendar.dto.js";
+import { QueryAcademicCalendarDto } from "./dto/query-academic-calendar.dto.js";
+import { UpdateAcademicCalendarDto } from "./dto/update-academic-calendar.dto.js";
+import { SeedAcademicCalendarDto, WeekdayDto } from "./dto/seed-academic-calendar.dto.js";
+import { BulkUpdateAcademicCalendarDto } from "./dto/bulk-update-academic-calendar.dto.js";
+import { DayType } from "../../../generated/prisma/enums.js";
 
 @Injectable()
 export class AcademicCalendarService {
   constructor(private readonly databaseService: DatabaseService) {}
 
   async create(dto: CreateAcademicCalendarDto) {
-    const date = this.toDate(dto.date, 'date');
-    const academicYear = await this.findAcademicYear(dto.academicYearId);
-    this.validateDateInAcademicYear(
-      date,
-      academicYear.startDate,
-      academicYear.endDate,
-    );
-
+    const date = this.toDate(dto.date, "date");
     try {
-      return await this.databaseService.academicCalendar.create({
-        data: { ...dto, date },
+      return await this.databaseService.$transaction(async (tx) => {
+        const ayRows = await tx.$queryRaw<
+          Array<{ id: string; startDate: Date; endDate: Date; isActive: boolean; deletedAt: Date | null }>
+        >`
+          SELECT id, "startDate", "endDate", "isActive", "deletedAt"
+          FROM "AcademicYear"
+          WHERE id = ${dto.academicYearId}
+          FOR SHARE
+        `;
+        const academicYear = ayRows[0];
+        if (!academicYear || !academicYear.isActive || academicYear.deletedAt !== null) {
+          throw new NotFoundException(`Academic year with id "${dto.academicYearId}" not found`);
+        }
+        this.validateDateInAcademicYear(date, academicYear.startDate, academicYear.endDate);
+
+        return await tx.academicCalendar.create({
+          data: { ...dto, date },
+        });
       });
     } catch (error) {
       if (this.isUniqueConstraintError(error)) {
         throw new ConflictException(
-          'A calendar record already exists for this academic year and date.',
+          "A calendar record already exists for this academic year and date.",
         );
       }
       throw error;
     }
   }
 
-  async seed(dto: SeedAcademicCalendarDto) {
-    const academicYear = await this.findAcademicYear(dto.academicYearId);
-    const start = this.dateOnly(academicYear.startDate);
-    const end = this.dateOnly(academicYear.endDate);
-    if (start > end)
-      throw new BadRequestException(
-        'Academic year startDate must be before or equal to endDate',
-      );
+  generateCalendarRecords(params: {
+    academicYearId: string;
+    startDate: Date | string;
+    endDate: Date | string;
+    weeklyOffDays: WeekdayDto[];
+  }) {
+    const start = this.normalizeDate(params.startDate, "startDate");
+    const end = this.normalizeDate(params.endDate, "endDate");
+    if (start > end) {
+      throw new BadRequestException("Academic year startDate must be before or equal to endDate");
+    }
 
     const dates: Date[] = [];
     for (
@@ -59,25 +68,57 @@ export class AcademicCalendarService {
     ) {
       dates.push(new Date(cursor));
     }
-    const offDays = new Set(dto.weeklyOffDays);
-    const records = dates.map((date) => {
+    const offDays = new Set(params.weeklyOffDays);
+    return dates.map((date) => {
       const weekday = this.weekday(date);
       const isWeekend = offDays.has(weekday);
 
       return {
-        academicYearId: dto.academicYearId,
+        academicYearId: params.academicYearId,
         date,
         dayType: isWeekend ? DayType.WEEKEND : DayType.WORKING_DAY,
-        title: isWeekend ? 'Weekend' : 'Working Day',
+        title: isWeekend ? "Weekend" : "Working Day",
         isWorkingDay: !isWeekend,
       };
     });
+  }
 
-    return this.databaseService.$transaction(async (tx) => {
+  async seed(dto: SeedAcademicCalendarDto) {
+    const runInTx = async (tx: any) => {
+      const ayRows =
+        typeof tx.$queryRaw === "function"
+          ? await tx.$queryRaw<
+              Array<{ id: string; startDate: Date; endDate: Date; isActive: boolean; deletedAt: Date | null }>
+            >`
+              SELECT id, "startDate", "endDate", "isActive", "deletedAt"
+              FROM "AcademicYear"
+              WHERE id = ${dto.academicYearId}
+              FOR SHARE
+            `
+          : [];
+      const academicYear = ayRows[0];
+      if (academicYear && (!academicYear.isActive || academicYear.deletedAt !== null)) {
+        throw new NotFoundException(`Academic year with id "${dto.academicYearId}" not found`);
+      }
+
+      let startDate = dto.startDate ?? academicYear?.startDate;
+      let endDate = dto.endDate ?? academicYear?.endDate;
+
+      const records = this.generateCalendarRecords({
+        academicYearId: dto.academicYearId,
+        startDate,
+        endDate,
+        weeklyOffDays: dto.weeklyOffDays,
+      });
+
       const result = await tx.academicCalendar.createMany({
         data: records,
         skipDuplicates: true,
       });
+
+      const start = this.normalizeDate(startDate, "startDate");
+      const end = this.normalizeDate(endDate, "endDate");
+
       return {
         academicYearId: dto.academicYearId,
         startDate: this.formatDate(start),
@@ -85,15 +126,29 @@ export class AcademicCalendarService {
         created: result.count,
         existing: records.length - result.count,
       };
-    });
+    };
+
+    if (typeof this.databaseService.$transaction === "function") {
+      return await this.databaseService.$transaction(runInTx);
+    }
+    return await runInTx(this.databaseService);
   }
 
   async bulkUpdate(dto: BulkUpdateAcademicCalendarDto) {
-    const academicYear = await this.findAcademicYear(dto.academicYearId);
-    const dates = dto.dates.map((value) => this.toDate(value, 'dates'));
-    dates.forEach((date) => this.validateDateInAcademicYear(date, academicYear.startDate, academicYear.endDate));
+    const dates = dto.dates.map((value) => this.toDate(value, "dates"));
 
     return this.databaseService.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "AcademicYear" WHERE "id" = ${dto.academicYearId} FOR SHARE`;
+      const academicYear = await tx.academicYear.findUnique({
+        where: { id: dto.academicYearId },
+      });
+      if (!academicYear || !academicYear.isActive || academicYear.deletedAt !== null) {
+        throw new NotFoundException(`Academic year with id "${dto.academicYearId}" not found`);
+      }
+      dates.forEach((date) =>
+        this.validateDateInAcademicYear(date, academicYear.startDate, academicYear.endDate),
+      );
+
       let updated = 0;
       let created = 0;
       for (const date of dates) {
@@ -101,12 +156,22 @@ export class AcademicCalendarService {
           where: { academicYearId: dto.academicYearId, date, isActive: true },
           select: { id: true },
         });
-        const data = { dayType: dto.dayType, title: dto.title, description: dto.description, isWorkingDay: dto.isWorkingDay };
+        const data = {
+          dayType: dto.dayType,
+          title: dto.title,
+          description: dto.description,
+          isWorkingDay: dto.isWorkingDay,
+        };
         if (existing) {
-          await tx.academicCalendar.update({ where: { id: existing.id }, data });
+          await tx.academicCalendar.update({
+            where: { id: existing.id },
+            data,
+          });
           updated += 1;
         } else {
-          await tx.academicCalendar.create({ data: { academicYearId: dto.academicYearId, date, ...data } });
+          await tx.academicCalendar.create({
+            data: { academicYearId: dto.academicYearId, date, ...data },
+          });
           created += 1;
         }
       }
@@ -116,7 +181,7 @@ export class AcademicCalendarService {
 
   async findAll(query: QueryAcademicCalendarDto) {
     if (query.from && query.to && query.from > query.to) {
-      throw new BadRequestException('from must be before or equal to to');
+      throw new BadRequestException("from must be before or equal to to");
     }
 
     return this.databaseService.academicCalendar.findMany({
@@ -126,16 +191,16 @@ export class AcademicCalendarService {
         ...(query.academicYearId && { academicYearId: query.academicYearId }),
         ...(query.dayType && { dayType: query.dayType }),
         ...(query.isWorkingDay !== undefined && {
-          isWorkingDay: query.isWorkingDay === 'true',
+          isWorkingDay: query.isWorkingDay === "true",
         }),
         ...((query.from || query.to) && {
           date: {
-            ...(query.from && { gte: this.toDate(query.from, 'from') }),
-            ...(query.to && { lte: this.toDate(query.to, 'to') }),
+            ...(query.from && { gte: this.toDate(query.from, "from") }),
+            ...(query.to && { lte: this.toDate(query.to, "to") }),
           },
         }),
       },
-      orderBy: { date: 'asc' },
+      orderBy: { date: "asc" },
     });
   }
 
@@ -143,23 +208,15 @@ export class AcademicCalendarService {
     const record = await this.databaseService.academicCalendar.findFirst({
       where: { id, deletedAt: null, isActive: true },
     });
-    if (!record)
-      throw new NotFoundException(
-        `Academic calendar record with id "${id}" not found`,
-      );
+    if (!record) throw new NotFoundException(`Academic calendar record with id "${id}" not found`);
     return record;
   }
 
   async update(id: string, dto: UpdateAcademicCalendarDto) {
     const existing = await this.findOne(id);
-    const date =
-      dto.date === undefined ? existing.date : this.toDate(dto.date, 'date');
+    const date = dto.date === undefined ? existing.date : this.toDate(dto.date, "date");
     const academicYear = await this.findAcademicYear(existing.academicYearId);
-    this.validateDateInAcademicYear(
-      date,
-      academicYear.startDate,
-      academicYear.endDate,
-    );
+    this.validateDateInAcademicYear(date, academicYear.startDate, academicYear.endDate);
 
     try {
       return await this.databaseService.academicCalendar.update({
@@ -181,7 +238,7 @@ export class AcademicCalendarService {
     } catch (error) {
       if (this.isUniqueConstraintError(error)) {
         throw new ConflictException(
-          'A calendar record already exists for this academic year and date.',
+          "A calendar record already exists for this academic year and date.",
         );
       }
       throw error;
@@ -200,13 +257,12 @@ export class AcademicCalendarService {
     const academicYear = await this.databaseService.academicYear.findUnique({
       where: { id },
     });
-    if (!academicYear)
-      throw new NotFoundException(`Academic year with id "${id}" not found`);
+    if (!academicYear) throw new NotFoundException(`Academic year with id "${id}" not found`);
     return academicYear;
   }
 
   private toDate(value: string, field: string) {
-    const [year, month, day] = value.split('-').map(Number);
+    const [year, month, day] = value.split("-").map(Number);
     const date = new Date(Date.UTC(year, month - 1, day));
     if (
       date.getUTCFullYear() !== year ||
@@ -219,9 +275,7 @@ export class AcademicCalendarService {
   }
 
   private dateOnly(value: Date) {
-    return new Date(
-      Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()),
-    );
+    return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
   }
 
   private formatDate(value: Date) {
@@ -240,11 +294,7 @@ export class AcademicCalendarService {
     ][value.getUTCDay()];
   }
 
-  private validateDateInAcademicYear(
-    date: Date,
-    startDate: Date,
-    endDate: Date,
-  ) {
+  private validateDateInAcademicYear(date: Date, startDate: Date, endDate: Date) {
     const dateValue = date.getTime();
     const startValue = Date.UTC(
       startDate.getUTCFullYear(),
@@ -257,18 +307,31 @@ export class AcademicCalendarService {
       endDate.getUTCDate(),
     );
     if (dateValue < startValue || dateValue > endValue) {
-      throw new BadRequestException(
-        'date must be within the academic year date range',
-      );
+      throw new BadRequestException("date must be within the academic year date range");
     }
   }
 
+  private normalizeDate(value: Date | string, field: string): Date {
+    if (value instanceof Date) {
+      return this.dateOnly(value);
+    }
+    if (typeof value === "string") {
+      const datePart = value.includes("T") ? value.split("T")[0] : value;
+      return this.toDate(datePart, field);
+    }
+    throw new BadRequestException(`${field} must be a valid calendar date`);
+  }
+
   private isUniqueConstraintError(error: unknown): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      error.code === 'P2002'
-    );
+    return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
+  }
+
+  private async findAcademicYearById(id: string) {
+    const academicYear = await this.databaseService.academicYear.findUnique({
+      where: { id },
+      select: { id: true, name: true },
+    });
+    if (!academicYear) throw new NotFoundException(`Academic year with id "${id}" not found`);
+    return academicYear;
   }
 }

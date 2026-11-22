@@ -1,12 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiClient } from "./api-client";
 import { session } from "./session";
+import { admissionsQueryKey } from "./admissions-api";
+import { installmentSchedulesQueryKey } from "./installment-schedules-api";
+import { studentFeesQueryKey } from "./student-fees-api";
 
 export interface FeeComponentResponse {
   id: string;
   name: string;
   description?: string | null;
-  amount: number | string;
+  amount: string;
   isMandatory: boolean;
   discountApplicable: boolean;
   isActive: boolean;
@@ -19,7 +22,7 @@ export interface FeeStructureResponse {
   id: string;
   name: string;
   description?: string | null;
-  totalAmount: number | string;
+  totalAmount: string;
   isActive: boolean;
   academicYearId: string;
   programId: string;
@@ -35,7 +38,7 @@ export interface FeeStructureResponse {
 export interface FeeComponentCreateRequest {
   name: string;
   description?: string | null;
-  amount: number;
+  amount: string;
   feeStructureId: string;
   discountApplicable?: boolean;
   isMandatory?: boolean;
@@ -44,7 +47,7 @@ export interface FeeComponentCreateRequest {
 export interface FeeComponentUpdateRequest {
   name?: string;
   description?: string | null;
-  amount?: number;
+  amount?: string;
   discountApplicable?: boolean;
   isMandatory?: boolean;
 }
@@ -52,7 +55,7 @@ export interface FeeComponentUpdateRequest {
 export interface FeeComponentInputRequest {
   name: string;
   description?: string | null;
-  amount: number;
+  amount: string;
   discountApplicable?: boolean;
   isMandatory?: boolean;
 }
@@ -63,15 +66,29 @@ export interface FeeStructureCreateRequest {
   academicYearId: string;
   programId: string;
   classId: string;
-  totalAmount: number;
   feeComponents: FeeComponentInputRequest[];
 }
 
 export interface FeeStructureUpdateRequest {
   name?: string;
   description?: string;
-  totalAmount?: number;
-  isActive?: boolean;
+}
+
+export interface SyncFeeStructureRequest {
+  supplementaryDueDate?: string;
+}
+
+export interface SyncFeeStructureResponse {
+  feeStructureId: string;
+  synchronizedAt: string;
+  eligibleAdmissionCount: number;
+  synchronizedAdmissionCount: number;
+  admissionsWithScheduleCount: number;
+  admissionsWithoutScheduleCount: number;
+  caseAIncreasesCount: number;
+  supplementaryRootsCreatedCount: number;
+  detailsInsertedCount: number;
+  detailsUpdatedCount: number;
 }
 
 export const feeStructuresQueryKey = ["feeStructures"] as const;
@@ -93,6 +110,8 @@ export const feesApi = {
   createComponent: (payload: FeeComponentCreateRequest) => apiClient.post<FeeComponentResponse>("/fee-structure-child", payload, authOptions()),
   updateComponent: (id: string, payload: FeeComponentUpdateRequest) => apiClient.put<FeeComponentResponse>(`/fee-structure-child/${id}`, payload, authOptions()),
   deleteComponent: (id: string) => apiClient.delete<FeeComponentResponse>(`/fee-structure-child/${id}`, authOptions()),
+  syncStructure: (id: string, payload?: SyncFeeStructureRequest) =>
+    apiClient.post<SyncFeeStructureResponse>(`/fee-structure/${id}/sync`, payload ?? {}, authOptions()),
 };
 
 export function useFeeStructures() {
@@ -201,13 +220,30 @@ export function useDeactivateFeeComponent() {
   });
 }
 
+export function useSyncFeeStructure() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload?: SyncFeeStructureRequest }) =>
+      feesApi.syncStructure(id, payload),
+    retry: false,
+    onSuccess: async (_result, { id }) => {
+      await queryClient.invalidateQueries({ queryKey: [...feeStructuresQueryKey, id] });
+      await queryClient.invalidateQueries({ queryKey: feeStructuresQueryKey });
+      await queryClient.invalidateQueries({ queryKey: feeComponentsQueryKey });
+      await queryClient.invalidateQueries({ queryKey: admissionsQueryKey });
+      await queryClient.invalidateQueries({ queryKey: installmentSchedulesQueryKey });
+      await queryClient.invalidateQueries({ queryKey: studentFeesQueryKey });
+    },
+  });
+}
+
 export function feeErrorMessage(error: unknown, fallback: string) {
   if (!(error instanceof ApiError)) return fallback;
   if (error.status === 401) return "Your session has expired. Please sign in again.";
   if (error.status === 403) return "You do not have permission to update fee configuration.";
   if (error.status === 404) return "The requested fee record was not found.";
-  if (error.status === 409) return "The fee record conflicts with existing configuration.";
   if (Array.isArray(error.backendMessage)) return error.backendMessage.join(" ");
+  if (error.status === 409) return error.backendMessage || "The fee record conflicts with existing configuration.";
   return error.backendMessage || fallback;
 }
 

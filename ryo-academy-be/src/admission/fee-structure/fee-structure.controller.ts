@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards, Req } from "@nestjs/common";
 import { ApiBadRequestResponse, ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { FeeStructureService } from "./fee-structure.service.js";
 import { FeeStructureDto } from "./dto/fee-structure.dto.js";
@@ -58,7 +58,7 @@ export class FeeStructureController {
     @ApiOperation({ summary: 'Delete a fee structure by ID' })
     @ApiOkResponse({ description: 'Fee structure deleted successfully' })
     @ApiBadRequestResponse({ description: 'Fee structure not found' })
-    async deleteFeeStructure(@Param('id') id: string) {
-        return await this.feeStructureService.delete(id);
+    async deleteFeeStructure(@Param('id') id: string, @Req() req: any) {
+        return await this.feeStructureService.delete(id, req.user.userId);
     }
 }

@@ -1,0 +1,22 @@
+enum MigrationRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  INTERRUPTED
+}
+
+model OffsetBackfillRun {
+  id                 String             @id @default(uuid())
+  migrationRunId     String             @unique
+  status             MigrationRunStatus @default(RUNNING)
+  startedAt          DateTime           @default(now())
+  completedAt        DateTime?
+  schedulesProcessed Int                @default(0)
+  totalBackfilled    Int                @default(0)
+  failureDetails     Json?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([status])
+  @@index([startedAt])
+}

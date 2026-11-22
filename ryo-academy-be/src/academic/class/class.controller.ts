@@ -1,6 +1,6 @@
 import { ApiBadRequestResponse, ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { ClassService } from "./class.service.js";
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards, Req } from "@nestjs/common";
 import { SubjectService } from "../subject/subject.service.js";
 import { CreateClassDto } from "./dto/create-class.dto.js";
 import { UpdateClassDto } from "./dto/update-class.dto.js";
@@ -63,8 +63,8 @@ export class ClassController {
 
     @Delete(':id')
     @RequirePermissions(PERMISSIONS.CLASS_UPDATE)
-    async remove(@Param('id') id: string) {
-        return this.classService.remove(id);
+    async remove(@Param('id') id: string, @Req() req) {
+        return this.classService.remove(id, req.user.userId);
     }
 
 }

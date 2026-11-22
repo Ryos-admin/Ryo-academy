@@ -2,11 +2,13 @@ enum FinancialLogType {
   FEE_PAYMENT
   EXPENSE
   EXPENSE_REVERSAL
+  FEE_PAYMENT_REVERSAL
 }
 
 enum FinancialFlowType {
   INCOME
   EXPENSE
+  REVERSAL
 }
 
 enum FinancialSourceType {

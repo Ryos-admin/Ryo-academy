@@ -1,0 +1,25 @@
+model AdmissionFeeConcession {
+  id String @id @default(uuid())
+  schoolId String
+  school School @relation(fields: [schoolId], references: [id])
+  admissionId String
+  admission Admission @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+  feePaymentDetailsId String @unique
+  feePaymentDetails FeePaymentDetails @relation(fields: [feePaymentDetailsId], references: [id], onDelete: Cascade)
+  concessionCategoryId String?
+  concessionCategory FeeConcessionCategory? @relation(fields: [concessionCategoryId], references: [id], onDelete: Restrict)
+
+  discountType DiscountType?
+  discountValue Decimal?
+  calculatedDiscountAmount Decimal
+  calculationMode CalculationMode
+  requiresReview Boolean @default(false)
+  justification String?
+  appliedById String
+  appliedBy User @relation("ConcessionAppliedBy", fields: [appliedById], references: [id])
+  appliedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([admissionId])
+  @@index([schoolId, createdAt])
+}

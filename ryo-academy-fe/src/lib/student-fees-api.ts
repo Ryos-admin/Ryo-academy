@@ -6,6 +6,8 @@ export interface StudentFeeComponentResponse {
   id: string;
   feeComponentId: string;
   nameSnapshot: string;
+  isActive: boolean;
+  isIncluded: boolean;
   originalAmount: number | string;
   discountApplicable: boolean;
   isMandatory: boolean;
@@ -42,13 +44,23 @@ export interface StudentFeeResponse {
     paymentDate: string | null;
     amount: number | string;
     createdAt: string;
+    idempotencyKey?: string;
+    studentId?: string;
+    actor?: {
+      id: string;
+      name: string;
+      email: string;
+    } | null;
   }>;
 }
 
 export interface CreateStudentFeePaymentRequest {
-  amount: number;
+  amount: string;
   paymentDate?: string;
+  idempotencyKey?: string;
 }
+export const parsePaymentMinor = (value: string): bigint | null => { if (!/^\d+(?:\.\d{1,2})?$/.test(value.trim())) return null; const [whole, fraction = ""] = value.trim().split("."); return BigInt(whole) * 100n + BigInt((fraction + "00").slice(0, 2)); };
+export const validatePaymentAmount = (value: string, outstanding: string | number) => { const amount = parsePaymentMinor(value); const due = parsePaymentMinor(String(outstanding)); return amount !== null && due !== null && amount > 0n && amount <= due ? amount : null; };
 
 export const studentFeesQueryKey = ["student-fees"] as const;
 
@@ -83,11 +95,24 @@ export function useRecordStudentFeePayment(studentId: string) {
   });
 }
 
-export function studentFeesErrorMessage(error: unknown, fallback: string) {
-  if (!(error instanceof ApiError)) return fallback;
+export function studentFeesErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) {
+    if (error instanceof Error && error.message) return error.message;
+    return fallback;
+  }
+  const body = error.body as any;
+  if (body?.code === "ADMISSION_FEE_DETAILS_OUTDATED") {
+    return "The fee details for this admission no longer match the latest Fee Structure configuration. Payment collection is blocked until an administrator synchronizes this Fee Structure.";
+  }
   if (error.status === 401) return "Your session has expired. Please sign in again.";
   if (error.status === 403) return "You do not have permission to record student fee payments.";
   if (error.status === 404) return "The requested student fee snapshot was not found.";
+  if (error.status === 409) {
+    if (typeof body?.message === "string") return body.message;
+    return "A payment conflict occurred. Please refresh and try again.";
+  }
   if (Array.isArray(error.backendMessage)) return error.backendMessage.join(" ");
-  return error.backendMessage || fallback;
+  if (error.backendMessage) return error.backendMessage;
+  if (typeof body?.message === "string") return body.message;
+  return fallback;
 }

@@ -1,0 +1,4 @@
+enum PaymentMethod {
+  CASH
+  LEGACY_UNSPECIFIED
+}

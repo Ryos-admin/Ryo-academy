@@ -1,4 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { programsApi } from "@/lib/programs-api";
+
+const apiCalls = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn() }));
+vi.mock("@/lib/api-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api-client")>();
+  return {
+    ...actual,
+    apiClient: { ...actual.apiClient, post: apiCalls.post, patch: apiCalls.patch },
+  };
+});
+vi.mock("@/lib/session", () => ({
+  session: { getAccessToken: () => "test-token" },
+}));
+
 import {
   programErrorMessage,
   toProgramViewModel,
@@ -9,29 +23,51 @@ import {
 } from "@/lib/programs-api";
 import { ApiError } from "@/lib/api-client";
 
-const ALL_CODES: WeekdayCode[] = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+const ALL_CODES: WeekdayCode[] = [
+  "SUNDAY",
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+];
+
+beforeEach(() => vi.clearAllMocks());
 
 describe("toWeekdayCodes", () => {
-  it("converts full weekday names to codes", () => {
-    expect(toWeekdayCodes("Monday, Tuesday, Wednesday, Thursday, Friday")).toEqual([
-      "MON",
-      "TUE",
-      "WED",
-      "THU",
-      "FRI",
+  it("maps selected Sunday and Monday values to backend enum values", () => {
+    expect(toWeekdayCodes("SUNDAY")).toEqual(["SUNDAY"]);
+    expect(toWeekdayCodes("MONDAY")).toEqual(["MONDAY"]);
+  });
+
+  it("maps multiple selected days and omits unselected days", () => {
+    expect(toWeekdayCodes("SUNDAY, MONDAY, FRIDAY")).toEqual([
+      "SUNDAY",
+      "MONDAY",
+      "FRIDAY",
     ]);
   });
 
   it("tolerates surrounding and duplicated whitespace", () => {
-    expect(toWeekdayCodes("  Monday ,   Saturday  ")).toEqual(["MON", "SAT"]);
+    expect(toWeekdayCodes("  Monday ,   Saturday  ")).toEqual([
+      "MONDAY",
+      "SATURDAY",
+    ]);
   });
 
   it("drops empty segments", () => {
-    expect(toWeekdayCodes("Monday,,  ,Friday")).toEqual(["MON", "FRI"]);
+    expect(toWeekdayCodes("Monday,,  ,Friday")).toEqual([
+      "MONDAY",
+      "FRIDAY",
+    ]);
   });
 
   it("drops unknown names instead of producing invalid codes", () => {
-    expect(toWeekdayCodes("Monday, Funday, Tuesday")).toEqual(["MON", "TUE"]);
+    expect(toWeekdayCodes("Monday, Funday, Tuesday")).toEqual([
+      "MONDAY",
+      "TUESDAY",
+    ]);
   });
 
   it("returns an empty array for an empty or whitespace string", () => {
@@ -46,16 +82,24 @@ describe("toWeekdayCodes", () => {
 });
 
 describe("toWeekdayNames", () => {
-  it("maps codes to their display names", () => {
-    expect(toWeekdayNames(["MON", "SUN"])).toEqual(["Monday", "Sunday"]);
+  it("maps backend enum values to their display names", () => {
+    expect(toWeekdayNames(["MONDAY", "SUNDAY"])).toEqual([
+      "Monday",
+      "Sunday",
+    ]);
   });
 
   it("drops unknown codes", () => {
-    expect(toWeekdayNames(["MON", "FUNDAY" as WeekdayCode])).toEqual(["Monday"]);
+    expect(toWeekdayNames(["MONDAY", "FUNDAY" as WeekdayCode])).toEqual([
+      "Monday",
+    ]);
   });
 
   it("preserves the order of the input", () => {
-    expect(toWeekdayNames(["SUN", "MON"])).toEqual(["Sunday", "Monday"]);
+    expect(toWeekdayNames(["SUNDAY", "MONDAY"])).toEqual([
+      "Sunday",
+      "Monday",
+    ]);
   });
 
   it("returns an empty array for no input", () => {
@@ -75,7 +119,7 @@ describe("toProgramViewModel", () => {
     name: "Regular Day Programme",
     academicYearId: "ay-1",
     isPrimary: true,
-    daysOfWeek: ["MON", "TUE", "WED", "THU", "FRI"],
+    daysOfWeek: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"],
     startTime: "09:00",
     endTime: "16:00",
   };
@@ -100,6 +144,59 @@ describe("toProgramViewModel", () => {
 
   it("falls back to an em dash when the academic year name is missing", () => {
     expect(toProgramViewModel(base).academicYear).toBe("—");
+  });
+});
+
+describe("program weekday API payloads", () => {
+  const daysOfWeek = toWeekdayCodes("SUNDAY, MONDAY, FRIDAY");
+
+  it("posts the unchanged create fields with backend weekday enums", async () => {
+    const payload = {
+      name: "Primary Day Care",
+      academicYear: "ay-uuid-1",
+      isPrimary: true,
+      daysOfWeek,
+      startTime: "08:00",
+      endTime: "15:00",
+    };
+
+    await programsApi.create(payload);
+
+    expect(apiCalls.post).toHaveBeenCalledWith("/programs", payload, {
+      token: "test-token",
+    });
+    expect(apiCalls.post.mock.calls[0][1].daysOfWeek).toEqual([
+      "SUNDAY",
+      "MONDAY",
+      "FRIDAY",
+    ]);
+  });
+
+  it("patches supported update fields with the same backend weekday enums", async () => {
+    const payload = {
+      name: "Updated Day Care",
+      isPrimary: false,
+      daysOfWeek,
+      startTime: "08:30",
+      endTime: "15:30",
+    };
+
+    await programsApi.update("program-1", payload);
+
+    expect(apiCalls.patch).toHaveBeenCalledWith(
+      "/programs/program-1",
+      payload,
+      { token: "test-token" },
+    );
+    expect(apiCalls.patch.mock.calls[0][1].daysOfWeek).toEqual([
+      "SUNDAY",
+      "MONDAY",
+      "FRIDAY",
+    ]);
+  });
+
+  it("preserves the backend empty-array rejection contract", () => {
+    expect(toWeekdayCodes("")).toEqual([]);
   });
 });
 

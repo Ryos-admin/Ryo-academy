@@ -1,0 +1,4 @@
+enum FeePricingVersion {
+  LEGACY
+  V0_SNAPSHOTTED
+}

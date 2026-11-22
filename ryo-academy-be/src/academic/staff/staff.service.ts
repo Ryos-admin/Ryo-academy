@@ -70,6 +70,12 @@ export class StaffService {
     if (!staff.isActive || staff.deletedAt) return staff;
     const deletedAt = new Date();
     return this.db.$transaction(async (tx) => {
+      // Set historicalStaffId only for assignments that don't already have it
+      await tx.teachingAssignment.updateMany({
+        where: { staffId: id, deletedAt: null, historicalStaffId: null },
+        data: { historicalStaffId: id },
+      });
+      // Clear active staffId after historical attribution
       await tx.teachingAssignment.updateMany({
         where: { staffId: id, deletedAt: null },
         data: { staffId: null },
