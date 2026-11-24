@@ -220,7 +220,7 @@ const setupSchema = {
 
 const academicYearSchema = z
   .object({
-    schoolId: z.string().min(2, "School ID is required"),
+    schoolCode: z.string().min(2, "School Code is required"),
     name: z.string().min(3, "Name is required"),
     weeklyOffDays: z.array(weekdayCodeSchema).optional(),
     startDate: z.string().min(10, "Start date is required"),
@@ -377,10 +377,10 @@ export function AcademicYearsList() {
 
 export function AcademicYearForm({
   id,
-  schoolId,
+  school,
 }: {
   id?: string | null;
-  schoolId?: string;
+  school?: any | undefined;
 }) {
   const editing = Boolean(id);
   const query = useAcademicYear(id ?? undefined);
@@ -390,8 +390,8 @@ export function AcademicYearForm({
   const form = useForm<z.infer<typeof academicYearSchema>>({
     resolver: zodResolver(academicYearSchema),
     defaultValues: {
-      schoolId: schoolId || "",
-      name: "2026–27",
+      schoolCode: school.schoolCode || "",
+      name: "2026-27",
       startDate: "2026-06-01",
       endDate: "2027-05-31",
     },
@@ -399,7 +399,7 @@ export function AcademicYearForm({
   useEffect(() => {
     if (query.data)
       form.reset({
-        schoolId: query.data.school
+        schoolCode: query.data.school
           ? `${query.data.school.name} (${query.data.school.schoolCode})`
           : query.data.schoolId || "",
         name: query.data.name,
@@ -455,9 +455,12 @@ export function AcademicYearForm({
   };
   return (
     <>
+      {/* {JSON.stringify(school)} */}
       <button
         className="back-link page-back"
-        onClick={() => setLocation(`/academic-years/${id}`)}
+        onClick={() =>
+          setLocation(editing ? `/academic-years/${id}` : `/academic-years`)
+        }
       >
         <ArrowLeft size={15} />
         Back to Academic Years
@@ -484,9 +487,9 @@ export function AcademicYearForm({
         <div className="form-grid">
           <Field
             form={form}
-            name="schoolId"
+            name="schoolCode"
             label="School Name"
-            disabled={editing}
+            disabled={true}
           />
           <div>
             <Field

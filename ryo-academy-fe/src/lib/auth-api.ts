@@ -30,6 +30,7 @@ export interface CurrentUser {
     firstName: string;
     lastName: string;
     schoolId: string | null;
+    schoolCode: string | null;
   } | null;
   roles: { id: string; name: string }[];
   permissions: string[];
@@ -38,7 +39,8 @@ export interface CurrentUser {
 export const authApi = {
   login: (request: LoginRequest) => apiClient.post<LoginResponse>("/auth/login", request),
   getCurrentUser: (token: string) => apiClient.get<CurrentUser>("/auth/me", { token }),
-  getAuthorizedUser: (token: string) => apiClient.get<CurrentUser | null>("/protected/me", { token }),
+  getAuthorizedUser: (token: string) =>
+    apiClient.get<CurrentUser | null>("/protected/me", { token }),
 };
 
 export const currentUserQueryKey = ["auth", "me"] as const;

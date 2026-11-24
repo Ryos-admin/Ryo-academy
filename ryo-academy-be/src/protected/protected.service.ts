@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
-import { UsersRepository } from '../users/users.repository.js';
-import { DatabaseService } from '../database/database.service.js';
+import { Injectable } from "@nestjs/common";
+import { UsersRepository } from "../users/users.repository.js";
+import { DatabaseService } from "../database/database.service.js";
 
 export interface ProtectedUserProfile {
   user: {
@@ -9,6 +9,7 @@ export interface ProtectedUserProfile {
     firstName: string;
     lastName: string;
     schoolId: string | null;
+    schoolCode: string | null;
   };
   roles: { id: string; name: string }[];
   permissions: string[];
@@ -29,6 +30,13 @@ export class ProtectedService {
       return null;
     }
 
+    const school = userDetails.schoolId
+      ? await this.databaseService.school.findFirst({
+          where: { id: userDetails.schoolId },
+          select: { schoolCode: true, name: true },
+        })
+      : null;
+
     const userRoles = await this.databaseService.userRole.findMany({
       where: { userId },
       select: { role: { select: { id: true, name: true } } },
@@ -36,9 +44,7 @@ export class ProtectedService {
 
     const roles = userRoles
       .map((row) => row?.role)
-      .filter((role): role is { id: string; name: string } =>
-        Boolean(role?.id && role?.name),
-      );
+      .filter((role): role is { id: string; name: string } => Boolean(role?.id && role?.name));
 
     const permissionGroups = await Promise.all(
       roles.map((role) =>
@@ -56,14 +62,16 @@ export class ProtectedService {
           .flat()
           .map((row) => row?.permission?.name)
           .filter((name): name is string => Boolean(name))
-          .map((name) => name.toUpperCase().replace(/:/g, '_')),
+          .map((name) => name.toUpperCase().replace(/:/g, "_")),
       ),
     ];
 
     // Unchanged behaviour: unknown or inactive users get no profile at all.
-    if (!userDetails?.isActive) {
+    if (!userDetails?.isActive || !school?.schoolCode) {
       return null;
     }
+
+    console.log("User details:", userDetails);
 
     return {
       user: {
@@ -72,6 +80,7 @@ export class ProtectedService {
         firstName: userDetails.firstName,
         lastName: userDetails.lastName,
         schoolId: userDetails.schoolId,
+        schoolCode: `${school?.name} (${school?.schoolCode})`,
       },
       roles,
       permissions,

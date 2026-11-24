@@ -29,8 +29,8 @@ export function Dashboard({ session }: { session: User }) {
   const classes = useClasses();
   const attendance = useAttendance();
 
-  const studentRows = students.data || [];
-  const admissionRows = admissions.data || [];
+  const studentRows = students.data ? students.data.filter((s) => s.isActive) : [];
+  const admissionRows = admissions.data ? admissions.data.filter((row) => row.admissionStatus === "DRAFT") : [];
   const feeRows = feeStructures.data || [];
   const role = session.role;
 
@@ -43,7 +43,7 @@ export function Dashboard({ session }: { session: User }) {
     ? "…"
     : admissions.isError
       ? "Unavailable"
-      : String(admissionRows.filter((row) => row.admissionStatus === "DRAFT").length);
+      : String(admissionRows.length);
   const classesCount = classes.isLoading
     ? "…"
     : classes.isError
@@ -234,7 +234,7 @@ export function Dashboard({ session }: { session: User }) {
       <PageHeader
         eyebrow={`Tuesday, ${date("2025-05-13")}`}
         title={`Good morning, ${session.name.split(" ")[0]}`}
-        description="Here’s the pulse of Nalanda College today."
+        description={`Here’s the pulse of ${session.schoolCode?.split('(')[0].trimEnd()} today.`}
         action={
           <AppButton
             variant="soft"
@@ -246,7 +246,7 @@ export function Dashboard({ session }: { session: User }) {
             }
           >
             <Clock3 size={16} />
-            AY 2025–26
+            AY 2025-26
           </AppButton>
         }
       />

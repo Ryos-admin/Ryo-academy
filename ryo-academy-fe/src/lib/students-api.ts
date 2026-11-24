@@ -11,6 +11,7 @@ export interface StudentResponse {
   gender: string;
   dateOfBirth: string;
   createdAt: string;
+  isActive: boolean;
   updatedAt: string;
   admission: { id: string; schoolId: string; academicYearId: string; programId: string; classId: string; sectionId: string };
 }

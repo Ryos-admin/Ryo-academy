@@ -23,11 +23,23 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/query-client";
 import { ApiError } from "@/lib/api-client";
-import { useCurrentUser, useLogin, useLogout, type CurrentUser } from "@/lib/auth-api";
+import {
+  useCurrentUser,
+  useLogin,
+  useLogout,
+  type CurrentUser,
+} from "@/lib/auth-api";
 import { session } from "@/lib/session";
 import { useSchoolConfiguration } from "@/lib/schools-api";
 import NotFound from "@/pages/not-found";
-import { type Permission, type Role, type User, hasPermission, initials, toPermissions } from "@/lib/mock-erp";
+import {
+  type Permission,
+  type Role,
+  type User,
+  hasPermission,
+  initials,
+  toPermissions,
+} from "@/lib/mock-erp";
 import {
   AcademicCalendarDetail,
   AcademicCalendarForm,
@@ -83,13 +95,19 @@ import {
 import { TimetablePage, Profile } from "@/pages/operations-pages";
 import { Dashboard } from "@/pages/dashboard-page";
 import { FinancialLogPage } from "@/pages/financial-log-pages";
-import { AccessState, AppButton, Avatar, Loading } from "@/pages/page-primitives";
+import {
+  AccessState,
+  AppButton,
+  Avatar,
+  Loading,
+} from "@/pages/page-primitives";
 
 export { queryClient };
 
 const KNOWN_ROLES = ["OFFICE_ADMIN", "COLLEGE_ADMIN", "STAFF"] as const;
 const isRole = (value: unknown): value is Role =>
-  typeof value === "string" && (KNOWN_ROLES as readonly string[]).includes(value);
+  typeof value === "string" &&
+  (KNOWN_ROLES as readonly string[]).includes(value);
 
 /**
  * Maps the GET /protected/me payload onto the app's session user.
@@ -101,16 +119,19 @@ const isRole = (value: unknown): value is Role =>
  */
 export const authUserToUiUser = (currentUser: CurrentUser | null): User => {
   const user = currentUser?.user ?? null;
-  const name = user ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() : "";
+  const name = user
+    ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim()
+    : "";
   const primaryRole = currentUser?.roles?.[0]?.name;
   const role: Role = isRole(primaryRole) ? primaryRole : "STAFF";
-  // console.log(name.split(" ")[0]);
-  
+  console.log(currentUser, "currentUser");
+
   return {
     id: user?.id ?? "",
     name,
     email: user?.email ?? "",
     schoolId: user?.schoolId ?? "",
+    schoolCode: user?.schoolCode ?? "",
     role,
     permissions: toPermissions(currentUser?.permissions),
     avatar: initials(name),
@@ -238,7 +259,13 @@ const nav: NavItem[] = [
       },
     ],
   },
-  { label: "Financial Log", href: "/financial-log", icon: CircleDollarSign, permission: "FEES_READ", roles: ["OFFICE_ADMIN", "COLLEGE_ADMIN"] },
+  {
+    label: "Financial Log",
+    href: "/financial-log",
+    icon: CircleDollarSign,
+    permission: "FEES_READ",
+    roles: ["OFFICE_ADMIN", "COLLEGE_ADMIN"],
+  },
   {
     label: "Timetable",
     href: "/timetable",
@@ -276,7 +303,8 @@ export function Shell({
       <span className="live-dot live-dot-red" />
       <span>Invalid AY</span>
     </>
-  ) : schoolConfig.data?.isConfigured && schoolConfig.data.activeAcademicYear ? (
+  ) : schoolConfig.data?.isConfigured &&
+    schoolConfig.data.activeAcademicYear ? (
     <>
       <span className="live-dot" />
       <span>{schoolConfig.data.activeAcademicYear.name}</span>
@@ -306,7 +334,9 @@ export function Shell({
       >
         Skip to main content
       </a>
-      <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""} overflow-y-auto`}>
+      <aside
+        className={`sidebar ${mobileOpen ? "sidebar-open" : ""} overflow-y-auto`}
+      >
         <div className="brand">
           <div className="brand-seal">N</div>
           <div>
@@ -350,7 +380,9 @@ export function Shell({
                 {active && item.children && (
                   <div className="sub-nav">
                     {item.children
-                      .filter((child) => hasPermission(session, child.permission))
+                      .filter((child) =>
+                        hasPermission(session, child.permission),
+                      )
                       .map((child) => (
                         <Link
                           key={child.href}
@@ -377,7 +409,11 @@ export function Shell({
             <UserRound size={18} />
             <span>My profile</span>
           </Link>
-          <button className="side-link side-button" onClick={onLogout} data-testid="button-logout">
+          <button
+            className="side-link side-button"
+            onClick={onLogout}
+            data-testid="button-logout"
+          >
             <LogOut size={18} />
             <span>Sign out</span>
           </button>
@@ -487,7 +523,9 @@ function AuthLayout({
           <h1>{title}</h1>
           <p className="auth-note">{note}</p>
           {children}
-          <div className="auth-foot">Authenticated by the Ryo Academy backend</div>
+          <div className="auth-foot">
+            Authenticated by the Ryo Academy backend
+          </div>
         </div>
       </div>
     </div>
@@ -517,7 +555,10 @@ function Login() {
     }
   };
   return (
-    <AuthLayout title="Sign in to your office" note="Use your Ryo Academy account to continue.">
+    <AuthLayout
+      title="Sign in to your office"
+      note="Use your Ryo Academy account to continue."
+    >
       <form onSubmit={submit} className="auth-form">
         <label>
           Email address
@@ -768,17 +809,26 @@ function TeachingAssignmentFormRoute({ session }: { session: User }) {
   return <TeachingAssignmentForm id={id} session={session} />;
 }
 
-function RoutedApp({ session, onLogout }: { session: User; onLogout: () => void }) {
+function RoutedApp({
+  session,
+  onLogout,
+}: {
+  session: User;
+  onLogout: () => void;
+}) {
   return (
     <Shell session={session} onLogout={onLogout}>
       <Switch>
         <Route path="/dashboard">
-            {JSON.stringify(session?.schoolId)}
+          {JSON.stringify(session?.schoolCode)}
           <Dashboard session={session} />
         </Route>
         <Route path="/academic-years/new">
           <Protected session={session} permission="CLASS_CREATE">
-            <AcademicYearForm id={null} schoolId={session?.schoolId || undefined} />
+            <AcademicYearForm
+              id={null}
+              school={{ schoolId: session?.schoolId, schoolCode: session?.schoolCode }}
+            />
           </Protected>
         </Route>
         <Route path="/academic-years/:id/edit">
@@ -1062,8 +1112,10 @@ export function Router() {
   const token = session.hasSession();
   const currentUser = useCurrentUser();
   const logout = useLogout();
-  if (token && currentUser.isLoading) return <Loading label="Restoring session" />;
-  if (token && currentUser.isError) return <SessionError error={currentUser.error} />;
+  if (token && currentUser.isLoading)
+    return <Loading label="Restoring session" />;
+  if (token && currentUser.isError)
+    return <SessionError error={currentUser.error} />;
   if (!token || !currentUser.data)
     return (
       <Switch>
