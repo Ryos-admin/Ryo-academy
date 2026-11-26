@@ -32,7 +32,7 @@ export class ProgramController {
   })
   async findAllPrograms() {
     const result = await this.programService.findAllPrgms();
-    console.log(result);
+    // console.log(result);
 
     return result;
   }

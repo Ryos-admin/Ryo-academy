@@ -353,7 +353,7 @@ async function main() {
     fixtureDate: '2026-09-14',
     nonWorkingDate: '2026-09-13',
   };
-  console.log(JSON.stringify(output, null, 2));
+  // console.log(JSON.stringify(output, null, 2));
 }
 
 main()

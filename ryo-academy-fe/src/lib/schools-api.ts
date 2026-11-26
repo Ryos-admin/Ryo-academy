@@ -35,7 +35,7 @@ export const schoolsApi = {
   },
   updateConfiguration: (data: UpdateSchoolConfigurationDto, token?: string) => {
     const auth = token ?? session.getAccessToken();
-    console.log("req", data);
+    // console.log("req", data);
 
     return apiClient.patch<SchoolConfigurationResponse>(
       "/schools/configuration",

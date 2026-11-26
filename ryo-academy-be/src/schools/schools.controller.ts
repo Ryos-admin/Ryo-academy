@@ -62,7 +62,7 @@ export class SchoolsController {
     @Body() dto: UpdateSchoolConfigurationDto,
   ): Promise<SchoolConfigurationResponseDto> {
     const schoolId = await this.schoolsService.resolveActiveSchool(user.userId);
-    console.log('Academic Year fetched:', schoolId, user, dto);
+    // console.log('Academic Year fetched:', schoolId, user, dto);
 
     return this.schoolsService.updateConfiguration(schoolId, dto);
   }

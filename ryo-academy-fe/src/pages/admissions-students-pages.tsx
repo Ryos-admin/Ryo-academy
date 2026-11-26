@@ -777,7 +777,7 @@ export function AdmissionSelectors({
   const programs = usePrograms();
   const classes = useClasses();
   const sections = useSectionsByClass(form.classId);
-  console.log("Programs data after finally:", programs);
+  // console.log("Programs data after finally:", programs);
   // console.log(
   //   ...(programs || [])
   //     // .filter((item) => item.academicYearId === form.academicYearId)
@@ -2044,7 +2044,7 @@ export function AdmissionList({ session }: { session: User }) {
     );
   const rows = (query.data || [])
     .filter((item) => {
-      console.log(item);
+      // console.log(item);
 
       const text = `${item.admissionNumber} ${item.studentName}`.toLowerCase();
       return (

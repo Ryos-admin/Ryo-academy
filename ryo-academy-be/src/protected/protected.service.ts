@@ -71,7 +71,7 @@ export class ProtectedService {
       return null;
     }
 
-    console.log("User details:", userDetails);
+    // console.log("User details:", userDetails);
 
     return {
       user: {

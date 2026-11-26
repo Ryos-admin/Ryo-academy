@@ -124,7 +124,7 @@ export const authUserToUiUser = (currentUser: CurrentUser | null): User => {
     : "";
   const primaryRole = currentUser?.roles?.[0]?.name;
   const role: Role = isRole(primaryRole) ? primaryRole : "STAFF";
-  console.log(currentUser, "currentUser");
+  // console.log(currentUser, "currentUser");
 
   return {
     id: user?.id ?? "",
@@ -820,7 +820,7 @@ function RoutedApp({
     <Shell session={session} onLogout={onLogout}>
       <Switch>
         <Route path="/dashboard">
-          {JSON.stringify(session?.schoolCode)}
+          {/* {JSON.stringify(session?.schoolCode)} */}
           <Dashboard session={session} />
         </Route>
         <Route path="/academic-years/new">

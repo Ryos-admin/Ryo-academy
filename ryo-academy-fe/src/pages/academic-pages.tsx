@@ -443,7 +443,7 @@ export function AcademicYearForm({
           schoolId: school?.schoolId || query.data?.schoolId || "",
           weeklyOffDays: values.weeklyOffDays ?? [],
         };
-    console.log(payload, school, "payload");
+    // console.log(payload, school, "payload");
 
     save.mutate(payload, {
       onSuccess: (saved) => {
@@ -483,7 +483,7 @@ export function AcademicYearForm({
         className="form-card"
         onSubmit={form.handleSubmit(
           (values) => {
-            console.log(values, "values");
+            // console.log(values, "values");
             submit(values);
           },
           () =>

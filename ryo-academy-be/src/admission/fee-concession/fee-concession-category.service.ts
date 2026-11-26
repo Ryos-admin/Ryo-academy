@@ -21,7 +21,9 @@ export class FeeConcessionCategoryService {
       });
       if (actor?.schoolId) {
         if (requestedSchoolId && requestedSchoolId !== actor.schoolId) {
-          throw new ForbiddenException("Cannot access concession categories outside your assigned school");
+          throw new ForbiddenException(
+            "Cannot access concession categories outside your assigned school",
+          );
         }
         return actor.schoolId;
       }
@@ -112,7 +114,7 @@ export class FeeConcessionCategoryService {
     const resolvedSchoolId = await this.resolveSchoolId(actorUserId);
     const existing = await this.findById(id, actorUserId, resolvedSchoolId);
 
-console.log("123123");
+    // console.log("123123");
 
     return this.databaseService.feeConcessionCategory.update({
       where: { id: existing.id },

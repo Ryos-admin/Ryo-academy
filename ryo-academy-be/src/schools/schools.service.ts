@@ -96,7 +96,7 @@ export class SchoolsService {
       where: { id: dto.activeAcademicYearId },
     });
 
-    console.log('Academic Year fetched:', academicYear, schoolId);
+    // console.log('Academic Year fetched:', academicYear, schoolId);
 
     if (!academicYear) {
       throw new NotFoundException('Academic year not found');

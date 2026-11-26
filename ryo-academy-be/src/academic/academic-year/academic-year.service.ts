@@ -36,7 +36,7 @@ export class AcademicYearService {
     });
 
     if (existingAcademicYear && existingAcademicYear.isActive) {
-      console.log(existingAcademicYear, "test false flow 1");
+      // console.log(existingAcademicYear, "test false flow 1");
 
       throw new ConflictException(
         `Academic year with name "${dto.name}" already exists for school.`,
@@ -47,7 +47,7 @@ export class AcademicYearService {
       return await this.databaseService.$transaction(async (tx) => {
         let academicYearData;
         if (existingAcademicYear && !existingAcademicYear.isActive) {
-          console.log(existingAcademicYear, "test false flow 2");
+          // console.log(existingAcademicYear, "test false flow 2");
           academicYearData = await tx.academicYear.update({
             where: {
               id: existingAcademicYear.id,
@@ -61,7 +61,7 @@ export class AcademicYearService {
             },
           });
         } else {
-          console.log(existingAcademicYear, "test false flow 3");
+          // console.log(existingAcademicYear, "test false flow 3");
 
           academicYearData = await tx.academicYear.create({
             data: {
