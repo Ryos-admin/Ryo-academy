@@ -428,13 +428,22 @@ export function AcademicYearForm({
   const submit = (values: z.infer<typeof academicYearSchema>) => {
     const payload = editing
       ? {
+          schoolId: school?.schoolId || query.data?.schoolId || "",
           name: values.name,
           weeklyOffDays: values.weeklyOffDays ?? [],
           startDate: values.startDate,
           endDate: values.endDate,
         }
-      : { ...values, weeklyOffDays: values.weeklyOffDays ?? [] };
-    console.log(payload, id, "payload");
+      : {
+          // ...values,
+          name: values.name,
+          // weeklyOffDays: values.weeklyOffDays ?? [],
+          startDate: values.startDate,
+          endDate: values.endDate,
+          schoolId: school?.schoolId || query.data?.schoolId || "",
+          weeklyOffDays: values.weeklyOffDays ?? [],
+        };
+    console.log(payload, school, "payload");
 
     save.mutate(payload, {
       onSuccess: (saved) => {
