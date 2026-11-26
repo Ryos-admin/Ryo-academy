@@ -1,18 +1,18 @@
 {
   "name": "ryo-academy-be",
   "version": "0.0.1",
-  "private": true,
-  "description": "",
-  "license": "UNLICENSED",
-  "author": "",
   "type": "module",
+  "description": "",
+  "author": "",
+  "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "build": "NODE_OPTIONS=--max-old-space-size=512 prisma generate && NODE_OPTIONS=--max-old-space-size=512 nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/src/main.js",
+    "start:prod": "npm run build && node dist/src/main.js",
     "db:seed": "TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm src/database/seed/rbac.seed.ts",
     "backfill:offsets": "TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm scripts/run-historical-offset-backfill.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
@@ -75,26 +75,12 @@
     "typescript-eslint": "^8.20.0"
   },
   "jest": {
-    "collectCoverageFrom": [
-      "**/*.(t|j)s"
-    ],
-    "coverageDirectory": "../coverage",
-    "extensionsToTreatAsEsm": [
-      ".ts"
-    ],
     "moduleFileExtensions": [
       "js",
       "json",
       "ts"
     ],
-    "moduleNameMapper": {
-      "^(\\.{1,2}/.*)\\.js$": "$1"
-    },
     "rootDir": "src",
-    "setupFilesAfterEnv": [
-      "<rootDir>/test/jest.setup.ts"
-    ],
-    "testEnvironment": "node",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": [
@@ -103,6 +89,20 @@
           "useESM": true
         }
       ]
-    }
+    },
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "setupFilesAfterEnv": [
+      "<rootDir>/test/jest.setup.ts"
+    ],
+    "collectCoverageFrom": [
+      "**/*.(t|j)s"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node"
   }
 }
